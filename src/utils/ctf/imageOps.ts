@@ -149,16 +149,87 @@ export interface BitsImageResult {
   image: RgbaImage;
   bitCount: number;
   widthGuess: string;
+  confidence?: number; // B4-4：autoWidth 连续性推断时给出（0-1，与次优候选的间距）
 }
 
+export interface BitsImageOptions {
+  // opt-in 自动宽度推断（B4-4）：候选宽度（位流总量的约数）里"全部纵向邻居平均色差最小"
+  // 者胜；√n 不再直接胜出，仅作候选集为空时的正方形兜底。行结构文本（行长一致）不受影响。
+  autoWidth?: boolean;
+  // 列主序扫描开关：位流按列填充（流下标 = x*height + y），对应按列扫描产出的题面；
+  // 连续性打分与像素落位都按同一扫描序解释。
+  columnMajor?: boolean;
+}
+
+export interface WidthInference {
+  width: number;
+  height: number;
+  confidence: number; // 0-1：(次优分-最优分)/255；仅一个候选时为 0
+  note: string;
+}
+
+// 候选布局的纵向连续性：灰度（1→0 黑、0→255 白）下全部纵向相邻像素对的平均绝对差。
+// 真实行宽下上下行内容相关（二维码/图形按行扫描产出），平均色差显著偏小；错误宽度把
+// 行内容错位拼接，纵向近似随机翻转 → 平均色差趋近 127.5（随机基线）。
+const rasterContinuityScore = (values: Uint8Array, width: number, height: number, columnMajor: boolean): number => {
+  const valueAt = (x: number, y: number) => (columnMajor ? values[x * height + y] : values[y * width + x]);
+  let total = 0;
+  let count = 0;
+  for (let y = 0; y + 1 < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      total += Math.abs(valueAt(x, y + 1) - valueAt(x, y));
+      count += 1;
+    }
+  }
+  return count > 0 ? total / count : 255;
+};
+
+// 位流自动宽度推断：候选宽度 = 位流总量的约数（2 ≤ w ≤ n/2，保证高 ≥2 存在纵向邻居）。
+// 非约数宽度会留下残行，不属于候选。置信度 = 最优候选相对次优的连续性领先比例
+// （(次优分-最优分)/次优分；仅一个候选时为 0——无可比对象不虚报），绝对连续度在 note 里。
+export const inferBitstreamWidth = (values: Uint8Array, columnMajor = false): WidthInference => {
+  const total = values.length;
+  const candidates: number[] = [];
+  for (let width = 2; width * 2 <= total; width += 1) {
+    if (total % width === 0) candidates.push(width);
+  }
+  if (candidates.length === 0) {
+    throw new Error(`位流总量 ${total} 没有可构成 ≥2 行矩形的约数宽度，连续性推断无候选`);
+  }
+  let bestWidth = candidates[0];
+  let bestScore = Infinity;
+  let secondScore = Infinity;
+  for (const width of candidates) {
+    const score = rasterContinuityScore(values, width, total / width, columnMajor);
+    if (score < bestScore) {
+      secondScore = bestScore;
+      bestScore = score;
+      bestWidth = width;
+    } else if (score < secondScore) {
+      secondScore = score;
+    }
+  }
+  const confidence = Number.isFinite(secondScore) && secondScore > 0
+    ? Math.max(0, Math.min(1, (secondScore - bestScore) / secondScore))
+    : 0;
+  const rounded = Math.round(confidence * 100) / 100;
+  return {
+    width: bestWidth,
+    height: total / bestWidth,
+    confidence: rounded,
+    note: `行边界连续性推断 ${bestWidth}×${total / bestWidth}（纵向平均色差 ${bestScore.toFixed(1)}/255，置信度 ${rounded}${columnMajor ? '，列主序扫描' : ''}）`,
+  };
+};
+
 // 01 串转黑白图（CTF 高频：txt 全是 0/1 → 画成二维码）。
-// 宽度推断：有换行且行长一致 → 行宽；总数为完全平方数 → √n；否则需调用方指定。
-// 1=黑（二维码暗模块），0=白。
-export const bitsToImage = (text: string, forcedWidth?: number): BitsImageResult => {
+// 宽度推断：有换行且行长一致 → 行宽；否则 √n（完全平方）/ 指定宽；opt-in autoWidth 走
+// 行边界连续性推断（B4-4，√n 降级为兜底）。1=黑（二维码暗模块），0=白。
+export const bitsToImage = (text: string, forcedWidth?: number, options?: BitsImageOptions): BitsImageResult => {
   const lines = text.split(/\r?\n/).map(line => line.replace(/[^01]/g, '')).filter(line => line.length > 0);
   let bits: string;
   let widthGuess: string;
   let width: number;
+  let confidence: number | undefined;
   if (lines.length >= 2 && new Set(lines.map(line => line.length)).size === 1) {
     width = lines[0].length;
     bits = lines.join('');
@@ -166,7 +237,24 @@ export const bitsToImage = (text: string, forcedWidth?: number): BitsImageResult
   } else {
     bits = (lines.length === 1 ? lines[0] : text.replace(/[^01]/g, ''));
     const root = Math.sqrt(bits.length);
-    if (Number.isInteger(root) && root > 0) {
+    if (options?.autoWidth) {
+      // B4-4：全部约数候选按纵向连续性打分；候选集为空时回退 √n 兜底，再不行按原口径报错。
+      const values = new Uint8Array(bits.length);
+      for (let index = 0; index < bits.length; index += 1) values[index] = bits[index] === '1' ? 0 : 255;
+      try {
+        const inference = inferBitstreamWidth(values, options.columnMajor === true);
+        width = inference.width;
+        confidence = inference.confidence;
+        widthGuess = inference.note;
+      } catch (error) {
+        if (Number.isInteger(root) && root > 0) {
+          width = root;
+          widthGuess = `总数 ${bits.length} 为完全平方，取 ${root}×${root}（连续性推断无候选，正方形兜底）`;
+        } else {
+          throw error;
+        }
+      }
+    } else if (Number.isInteger(root) && root > 0) {
       width = root;
       widthGuess = `总数 ${bits.length} 为完全平方，取 ${root}×${root}`;
     } else if (forcedWidth !== undefined && forcedWidth > 0) {
@@ -179,31 +267,42 @@ export const bitsToImage = (text: string, forcedWidth?: number): BitsImageResult
   if (forcedWidth !== undefined && forcedWidth > 0 && width !== forcedWidth) {
     width = forcedWidth;
     widthGuess = `指定宽 ${forcedWidth}（覆盖自动推断）`;
+    confidence = undefined;
   }
   const height = Math.ceil(bits.length / width);
   if (width * height > 4_000_000) {
     throw new Error(`0/1 串画布 ${width}×${height} 超过 400 万像素上限：内容过长或宽度设置异常`);
   }
+  const columnMajor = options?.columnMajor === true;
   const out = new Uint8ClampedArray(width * height * 4).fill(255);
   for (let index = 0; index < bits.length; index += 1) {
     if (bits[index] !== '1') continue;
-    const base = index * 4;
+    // 列主序：流下标 i = x*height + y（先纵后横）；行主序：i = y*width + x。
+    const x = columnMajor ? Math.floor(index / height) : index % width;
+    const y = columnMajor ? index % height : Math.floor(index / width);
+    const base = (y * width + x) * 4;
     out[base] = 0;
     out[base + 1] = 0;
     out[base + 2] = 0;
     out[base + 3] = 255;
   }
-  return { image: { data: out, width, height }, bitCount: bits.length, widthGuess };
+  const result: BitsImageResult = { image: { data: out, width, height }, bitCount: bits.length, widthGuess };
+  if (confidence !== undefined) result.confidence = confidence;
+  return result;
 }
 
-// XY 坐标串转散点图（黑底白点，QR 模块形态）：支持 "x,y"、"x y"、"(x,y)"、制表符分隔，行内逗号或空白均可
-export const coordsToImage = (text: string): { image: RgbaImage; pointCount: number } => {
+// XY 坐标串转散点图（黑底白点，QR 模块形态）：支持 "x,y"、"x y"、"(x,y)"、制表符分隔，行内逗号或空白均可。
+// options.columnMajor（B4-4）：题面坐标按 (行,列) 次序给出时交换轴序，默认 (x,y) 口径不变——
+// 坐标串画布由坐标跨度天然决定，不存在宽度歧义，这里只提供扫描轴序解释。
+export const coordsToImage = (text: string, options?: { columnMajor?: boolean }): { image: RgbaImage; pointCount: number } => {
   const points: Array<{ x: number; y: number }> = [];
   const seen = new Set<number>(); // 复合键去重（reviewer P1：O(n²) 线性扫在 10 万点时分钟级冻结）
   const pattern = /\(?(-?\d+)[,;\s]+(-?\d+)\)?/g;
   for (const match of text.matchAll(pattern)) {
-    const x = Number(match[1]);
-    const y = Number(match[2]);
+    const first = Number(match[1]);
+    const second = Number(match[2]);
+    const x = options?.columnMajor ? second : first;
+    const y = options?.columnMajor ? first : second;
     const key = (x + 1_000_000) * 4_000_007 + (y + 1_000_000);
     if (seen.has(key)) continue;
     seen.add(key);

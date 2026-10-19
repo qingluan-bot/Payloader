@@ -192,10 +192,131 @@ test('buildFmtstrWrite：32 位半值写入（0x0804c010 ← 0x08048579 经典�
   assert.equal(result.writes[1].value, 0x8579);
   // %c 计数：串首 8 字节地址已打印 → 第一段 = 0x0804 - 8 = 2044
   assert.ok(result.payload.includes('%2044c'), result.payload);
-  // 第二段 = 0x8579 - 0x0804 = 32117（写入序号：low 在槽 9、high 在槽 10）
+  // 第二段 = 0x8579 - 0x0804 = 32117（写入序号：串首地址就是第 7/8 个 vararg → %7$hn/%8$hn）
   assert.ok(result.payload.includes('%32117c'), result.payload);
-  assert.ok(result.payload.includes('%9$hn'), result.payload);
-  assert.ok(result.payload.includes('%10$hn'), result.payload);
+  assert.ok(result.payload.includes('%7$hn'), result.payload);
+  assert.ok(result.payload.includes('%8$hn'), result.payload);
+});
+
+// ---- printf 逐指令模拟器（P0-2 回归锚）：按 printf 语义仿真 payload 缓冲区，验证写槽 ----
+// 契约（模块文档 + pwntools fmtstr_payload 语义）：argIndex = 格式串缓冲区首字节的 vararg 序号；
+// 32 位 cdecl vararg k = 缓冲区字节 [4*(k-argIndex), +4)（小端）；%c 按宽度计数；
+// %k$hn/%k$n 把当前已打印数（16/32 位）写入 vararg k 指向的地址。
+// pwntools 对拍口径：fmtstr_payload(7, {addr: val}) 同为"串首两地址占 vararg 7/8、半值写入
+// addr/addr+2"（本机无 pwntools，按其公开文档语义对拍）。
+
+const simulatePrintf32 = payloadExpr => {
+  const m = /p32\(0x([0-9a-f]+)\) \+ p32\(0x([0-9a-f]+)\) \+ b'(.*)'/.exec(payloadExpr);
+  assert.ok(m, `payload 表达式不可解析：${payloadExpr}`);
+  const a1 = Number.parseInt(m[1], 16);
+  const a2 = Number.parseInt(m[2], 16);
+  const buf = [];
+  for (const v of [a1, a2]) for (let i = 0; i < 4; i++) buf.push((v >>> (i * 8)) & 0xff);
+  for (const ch of m[3]) buf.push(ch.charCodeAt(0));
+  const fmtStart = 8; // 缓冲区 = 两个地址字节 + 格式串；printf 从缓冲区首字节开始消费
+  const vararg = k => {
+    const off = 4 * (k - 7);
+    if (off < 0 || off + 4 > buf.length) return 0;
+    return (buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16) | (buf[off + 3] << 24)) >>> 0;
+  };
+  let printed = 0;
+  const mem = new Map();
+  let i = 0;
+  while (i < buf.length) {
+    if (i < fmtStart) { printed += 1; i += 1; continue; } // 地址字节被 printf 原样输出（计入已打印数）
+    const rest = m[3].slice(i - fmtStart);
+    if (rest[0] !== '%') { printed += 1; i += 1; continue; }
+    const countMatch = /^%(\d+)c/.exec(rest);
+    if (countMatch) { printed += Number.parseInt(countMatch[1], 10); i += countMatch[0].length; continue; }
+    const writeMatch = /^%(\d+)\$(hn|n)/.exec(rest);
+    if (writeMatch) {
+      mem.set(vararg(Number.parseInt(writeMatch[1], 10)), printed & (writeMatch[2] === 'n' ? 0xffffffff : 0xffff));
+      i += writeMatch[0].length;
+      continue;
+    }
+    throw new Error(`未识别指令 @${i}: ${rest.slice(0, 12)}`);
+  }
+  return { mem, vararg, addr1: a1, addr2: a2 };
+};
+
+test('buildFmtstrWrite 32 位：printf 模拟器逐指令仿真（target=0x804c010 ← 0xdeadbeef, argIndex=7）', () => {
+  const target = 0x804c010, value = 0xdeadbeef;
+  const result = buildFmtstrWrite({ target, value, argIndex: 7, bits: 32, endian: 'little' });
+  assert.equal(result.ok, true);
+  const { mem, vararg, addr1, addr2 } = simulatePrintf32(result.payload);
+  // 写槽正确：target/target+2 恰被写入 value 低/高 16 位半值
+  assert.equal(mem.get(target), value & 0xffff, `mem=${JSON.stringify([...mem])}`);
+  assert.equal(mem.get(target + 2), (value >>> 16) & 0xffff);
+  // 串首两地址就是第 argIndex/argIndex+1 个 vararg：%k$hn 解引用必须命中它们（pwntools 同槽语义）
+  const ks = [...result.payload.matchAll(/%(\d+)\$h?n/g)].map(x => Number.parseInt(x[1], 10));
+  assert.deepEqual(ks, [7, 8]);
+  assert.equal(vararg(7), addr1);
+  assert.equal(vararg(8), addr2);
+  assert.equal(addr1, target);
+  assert.equal(addr2, target + 2);
+});
+
+const simulatePrintf64 = payloadExpr => {
+  const m = /b'(.*)' \+ p64\(0x([0-9a-f]+)\) \+ p64\(0x([0-9a-f]+)\)/.exec(payloadExpr);
+  assert.ok(m, `payload 表达式不可解析：${payloadExpr}`);
+  const fmt = m[1];
+  const a1 = BigInt(`0x${m[2]}`);
+  const a2 = BigInt(`0x${m[3]}`);
+  const fmtBytes = [...fmt].map(c => c.charCodeAt(0));
+  const buf = [...fmtBytes];
+  for (const v of [a1, a2]) for (let i = 0; i < 8; i++) buf.push(Number((v >> BigInt(i * 8)) & 0xffn));
+  const argIndex = 8;
+  const vararg = k => {
+    const off = 8 * (k - argIndex);
+    if (off < 0 || off + 8 > buf.length) return null;
+    let v = 0n;
+    for (let j = 7; j >= 0; j--) v = (v << 8n) | BigInt(buf[off + j]);
+    return v;
+  };
+  // printf 只消费格式串（首个 NUL 截断）：fmt+padding 是字面/%指令，地址首字节 0x00 处终止
+  let printed = 0;
+  const mem = new Map();
+  let i = 0;
+  while (i < fmtBytes.length) {
+    const rest = fmt.slice(i);
+    if (rest[0] !== '%') { printed += 1; i += 1; continue; }
+    const countMatch = /^%(\d+)c/.exec(rest);
+    if (countMatch) { printed += Number.parseInt(countMatch[1], 10); i += countMatch[0].length; continue; }
+    const writeMatch = /^%(\d+)\$(hn|n)/.exec(rest);
+    if (writeMatch) {
+      const addr = vararg(Number.parseInt(writeMatch[1], 10));
+      assert.ok(addr !== null, `%${writeMatch[1]}$ 写入序号越出缓冲区`);
+      mem.set(Number(addr), printed & (writeMatch[2] === 'n' ? 0xffffffff : 0xffff));
+      i += writeMatch[0].length;
+      continue;
+    }
+    throw new Error(`未识别指令 @${i}: ${rest.slice(0, 12)}`);
+  }
+  // padding 字符也被 printf 原样输出（在写入之后，不影响半值计数），计入总打印数
+  return { mem, vararg, fmtBytes, fmtLen: fmtBytes.length, printedTotal: printed };
+};
+
+test('buildFmtstrWrite 64 位：槽对齐 + printf 模拟器逐指令仿真（target=0x602000 ← 0x7ffd12345678, argIndex=8）', () => {
+  const target = 0x602000, value = 0x7ffd12345678, argIndex = 8;
+  const result = buildFmtstrWrite({ target, value, argIndex, bits: 64, endian: 'little' });
+  assert.equal(result.ok, true);
+  const { mem, vararg, fmtBytes, fmtLen, printedTotal } = simulatePrintf64(result.payload);
+  // 地址必须槽对齐（含 padding 的 fmt 长度 %8==0），否则 %k$n 跨槽读地址必错位
+  assert.equal(fmtLen % 8, 0, `fmt ${fmtLen} 字节未 8 对齐`);
+  // k 按 argIndex + fmt 实际占用槽数（含 padding）动态计算
+  const slots = fmtLen / 8;
+  const ks = [...result.payload.matchAll(/%(\d+)\$(?:hn|n)/g)].map(x => Number.parseInt(x[1], 10)).sort((a, b) => a - b);
+  assert.deepEqual(ks, [argIndex + slots, argIndex + slots + 1]);
+  // %k$n 解引用恰好命中后置两地址
+  assert.equal(vararg(argIndex + slots), BigInt(target));
+  assert.equal(vararg(argIndex + slots + 1), BigInt(target + 4));
+  // 写槽正确：4 字节半值（%n）—— low=0x12345678 → target，high=0x7ffd → target+4
+  assert.equal(mem.get(target), value % 2 ** 32, `mem=${JSON.stringify([...mem])}`);
+  assert.equal(mem.get(target + 4), Math.floor(value / 2 ** 32));
+  // padding 纳入 printed：仿真总打印数 = 末次写入计数值 + fmt 尾部 padding 字符数
+  const padChars = [...fmtBytes].filter(b => b === 0x61).length;
+  const sortedHalves = [value % 2 ** 32, Math.floor(value / 2 ** 32)].sort((a, b) => a - b);
+  assert.equal(printedTotal, (sortedHalves[1] + padChars) % 2 ** 32, `printedTotal=${printedTotal}`);
 });
 
 test('buildFmtstrWrite：先大后小走回绕保护 + 非法输入', () => {
@@ -230,6 +351,50 @@ test('SHELLCODE_LIBRARY：字节反汇编语义核对（capstone）', async () =
     assert.notEqual(b, 0x00);
     assert.notEqual(b, 0x0a);
   }
+});
+
+test('SHELLCODE_LIBRARY：badChars 声明与实际字节一致（00/0a 全量核对）', () => {
+  for (const entry of SHELLCODE_LIBRARY) {
+    const has00 = Array.from(entry.bytes).includes(0x00);
+    const has0a = Array.from(entry.bytes).includes(0x0a);
+    assert.equal(entry.badChars.includes(0x00), has00, `${entry.id} 0x00 声明与实际不符`);
+    assert.equal(entry.badChars.includes(0x0a), has0a, `${entry.id} 0x0a 声明与实际不符`);
+  }
+});
+
+test('orw-x64：read/write 缓冲区数据流（capstone 反汇编，P1-14 回归锚）', async () => {
+  const orw = SHELLCODE_LIBRARY.find(e => e.id === 'orw-x64');
+  const lines = await disassembleBytes(orw.bytes, 0x1000, { arch: CS_ARCH_X86, mode: CS_MODE_64 });
+  const consumed = lines.reduce((sum, l) => sum + l.size, 0);
+  assert.equal(consumed, orw.bytes.length, '反汇编未覆盖全部字节');
+  const seq = lines.map(l => `${l.mnemonic}${l.opStr ? ' ' + l.opStr : ''}`);
+  // 三个 syscall 依次为 open/read/write
+  const syscallIdx = [];
+  seq.forEach((text, index) => { if (text === 'syscall') syscallIdx.push(index); });
+  assert.equal(syscallIdx.length, 3, `syscall 数异常：${seq.join(' ; ')}`);
+  // read（第 2 个 syscall）前 rsi 必须被置为栈缓冲（mov rsi, rsp），而非 open 的 xor rsi,rsi
+  const beforeRead = seq.slice(syscallIdx[0] + 1, syscallIdx[1]);
+  assert.ok(beforeRead.includes('mov rsi, rsp'), `read 前 rsi 未设缓冲：${beforeRead.join(' ; ')}`);
+  assert.ok(beforeRead.includes('sub rsp, rdx'), `read 前未预留栈缓冲：${beforeRead.join(' ; ')}`);
+  // write（第 3 个 syscall）前 rsi 不得再被清零（read/write 复用同一缓冲）
+  const beforeWrite = seq.slice(syscallIdx[1] + 1, syscallIdx[2]);
+  assert.ok(!beforeWrite.some(t => /^xor rsi, rsi$/.test(t)), `write 前 rsi 被清零：${beforeWrite.join(' ; ')}`);
+  assert.ok(beforeWrite.includes('mov rdx, rax'), 'write 长度应取 read 返回值');
+  // open 的路径 NUL 终止：xor rsi,rsi 后紧跟 push rsi（栈上补 0，编码字节仍无 00）
+  assert.ok(seq.includes('xor rsi, rsi') && seq[seq.indexOf('xor rsi, rsi') + 1] === 'push rsi');
+});
+
+test('scanGadgets：长链命中后补充"纯 gadget 起始"条目（D-2 回归锚）', async () => {
+  // 合成段：nop×6 + pop rdi ; ret —— 最小可用 gadget pop rdi ; ret 必须与 nop 长链同时产出
+  const code = Uint8Array.from([0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x5f, 0xc3]);
+  const hits = await scanGadgets(code, 0x401000, 0, { arch: CS_ARCH_X86, mode: CS_MODE_64 }, { limit: 50 });
+  const texts = hits.map(h => h.gadgets);
+  assert.ok(texts.includes('nop ; nop ; nop ; nop ; nop ; nop ; pop rdi ; ret'), `长链缺失：${texts.join(' | ')}`);
+  const pure = hits.find(h => h.gadgets === 'pop rdi ; ret');
+  assert.ok(pure, `纯 gadget 起始缺失：${texts.join(' | ')}`);
+  assert.equal(pure.address, 0x401006, '纯 gadget 起始应指向 pop rdi 本体');
+  // 中间长度窗口同样列出（全量语义）
+  assert.ok(texts.includes('nop ; pop rdi ; ret'), '中间窗口 nop ; pop rdi ; ret 缺失');
 });
 
 test('buildExpTemplate：四场景生成合法 python', () => {

@@ -31,6 +31,9 @@ export interface FileRepairResult {
   diagnosis: string[];
   width?: number;
   height?: number;
+  // repairBmp 专用：按综合分降序的宽高候选清单（含分值与原始补齐证据），启发式评分
+  // 不保证唯一解，供人工复核换选；其余修复函数不产出该字段。
+  candidates?: Array<{ width: number; height: number; score: number; padEvidence: number | null }>;
 }
 
 // ---- BMP ----
@@ -50,10 +53,10 @@ interface BmpHeaderLayout {
 interface BmpCandidate {
   width: number;
   height: number;
-  // 行补齐证据量：w 非 4 字节对齐时每行有 padBytes 个补齐字节，统计"全零补齐行"折算的零字节数
-  // （null = 宽为 4 的倍数，无补齐字节可核验）。Wikipedia 注明 "padding bytes are not necessarily
-  // zero"，故只作启发式打分不作硬性拒绝；证据量而非比率参与排序——39×1 这类单行伪候选的
-  // 3 个零补齐字节赢不了真候选多行累计出的证据。
+  // 行补齐核验比率：全零补齐行占候选总行数的比例（0..1；null = 宽为 4 的倍数或行读取越界，
+  // 无补齐字节可核验）。Wikipedia 注明 "padding bytes are not necessarily zero"，故只作启发式
+  // 打分不作硬性拒绝。用比率而非绝对计数——真候选（补齐全零）比率≈1，伪候选偶扫到零字节
+  // 比率≈0，绝对计数会被"行数×padBytes 大"的伪候选刷分。
   padEvidence: number | null;
 }
 
@@ -71,11 +74,13 @@ const bmpHeaderLayout = (view: DataView): BmpHeaderLayout | null => {
   return null;
 };
 
-// 按行补齐核验候选宽度：每行末尾 padBytes 个补齐字节，折算"确认全零"的补齐字节数。
+// 按行补齐核验候选宽度：每行末尾 padBytes 个补齐字节，返回"全零补齐行"占候选总行数的比率。
+// 任一行读取越过文件尾即判证据无效（null）——候选行数超出实际数据说明尺寸不可信。
 const padEvidenceOf = (bytes: Uint8Array, dataOffset: number, bitCount: number, width: number, height: number): number | null => {
   const rowSize = rowSizeOf(bitCount, width);
   const padBytes = rowSize - Math.ceil((bitCount * width) / 8);
   if (padBytes <= 0) return null;
+  if (dataOffset + rowSize * height > bytes.length) return null;
   let zeroRows = 0;
   for (let row = 0; row < height; row += 1) {
     let allZero = true;
@@ -88,7 +93,7 @@ const padEvidenceOf = (bytes: Uint8Array, dataOffset: number, bitCount: number, 
     }
     if (allZero) zeroRows += 1;
   }
-  return zeroRows * padBytes;
+  return zeroRows / height;
 };
 
 export const repairBmp = async (bytes: Uint8Array): Promise<FileRepairResult> => {
@@ -176,24 +181,52 @@ export const repairBmp = async (bytes: Uint8Array): Promise<FileRepairResult> =>
   }
   const shown = candidates.slice(0, 8).map(candidate => `${candidate.width}×${candidate.height}`).join('、');
   diagnosis.push(`枚举出 ${candidates.length} 个候选：${shown}${candidates.length > 8 ? ` 等（共 ${candidates.length} 个，完整列表见下方逐条）` : ''}`);
+
+  // 评分：有补齐证据的候选按"全零补齐行比率 × rows/(rows+1)"（真候选多行累计≈1；单行伪候选
+  // 即使比率满分也只有 0.5，赢不过真候选与中性分）；无证据（宽为 4 倍数/越界）取中性分——
+  // 绝不能让"伪候选扫到 ≥1 个零字节"赢过无证据候选（比率化后伪候选比率≈0，中性分 0.5 稳压）。
+  const NEUTRAL_PAD_SCORE = 0.5;
+  // 无证据候选全为中性分时数学上不可分（像素区长度对多个 (w,h) 分解均自洽），用两条先验打破平局：
+  // ① 常见分辨率微加分（CTF BMP 绝大多数是 VGA/SVGA/XGA/HD 系与方形图标尺寸，见 COMMON_RESOLUTIONS）；
+  // ② 横版优先（截图/壁纸横版占绝大多数）与宽小优先（确定性收尾）。均为先验非证据，候选全清单
+  // 随返回值 candidates 导出供人工复核。
+  const COMMON_RESOLUTION_BONUS = 1e-6;
+  const COMMON_RESOLUTIONS = new Set([
+    // 16:9 / 16:10
+    '1920×1080', '2560×1440', '1600×900', '1366×768', '1280×720', '1920×1200', '1680×1050', '1440×900', '1280×800',
+    // 4:3 / 5:4
+    '1024×768', '800×600', '640×480', '320×240', '1152×864', '1280×960', '1600×1200', '400×300', '512×384', '1280×1024',
+    // 方形图标/画布
+    '16×16', '32×32', '48×48', '64×64', '96×96', '128×128', '256×256', '512×512',
+  ]);
+  const scoreOf = (candidate: BmpCandidate): number => {
+    if (candidate.padEvidence === null) {
+      return COMMON_RESOLUTIONS.has(`${candidate.width}×${candidate.height}`)
+        ? NEUTRAL_PAD_SCORE + COMMON_RESOLUTION_BONUS
+        : NEUTRAL_PAD_SCORE;
+    }
+    // 证据按行数加权：rows/(rows+1) 单调有界（单行证据上限 0.5，与中性分同级）
+    return candidate.padEvidence * (candidate.height / (candidate.height + 1));
+  };
+
   for (const candidate of candidates.slice(0, 16)) {
     const padNote = candidate.padEvidence === null
-      ? '宽为 4 字节倍数，无补齐字节可核验'
-      : `行补齐全零核验折算 ${candidate.padEvidence} 字节零补齐`;
-    diagnosis.push(`候选 ${candidate.width}×${candidate.height}（${padNote}）`);
+      ? '宽为 4 字节倍数或证据无效，无补齐字节可核验（按中性分计）'
+      : `行补齐全零比率 ${candidate.padEvidence.toFixed(4)}`;
+    diagnosis.push(`候选 ${candidate.width}×${candidate.height}（${padNote}，综合分 ${scoreOf(candidate)}）`);
   }
 
-  // 选择：行补齐证据量最大 → 与幸存声明侧匹配 → 更接近方形 → 宽更小（确定性）。
-  const padWeight = (candidate: BmpCandidate): number => (candidate.padEvidence === null ? 0.5 : candidate.padEvidence);
+  // 选择：评分最高 → 与幸存声明侧匹配 → 横版先验 → 宽更小（确定性）。
   const absDeclaredHeight = Math.abs(declaredHeight);
-  const best = candidates
-    .map(candidate => ({ candidate, key: [padWeight(candidate), candidate.height === absDeclaredHeight ? 1 : 0, candidate.width === declaredWidth ? 1 : 0, Math.min(candidate.width, candidate.height), -candidate.width] }))
+  const ranked = candidates
+    .map(candidate => ({ candidate, key: [scoreOf(candidate), candidate.height === absDeclaredHeight ? 1 : 0, candidate.width === declaredWidth ? 1 : 0, candidate.width >= candidate.height ? 1 : 0, -candidate.width] }))
     .sort((left, right) => {
       for (let index = 0; index < left.key.length; index += 1) {
         if (left.key[index] !== right.key[index]) return right.key[index] - left.key[index];
       }
       return 0;
-    })[0].candidate;
+    });
+  const best = ranked[0].candidate;
 
   const signedHeight = declaredHeight < 0 ? -best.height : best.height;
   if (layout.widthIsU16) {
@@ -204,9 +237,20 @@ export const repairBmp = async (bytes: Uint8Array): Promise<FileRepairResult> =>
     view.setInt32(layout.heightOffset, signedHeight, true);
   }
   diagnosis.push(
-    `宽高已按候选 ${best.width}×${best.height} 重写（原声明 ${declaredWidth}×${declaredHeight}${declaredHeight < 0 ? '，负高自顶向下语义保留' : ''}）；若渲染仍异常请对照候选清单人工换选`,
+    `宽高已按最高分候选 ${best.width}×${best.height} 重写（原声明 ${declaredWidth}×${declaredHeight}${declaredHeight < 0 ? '，负高自顶向下语义保留' : ''}）；启发式评分无法保证唯一解，接近并列的候选见返回值 candidates 清单，请人工复核换选`,
   );
-  return { bytes: patched, diagnosis, width: best.width, height: signedHeight };
+  return {
+    bytes: patched,
+    diagnosis,
+    width: best.width,
+    height: signedHeight,
+    candidates: ranked.map(entry => ({
+      width: entry.candidate.width,
+      height: entry.candidate.height,
+      score: scoreOf(entry.candidate),
+      padEvidence: entry.candidate.padEvidence,
+    })),
+  };
 };
 
 // ---- GIF ----

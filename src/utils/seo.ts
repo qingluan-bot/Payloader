@@ -5,22 +5,32 @@ export type RouteState = {
   tab: string;
   payloadId: string | null;
   toolId: string | null;
+  exploitId: string | null;
+  exploitTypeId: string | null;
   waf: boolean;
+  /** B-6：下载客户端视图独立 hash（#/downloads），刷新/后退可用 */
+  downloads?: boolean;
 };
 
 const parseHash = (hash: string): RouteState | null => {
   const m = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (!m.length) return null;
   const [kind, id, mode] = m;
-  if (kind === 'payload' && id) return { tab: 'payloads', payloadId: id, toolId: null, waf: mode === 'waf' };
-  if (kind === 'tool' && id) return { tab: 'tools', payloadId: null, toolId: id, waf: false };
-  if (kind === 'tab' && id) return { tab: id, payloadId: null, toolId: null, waf: false };
+  if (kind === 'payload' && id) return { tab: 'payloads', payloadId: id, toolId: null, exploitId: null, exploitTypeId: null, waf: mode === 'waf' };
+  if (kind === 'tool' && id) return { tab: 'tools', payloadId: null, toolId: id, exploitId: null, exploitTypeId: null, waf: false };
+  if (kind === 'exploit' && id) return { tab: 'exploits', payloadId: null, toolId: null, exploitId: id, exploitTypeId: null, waf: false };
+  if (kind === 'exploit-type' && id) return { tab: 'exploits', payloadId: null, toolId: null, exploitId: null, exploitTypeId: id, waf: false };
+  if (kind === 'downloads') return { tab: 'payloads', payloadId: null, toolId: null, exploitId: null, exploitTypeId: null, waf: false, downloads: true };
+  if (kind === 'tab' && id) return { tab: id, payloadId: null, toolId: null, exploitId: null, exploitTypeId: null, waf: false };
   return null;
 };
 
 export const buildHash = (state: RouteState): string => {
+  if (state.downloads) return '#/downloads';
   if (state.payloadId) return `#/payload/${state.payloadId}${state.waf ? '/waf' : ''}`;
   if (state.toolId) return `#/tool/${state.toolId}`;
+  if (state.exploitId) return `#/exploit/${state.exploitId}`;
+  if (state.exploitTypeId) return `#/exploit-type/${state.exploitTypeId}`;
   if (state.tab && state.tab !== 'workspace') return `#/tab/${state.tab}`;
   return '#/';
 };
@@ -31,9 +41,16 @@ const applyRoute = (route: RouteState | null, apply: (r: RouteState) => void) =>
   if (route) apply(route);
 };
 
+// 最近一次由状态同步写入的 hash。BottomSheet 等占位 push/back 会让浏览器对「同 hash」
+// 的历史条目导航也触发 hashchange；hash 未变化时不重放路由，避免用户刚做的选中被旧 hash 状态清掉。
+let lastSyncedHash: string | null = null;
+
 // 挂载/后退恢复 + 状态变化写 URL。onRoute 由 App 提供：把路由态落到 React state。
 export const installDeepLinking = (onRoute: (route: RouteState | null) => void): (() => void) => {
-  const handler = () => onRoute(parseHash(window.location.hash));
+  const handler = () => {
+    if (window.location.hash === lastSyncedHash) return;
+    onRoute(parseHash(window.location.hash));
+  };
   window.addEventListener('hashchange', handler);
   applyRoute(parseHash(window.location.hash), onRoute);
   return () => window.removeEventListener('hashchange', handler);
@@ -41,9 +58,20 @@ export const installDeepLinking = (onRoute: (route: RouteState | null) => void):
 
 export const syncHashForState = (state: RouteState) => {
   const next = buildHash(state);
+  lastSyncedHash = next;
   if (window.location.hash !== next) {
     // replaceState：选中切换不堆历史，后退始终回到上一个稳定入口
     window.history.replaceState(null, '', next);
+  }
+};
+
+// B-6：视图级切换（进入下载页）用 push 留历史条目——浏览器后退可回到原视图，
+// 后退触发 hashchange 时 lastSyncedHash 守卫与 syncHashForState 同一套语义。
+export const pushHashForState = (state: RouteState) => {
+  const next = buildHash(state);
+  lastSyncedHash = next;
+  if (window.location.hash !== next) {
+    window.history.pushState(null, '', next);
   }
 };
 

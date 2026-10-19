@@ -1,381 +1,377 @@
-/* ToolDetail 组件样式（自 ToolDetail.tsx 内联 style 块机械迁移，内容零改动） */
-        .tool-detail {
-          padding: 24px;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
+/* ToolDetail 组件样式（D4：卡片/徽标/代码块视觉语言对齐 EXP 详情，颜色全走 design tokens） */
+.tool-detail {
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
 
-        .tool-header {
-          display: flex;
-          justify-content: space-between;
-          gap: 24px;
-          padding-bottom: 24px;
-          border-bottom: 1px solid var(--border-color);
-          margin-bottom: 24px;
-        }
+.tool-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
 
-        .tool-title-section {
-          flex: 1;
-          min-width: 0;
-        }
+.tool-title-section {
+  flex: 1;
+  min-width: 0;
+}
 
-        .tool-title {
-          font-size: 28px;
-          font-weight: 700;
-          margin-bottom: 8px;
-          background: var(--gradient-cyber);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          overflow-wrap: anywhere;
-        }
+.tool-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
 
-        .tool-description {
-          font-size: 14px;
-          color: var(--text-secondary);
-          line-height: 1.6;
-        }
+.tool-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
 
-        .tool-meta {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          min-width: 200px;
-        }
+.tool-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 200px;
+}
 
-        .meta-item {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-        .meta-label {
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          color: var(--text-muted);
-        }
+.meta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
 
-        .meta-value {
-          font-size: 14px;
-          font-weight: 600;
-        }
+.meta-value {
+  font-size: 14px;
+  font-weight: 600;
+}
 
-        .installation-section {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          padding: 16px;
-          margin-bottom: 24px;
-        }
+/* 字段卡片：与 .exp-field 同构（8px 圆角 / --bg-card 底 / --border-color 边框 / 13px 大写 muted 标题） */
+.installation-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
 
-        .external-tool-section {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          background: var(--bg-card);
-          border: 1px solid rgba(0, 240, 255, 0.28);
-          border-radius: 8px;
-          padding: 18px;
-          margin-bottom: 24px;
-        }
+.external-tool-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
 
-        .external-tool-section h3 {
-          font-size: 16px;
-          font-weight: 700;
-          margin-bottom: 6px;
-        }
+.installation-section h3,
+.external-tool-section h3,
+.references-section h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
 
-        .external-tool-section p {
-          color: var(--text-secondary);
-          font-size: 13px;
-          line-height: 1.6;
-        }
+.external-tool-section p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
 
-        .external-open-btn {
-          flex: 0 0 auto;
-          border: 1px solid var(--neon-cyan);
-          border-radius: 6px;
-          background: rgba(0, 240, 255, 0.12);
-          color: var(--neon-cyan);
-          cursor: pointer;
-          font-weight: 700;
-          padding: 10px 14px;
-          transition: all var(--transition-fast);
-        }
+.external-open-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 700;
+  padding: 10px 14px;
+  transition: all var(--transition-fast);
+}
 
-        .external-open-btn:hover {
-          background: var(--neon-cyan);
-          color: var(--bg-primary);
-        }
+.external-open-btn:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 
-        .installation-section h3 {
-          font-size: 14px;
-          font-weight: 600;
-          margin-bottom: 12px;
-        }
+.commands-section h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
 
-        .commands-section h3 {
-          font-size: 16px;
-          font-weight: 600;
-          margin-bottom: 16px;
-        }
+.commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 
-        .commands-list {
-          display: flex;
-          flex-direction: column;
-          gap: 0;
-        }
+.command-item {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  padding: 10px 2px;
+  transition: background var(--transition-fast);
+}
 
-        .command-item {
-          background: transparent;
-          border: none;
-          border-bottom: 1px solid var(--border-color);
-          border-radius: 0;
-          padding: 10px 2px;
-          transition: background var(--transition-fast);
-        }
+.command-item:hover {
+  background: var(--bg-hover);
+}
 
-        .command-item:hover {
-          background: var(--bg-hover);
-        }
+.command-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
 
-        .command-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-        }
+.command-name {
+  font-size: 14px;
+  font-weight: 600;
+}
 
-        .command-name {
-          font-size: 14px;
-          font-weight: 600;
-        }
+.command-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 
-        .badge {
-          font-size: 11px;
-          padding: 2px 8px;
-          border-radius: 4px;
-          background: var(--bg-tertiary);
-          color: var(--text-secondary);
-        }
+.code-block-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
 
-        .badge.platform-windows {
-          background: rgba(0, 102, 255, 0.2);
-          color: var(--neon-blue);
-        }
+/* 代码块壳：与 .exp-code-block 同构（--bg-secondary 底 / --border-color 边 / 8px 圆角）
+   padding/font-family 归零，压掉 global.css .code-block 对壳容器的内边距与等宽字体 */
+.tool-detail .code-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0;
+  font-family: inherit;
+  min-width: 0;
+}
 
-        .badge.platform-linux {
-          background: rgba(255, 136, 0, 0.2);
-          color: var(--neon-orange);
-        }
+.tool-detail div.code-block {
+  overflow: hidden;
+}
 
-        .command-desc {
-          font-size: 13px;
-          color: var(--text-muted);
-          margin-bottom: 8px;
-          display: -webkit-box;
-          -webkit-line-clamp: 1;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-          overflow-wrap: anywhere;
-        }
+/* 压掉 global.css .code-block 的左侧色条（EXP 代码块无此装饰） */
+.tool-detail .code-block::before {
+  content: none;
+}
 
-        .code-block-wrapper {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
+/* 头栏：与 .exp-code-head 同构（语言/平台标注 + 复制钮，底部分隔线）；无标注时按钮靠右 */
+.tool-detail .code-block-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  justify-content: flex-end;
+}
 
-        .code-block {
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: 6px;
-          padding: 12px 16px;
-          font-family: var(--font-mono);
-          font-size: 13px;
-          overflow-x: hidden;
-          position: relative;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          min-width: 0;
-        }
+/* 语言/平台标注：与 .exp-code-lang 同款（等宽字体 chip），无标题时靠左、复制钮靠右 */
+.tool-detail .code-lang {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--neon-purple);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 8px;
+  margin-right: auto;
+  white-space: nowrap;
+}
 
-        .code-block code {
-          min-width: 0;
-          white-space: pre-wrap;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-        }
+.tool-detail .code-block-title + .code-lang {
+  margin-right: 0;
+}
 
-        .var-highlight {
-          display: inline;
-          color: var(--neon-cyan);
-          background: rgba(0, 229, 255, 0.12);
-          border-radius: 3px;
-          padding: 0 2px;
-        }
+.tool-detail .code-block-pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
 
-        .code-block::before {
-          content: '';
-          position: absolute;
-          left: 0;
-          top: 0;
-          bottom: 0;
-          width: 3px;
-          background: var(--neon-cyan);
-          border-radius: 6px 0 0 6px;
-        }
+.tool-detail .code-block-pre code {
+  display: block;
+  font: inherit;
+  color: inherit;
+  white-space: pre;
+  min-width: 0;
+}
 
-        .code-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 8px;
-          min-width: 0;
-        }
+.var-highlight {
+  display: inline;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0 2px;
+}
 
-        .syntax-btn, .copy-btn {
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          color: var(--text-secondary);
-          padding: 6px 12px;
-          border-radius: 4px;
-          font-size: 12px;
-          min-height: 34px;
-          min-width: 0;
-          white-space: nowrap;
-          cursor: pointer;
-          transition: all var(--transition-fast);
-        }
+.code-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
 
-        .syntax-btn:hover, .copy-btn:hover {
-          border-color: var(--neon-cyan);
-          color: var(--neon-cyan);
-        }
+/* 复制/解析按钮：与 .exp-copy-btn 同款（--bg-tertiary 底 / --border-color 边 / 6px 圆角 / hover accent） */
+.tool-detail .syntax-btn,
+.tool-detail .copy-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  min-height: 30px;
+  min-width: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
 
-        .copy-btn.copied {
-          background: rgba(0, 255, 136, 0.1);
-          border-color: var(--neon-green);
-          color: var(--neon-green);
-        }
+.tool-detail .syntax-btn:hover,
+.tool-detail .copy-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
-        .examples-section {
-          margin-top: 12px;
-          padding-top: 12px;
-          border-top: 1px dashed var(--border-color);
-        }
+.tool-detail .copy-btn.copied {
+  border-color: var(--state-success);
+  color: var(--state-success);
+}
 
-        .examples-section h5 {
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--text-muted);
-          margin-bottom: 8px;
-        }
+.examples-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-color);
+}
 
-        .examples-section ul {
-          list-style: none;
-        }
+.examples-section h5 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
 
-        .examples-section li {
-          font-size: 12px;
-          color: var(--text-secondary);
-          padding: 4px 0;
-          padding-left: 16px;
-          position: relative;
-        }
+.examples-section ul {
+  list-style: none;
+}
 
-        .examples-section li::before {
-          content: '→';
-          position: absolute;
-          left: 0;
-          color: var(--neon-cyan);
-        }
+.examples-section li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+}
 
-        .references-section {
-          margin-top: 24px;
-          padding: 16px;
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-        }
+.examples-section li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
 
-        .references-section h3 {
-          font-size: 14px;
-          font-weight: 600;
-          margin-bottom: 12px;
-        }
+.references-section {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
 
-        .references-section ul {
-          list-style: none;
-        }
+.references-section ul {
+  list-style: none;
+}
 
-        .references-section li {
-          padding: 8px 0;
-        }
+.references-section li {
+  padding: 8px 0;
+}
 
-        .references-section a {
-          color: var(--neon-cyan);
-          font-size: 13px;
-        }
+.references-section a {
+  color: var(--sev-low);
+  font-size: 13px;
+}
 
-        .references-section a:hover {
-          color: var(--neon-pink);
-        }
+.tool-not-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+}
 
-        .tool-not-found {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          text-align: center;
-        }
+@media (max-width: 900px) {
+  .tool-detail {
+    padding: 16px;
+  }
 
-        @media (max-width: 900px) {
-          .tool-detail {
-            padding: 16px;
-          }
+  .tool-header,
+  .external-tool-section,
+  .command-header,
+  .code-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
-          .tool-header,
-          .external-tool-section,
-          .command-header,
-          .code-block-wrapper,
-          .code-actions {
-            flex-direction: column;
-            align-items: stretch;
-          }
+  .tool-meta {
+    min-width: 0;
+  }
+}
 
-          .tool-meta {
-            min-width: 0;
-          }
+@media (max-width: 520px) {
+  .tool-title {
+    font-size: 22px;
+  }
 
-          .installation-section .code-block {
-            align-items: stretch;
-            flex-direction: column;
-          }
-        }
+  .command-item,
+  .installation-section,
+  .references-section {
+    padding: 14px;
+  }
 
-        @media (max-width: 520px) {
-          .tool-title {
-            font-size: 22px;
-          }
+  .code-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  }
 
-          .command-item,
-          .installation-section,
-          .references-section {
-            padding: 14px;
-          }
-
-          .code-actions {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-          }
-
-          .syntax-btn,
-          .copy-btn {
-            width: 100%;
-          }
-        }
+  .tool-detail .code-actions .syntax-btn {
+    width: 100%;
+  }
+}

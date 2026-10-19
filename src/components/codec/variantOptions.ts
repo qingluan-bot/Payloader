@@ -87,6 +87,30 @@ export const parityVariantOptions: Record<string, Array<{ value: string; zh: str
     { value: 'pkcs7', zh: 'PKCS#7 自动填充', en: 'PKCS#7 padding' },
     { value: 'raw', zh: 'raw（16 字节整块，不填充）', en: 'raw (aligned 16-byte blocks, no padding)' },
   ],
+  'spiral-matrix': [
+    { value: 'clockwise', zh: '顺时针（右→下→左→上）', en: 'Clockwise (right→down→left→up)' },
+    { value: 'counterclockwise', zh: '逆时针（先向下）', en: 'Counterclockwise (down first)' },
+  ],
+  'zodiac-408': [
+    { value: 'cycle', zh: '轮转同音符号', en: 'Cycle homophones' },
+    { value: 'primary', zh: '首选符号', en: 'Primary symbol' },
+  ],
+  'babylonian': [
+    { value: 'cuneiform', zh: 'Unicode 楔形数字', en: 'Unicode cuneiform' },
+    { value: 'ascii', zh: 'ASCII 形态', en: 'ASCII form' },
+  ],
+  'mayan': [
+    { value: 'mayan', zh: 'Unicode 玛雅数字', en: 'Unicode Mayan' },
+    { value: 'ascii', zh: '点杠形态', en: 'Dot-bar form' },
+  ],
+  'dominoes': [
+    { value: 'horizontal', zh: '横排骨牌', en: 'Horizontal tiles' },
+    { value: 'vertical', zh: '竖排骨牌', en: 'Vertical tiles' },
+  ],
+  'trilitere': [
+    { value: 'ccc', zh: '空格=CCC', en: 'Space=CCC' },
+    { value: 'aaa', zh: '空格=AAA', en: 'Space=AAA' },
+  ],
 };
 
 export const parityVariantDefaults: Record<string, string> = Object.fromEntries(

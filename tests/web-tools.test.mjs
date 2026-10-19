@@ -10,7 +10,7 @@ const web = loadModule(path.join(projectRoot, 'src', 'utils', 'ctf', 'webTools.t
 const {
   detectSstiEngine, SSTI_PAYLOADS, buildCommandBypasses, buildSqliMatrix,
   decodeFlaskSession, jwtWeakSecretCrack, judgePhpLoose, PHP_LOOSE_TABLE,
-  parseHttpMessage, parseCurl, MAGIC_HASHES,
+  parseHttpMessage, parseCurl, MAGIC_HASHES, parseRobots,
 } = web;
 
 test('SSTI：回显判定树（Jinja2 字符串重复特征 / 多候选）', () => {
@@ -105,16 +105,45 @@ test('JWT 弱口令爆破：真 HS256 签名命中弱密钥', async () => {
   assert.match(rej.error, /HS256/);
 });
 
-test('PHP 弱类型判定：数字串/前导数字/字符串严格三态', () => {
-  const loose = judgePhpLoose('abc', '0');
-  assert.equal(loose.equal, true);
-  assert.ok(loose.why.includes('0'));
-  assert.equal(judgePhpLoose('1abc', '1').equal, true);
+test('PHP 弱类型判定：数值串/字符串比较语义（PHP8 口径）', () => {
+  // '0' vs ''：两侧皆字符串、'' 非数值串 → 按字符串比较 → false（D-8 回归锚，PHP 实际 false）
+  const zeroEmpty = judgePhpLoose('0', '');
+  assert.equal(zeroEmpty.equal, false);
+  assert.ok(zeroEmpty.why.includes('字符串'), zeroEmpty.why);
+  // 数值串 vs 非数值字符串 → 字符串比较（PHP8 起字符串与数字比较也不再转前导数字）
+  assert.equal(judgePhpLoose('abc', '0').equal, false);
+  assert.equal(judgePhpLoose('1abc', '1').equal, false);
+  // 两侧均为数值串 → 按数值比较：0e 碰撞恒相等，普通数值不等
+  const scientific = judgePhpLoose('0e123', '0e456');
+  assert.equal(scientific.equal, true, '0e123==0e456 应为 true（0e 碰撞原理即数值串比较）');
   assert.equal(judgePhpLoose('123', '456').equal, false);
   assert.equal(judgePhpLoose('abc', 'abd').equal, false);
-  // 速查表与碰撞对存在
+  // 速查表与碰撞对存在；表格行与判定器口径一致（0e 行 equal:true）
   assert.ok(PHP_LOOSE_TABLE.length >= 5);
+  const zeroERow = PHP_LOOSE_TABLE.find(row => row.left === "'0e123'");
+  assert.ok(zeroERow, '0e 碰撞行缺失');
+  assert.equal(zeroERow.equal, true, '表格 0e 行应标 equal:true');
+  assert.ok(zeroERow.why.includes('数值'), zeroERow.why);
+  const zeroEmptyRow = PHP_LOOSE_TABLE.find(row => row.left === "'0'");
+  assert.equal(zeroEmptyRow.equal, false, "表格 '0'=='' 行应标 false");
   assert.ok(MAGIC_HASHES.some(h => h.hash === 'md5' && h.pair.includes('QNKCDZO')));
+});
+
+test('parseRobots：同块多 User-agent 的疑似路径去重（D-9 回归锚）', () => {
+  const report = parseRobots([
+    'User-agent: Googlebot',
+    'User-agent: Bingbot',
+    'Disallow: /admin/',
+    'Disallow: /backup.zip',
+    '',
+    'User-agent: *',
+    'Disallow: /secret',
+  ].join('\n'));
+  assert.deepEqual(Array.from(report.suspiciousPaths), ['/admin/', '/backup.zip', '/secret']);
+  // 同一路径在组 entries 里仍按 agent 各记一次（组语义），只疑似清单去重
+  const adminEntries = Array.from(report.groups).filter(g => g.userAgent !== '*')
+    .map(g => Array.from(g.entries).filter(e => e.path === '/admin/').length);
+  assert.deepEqual(adminEntries, [1, 1]);
 });
 
 test('HTTP 报文解析：请求与响应双形态', () => {

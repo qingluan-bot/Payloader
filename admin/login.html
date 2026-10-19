@@ -3,49 +3,93 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Payloader 管理后台登录</title>
-    <link rel="stylesheet" href="/admin/admin.css" />
-    <link rel="stylesheet" href="/admin/admin-polish.css" />
+    <meta name="color-scheme" content="light" />
+    <title>登录 · Payloader 管理后台</title>
+    <link rel="stylesheet" href="/admin/login.css" />
   </head>
   <body class="login-page">
     <main class="login-shell">
-      <section class="login-panel" aria-labelledby="login-title">
-        <div class="login-brand">
-          <div class="login-mark" aria-hidden="true">P</div>
-          <div>
-            <h1 id="login-title">Payloader Admin</h1>
+      <section class="login-panel" aria-label="Payloader 管理后台登录">
+        <aside class="login-brand">
+          <div class="login-brand-head">
+            <div class="login-mark" aria-hidden="true">P</div>
+            <div>
+              <h1>Payloader Admin</h1>
+              <p class="login-brand-edition">管理控制台</p>
+            </div>
           </div>
-        </div>
+          <div class="login-brand-deco" aria-hidden="true">P</div>
+        </aside>
 
-        <form class="login-form" id="login-form" autocomplete="off" novalidate>
-          <label class="login-field">
-            <span>账号</span>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              autocomplete="username"
-              inputmode="text"
-              maxlength="256"
-              required
-              autofocus
-            />
-          </label>
-          <label class="login-field">
-            <span>密码</span>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              maxlength="1024"
-              required
-            />
-          </label>
+        <section class="login-main">
+          <form class="login-form" id="login-form" autocomplete="off" novalidate>
+            <div class="login-field">
+              <label class="login-field-label" for="username">账号</label>
+              <span class="login-field-box">
+                <svg class="login-icon login-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  autocomplete="username"
+                  inputmode="text"
+                  maxlength="256"
+                  required
+                  autofocus
+                />
+              </span>
+            </div>
 
-          <div class="login-status" id="login-status" role="status" aria-live="polite"></div>
-          <button class="login-submit" id="login-submit" type="submit">登录</button>
-        </form>
+            <div class="login-field">
+              <label class="login-field-label" for="password">密码</label>
+              <span class="login-field-box">
+                <svg class="login-icon login-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  maxlength="1024"
+                  required
+                />
+                <button class="login-eye" id="password-visibility" type="button" aria-label="显示密码" aria-pressed="false">
+                  <svg class="login-icon" id="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="login-icon" id="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+                </button>
+              </span>
+              <p class="login-capslock" id="capslock-hint" role="status" aria-live="polite" hidden>
+                <svg class="login-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                <span>已开启大写锁定（Caps Lock）</span>
+              </p>
+            </div>
+
+            <div class="login-field">
+              <label class="login-field-label" for="captcha-answer">验证码</label>
+              <div class="login-captcha-row">
+                <span class="login-field-box login-captcha-input-box">
+                  <input
+                    id="captcha-answer"
+                    name="captchaAnswer"
+                    type="text"
+                    autocomplete="off"
+                    inputmode="text"
+                    maxlength="8"
+                    required
+                  />
+                </span>
+                <button class="login-captcha-image" id="captcha-image" type="button" aria-label="看不清？点击更换验证码" title="看不清？点击更换验证码">
+                  <span class="login-captcha-svg" id="captcha-svg">加载中…</span>
+                </button>
+              </div>
+            </div>
+
+            <p class="login-status" id="login-status" role="status" aria-live="polite"></p>
+            <button class="login-submit" id="login-submit" type="submit">
+              <span class="login-submit-spinner" aria-hidden="true"></span>
+              <span class="login-submit-label">登录</span>
+            </button>
+          </form>
+        </section>
       </section>
     </main>
     <script src="/admin/login.js" defer></script>

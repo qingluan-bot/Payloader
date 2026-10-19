@@ -1,6 +1,8 @@
 // 声明式路由注册表（零依赖）：组内匹配优先级固定为 exact > 长前缀 > 短前缀 > pattern。
 // pattern 支持 :name 与 :name(constraint) 参数段；匹配用原始 pathname，参数值 decodeURIComponent。
 // 命中路径但 method 不在集合时自动 405 并携带 Allow；HEAD 从 GET 集合推导。
+// 同一路径注册多个 method（如 GET+PUT /api/admin/credentials）时，exact/prefix/pattern 三阶段
+// 都会跨同路径路由优先找 method 兼容者分发；仅当全部不兼容才 405（Allow 头聚合全部方法）。
 // 注意：pattern 组内按注册顺序 first-match-wins，重叠 pattern 的路由应合并方法集或确保顺序（先专用后宽泛）。
 
 const compilePattern = pattern => {
@@ -60,17 +62,27 @@ export class Router {
 
   // 在指定组内匹配并执行；返回 true 表示请求已被处理（含 405 响应），
   // 返回 false 表示组内没有路由命中该路径，由调用方决定下一组或回落。
+  // 同一路径注册多个 method 时（如 GET+PUT /api/admin/credentials），优先分发
+  // method 兼容的路由；仅当所有同路径路由都不接受该 method 时才回 405。
   async dispatch(request, response, url, group, context = {}) {
     const pathname = url.pathname;
     const verb = request.method === 'HEAD' ? 'GET' : request.method;
     const candidates = this.#routes.filter(route => route.group === group);
 
     let matched = null;
+    const methodMismatchedAllows = new Set();
+    const consider = route => {
+      if (route.methods.has(verb)) {
+        matched = { route, params: {} };
+        return true;
+      }
+      route.allow.split(',').forEach(entry => methodMismatchedAllows.add(entry.trim()));
+      return false;
+    };
     // exact
     for (const route of candidates) {
       if (route.type === 'exact' && route.pattern === pathname) {
-        matched = { route, params: {} };
-        break;
+        if (consider(route)) break;
       }
     }
     // prefix（长前缀优先）
@@ -81,8 +93,7 @@ export class Router {
       for (const route of prefixes) {
         const base = route.pattern.endsWith('/') ? route.pattern : `${route.pattern}/`;
         if (pathname === route.pattern || pathname.startsWith(base)) {
-          matched = { route, params: {} };
-          break;
+          if (consider(route)) break;
         }
       }
     }
@@ -92,24 +103,31 @@ export class Router {
         if (route.type !== 'pattern') continue;
         const params = this.#matchSegments(route, pathname);
         if (params) {
-          matched = { route, params };
-          break;
+          if (route.methods.has(verb)) {
+            matched = { route, params };
+            break;
+          }
+          route.allow.split(',').forEach(entry => methodMismatchedAllows.add(entry.trim()));
         }
       }
     }
 
-    if (!matched) return false;
-    const { route, params } = matched;
-    if (!route.methods.has(verb)) {
+    if (!matched) {
+      if (!methodMismatchedAllows.size) return false;
+      const allow = [...methodMismatchedAllows]
+        .filter(verb_ => verb_ !== 'HEAD')
+        .sort()
+        .join(', ');
       response.writeHead(405, {
         ...(context.baseResponseHeaders || {}),
-        allow: route.allow,
+        allow,
         'content-type': 'text/plain; charset=utf-8',
         'cache-control': 'no-store',
       });
       response.end('Method not allowed');
       return true;
     }
+    const { route, params } = matched;
     await route.handler(request, response, { params, url, ...context });
     return true;
   }

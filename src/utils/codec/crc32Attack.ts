@@ -184,8 +184,23 @@ export const fixZipPseudoEncryption = (bytes: Uint8Array): ZipPseudoFixResult =>
     const commentLength = readLe16(bytes, cursor + 32);
     const localOffset = readLe32(bytes, cursor + 42);
     if (localOffset === 0xffffffff || localOffset + 30 > bytes.length) return invalid;
-    if (readLe32(bytes, localOffset) !== ZIP_LOCAL_SIGNATURE) return invalid;
-    const localFlagOffset = localOffset + 6;
+    // localOffset 兜底（审计 BUG-04）：central-only 伪加密的真题（M03 pseudo.zip）常伴随
+    // local 目录偏移错位——codec 版原本按"local 签名必须位于声明偏移"严格校验直接放弃，
+    // 与 fileDetect 版行为分歧。这里对签名失配的条目向文件头方向扫描最近的 PK\x03\x04 兜底，
+    // 扫不到才按结构异常放弃；命中后以实际签名位置读取 local flag。
+    let localHeaderOffset = localOffset;
+    if (readLe32(bytes, localHeaderOffset) !== ZIP_LOCAL_SIGNATURE) {
+      let scanned = -1;
+      for (let offset = localHeaderOffset - 1; offset >= 0; offset -= 1) {
+        if (readLe32(bytes, offset) === ZIP_LOCAL_SIGNATURE) {
+          scanned = offset;
+          break;
+        }
+      }
+      if (scanned < 0) return invalid;
+      localHeaderOffset = scanned;
+    }
+    const localFlagOffset = localHeaderOffset + 6;
     const localFlag = readLe16(bytes, localFlagOffset);
     if ((centralFlag & 1) !== 0 || (localFlag & 1) !== 0) {
       const centralAfter = centralFlag & ~1;

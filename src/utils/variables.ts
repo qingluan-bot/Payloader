@@ -251,11 +251,20 @@ const replaceParts = (
     const rawStart = (match.index || 0) + rawOffset;
     const rawEnd = rawStart + raw.length;
 
-    if (rawStart > lastIndex) {
-      nextParts.push({ text: part.text.slice(lastIndex, rawStart) });
+    // 变量值恰好在原文中、以匹配区结尾处完整出现（E-01：原文已含 "http://" 而裸 literal 只命中
+    // host:port）时，把命中区间向前对齐到变量值的精确出现区间再恒等替换——分段拼接与原文逐字符
+    // 一致，高亮严格落在变量值出现区间内，不再产生 "http://http://" 式前缀吞并。
+    // 只在值严格长于命中串时启用，避免吞掉"值是命中串后缀"的正常替换（如 PHPSESSID=xxx -> 自定义值）。
+    let start = rawStart;
+    if (value.length > raw.length && part.text.slice(0, rawEnd).endsWith(value) && rawEnd - value.length >= lastIndex) {
+      start = rawEnd - value.length;
     }
 
-    nextParts.push({ text: value, key, raw, value });
+    if (start > lastIndex) {
+      nextParts.push({ text: part.text.slice(lastIndex, start) });
+    }
+
+    nextParts.push({ text: value, key, raw: part.text.slice(start, rawEnd), value });
     lastIndex = rawEnd;
   }
 

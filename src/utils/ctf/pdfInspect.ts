@@ -25,6 +25,8 @@ export interface PdfInspectResult {
   metadata: Record<string, string>;
   comments: string[];
   suspiciousTexts: string[];
+  // 外壳内 /JS 脚本（原文 + 静态还原），同文去重，最多 10 条
+  scripts: PdfScriptInfo[];
   anomalies: string[];
 }
 
@@ -93,12 +95,13 @@ const isPrintableAscii = (bytes: Uint8Array): boolean => {
   return true;
 };
 
-// 字面串 (…)：括号配深、\n \r \t \b \f \( \) \\ 转义、八进制 \ddd、反斜杠行续接；累计上限 256 字节。
-const parseLiteralString = (source: string, openIndex: number): string => {
+// 字面串 (…)：括号配深、\n \r \t \b \f \( \) \\ 转义、八进制 \ddd、反斜杠行续接；默认上限
+// 256 字节（/Info 元数据场景），/JS 脚本提取传更大的 cap。
+const parseLiteralString = (source: string, openIndex: number, maxBytes = 256): string => {
   const codes: number[] = [];
   let depth = 1;
   let position = openIndex + 1;
-  while (position < source.length && codes.length < 256) {
+  while (position < source.length && codes.length < maxBytes) {
     const code = source.charCodeAt(position);
     const ch = source[position];
     if (ch === '\\') {
@@ -194,6 +197,135 @@ const verifyEndstreamFollows = (text: string, position: number): boolean => {
   return text.startsWith('endstream', cursor);
 };
 
+// ---- PDF 内嵌 JavaScript 静态还原（_0x 混淆三件套）----
+// 只做静态文本变换：① 字符串数组解引用（var NAME=['..',..] + 访问器 ARG=ARG-OFFSET 模式）；
+// ② JS 字符串转义解码（\xNN / \uXXXX / 八进制）；③ 相邻字符串字面量常量折叠（'u'+'t'+'f' → 'utf'）。
+// 不 eval、不解释执行——eval 通道按约定默认关闭；检测到数组轮转自校验循环时如实标注
+// "解引用按声明顺序计算，实际顺序可能已被轮转"。
+
+export interface PdfJsDeobfResult {
+  // 还原后的 JS 文本
+  code: string;
+  notes: string[];
+}
+
+// JS 字符串字面量内部转义解码（只处理已知转义，未知序列原样保留）。
+const decodeJsStringEscapes = (raw: string): string =>
+  raw.replace(/\\(x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|[0-7]{1,3}|[nrtvbf'"`\\])/g, (whole, esc: string) => {
+    if (esc[0] === 'x') return String.fromCharCode(Number.parseInt(esc.slice(1), 16));
+    if (esc[0] === 'u') {
+      const hex = esc[1] === '{' ? esc.slice(2, -1) : esc.slice(1);
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isFinite(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : whole;
+    }
+    if (/^[0-7]+$/.test(esc)) return String.fromCharCode(Number.parseInt(esc, 8));
+    switch (esc) {
+      case 'n': return '\n';
+      case 'r': return '\r';
+      case 't': return '\t';
+      case 'b': return '\b';
+      case 'v': return '\v';
+      case 'f': return '\f';
+      default: return esc; // \' \" \` \\ → 字符本身
+    }
+  });
+
+const escapeJsLiteral = (value: string): string =>
+  `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}'`;
+
+const JS_STRING_LITERAL = /'((?:[^'\\\n]|\\.)*)'/g;
+
+export const deobfuscatePdfJs = (source: string): PdfJsDeobfResult => {
+  const notes: string[] = [];
+  let code = source;
+
+  // ① 字符串数组 + 偏移访问器识别
+  const arrays = new Map<string, string[]>();
+  for (const match of code.matchAll(/var\s+([A-Za-z_$][\w$]*)\s*=\s*(\[\s*'(?:[^'\\\n]|\\.)*'(?:\s*,\s*'(?:[^'\\\n]|\\.)*')*\s*\])/g)) {
+    const elements = [...match[2].matchAll(/'((?:[^'\\\n]|\\.)*)'/g)].map(entry => decodeJsStringEscapes(entry[1]));
+    if (elements.length) arrays.set(match[1], elements);
+  }
+  if (arrays.size) notes.push(`识别到 ${arrays.size} 个字符串数组（共 ${[...arrays.values()].reduce((sum, list) => sum + list.length, 0)} 项）`);
+
+  let derefCount = 0;
+  const parseJsNumber = (text: string): number =>
+    /^0x/i.test(text) ? Number.parseInt(text, 16) : Number.parseInt(text, 10);
+  // 访问器定义：ACC = function(ARG,..){ ARG = ARG - OFFSET; .. ARR[ARG] .. }
+  const ACCESSOR_DEF = (name: string) => new RegExp(
+    `var\\s+${name}\\s*=\\s*function\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*(?:,[^)]*)?\\)\\s*\\{\\s*\\1\\s*=\\s*\\1\\s*-\\s*(0x[0-9a-fA-F]+|\\d+)\\s*;[^}]*?([A-Za-z_$][\\w$]*)\\s*\\[\\s*\\1\\s*\\]`,
+  );
+  // 别名：var ALIAS = ACC[,;]（轮转 IIFE 常先取别名再经别名取串）
+  const defs = new Map<string, { offset: number; elements: string[] }>();
+  const aliases = new Map<string, string>();
+  for (const match of code.matchAll(/var\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(\s*[A-Za-z_$][\w$]*\s*(?:,[^)]*)?\)\s*\{\s*[\s\S]{0,160}?\[\s*[A-Za-z_$][\w$]*\s*\]/g)) {
+    const name = match[1];
+    const def = ACCESSOR_DEF(name).exec(code);
+    if (!def) continue;
+    const elements = arrays.get(def[3]);
+    if (elements) defs.set(name, { offset: parseJsNumber(def[2]), elements });
+  }
+  for (const name of [...defs.keys()]) {
+    for (const aliasMatch of code.matchAll(new RegExp(`var\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${name}\\s*[,;]`, 'g'))) {
+      aliases.set(aliasMatch[1], name);
+    }
+  }
+  for (const caller of new Set([...defs.keys(), ...aliases.keys()])) {
+    // 别名沿链解析到本体访问器
+    let resolved = aliases.get(caller);
+    for (let hop = 0; resolved && !defs.has(resolved) && hop < 4; hop += 1) resolved = aliases.get(resolved);
+    const def = resolved ? defs.get(resolved) : defs.get(caller);
+    if (!def) continue;
+    const callRe = new RegExp(`\\b${caller}\\s*\\(\\s*(0x[0-9a-fA-F]+|\\d+)\\s*\\)`, 'g');
+    code = code.replace(callRe, (call, argText: string) => {
+      const index = parseJsNumber(argText) - def.offset;
+      if (!Number.isInteger(index) || index < 0 || index >= def.elements.length) return call;
+      derefCount += 1;
+      return escapeJsLiteral(def.elements[index]);
+    });
+  }
+  if (derefCount) notes.push(`静态解引用 ${derefCount} 处访问器调用（按数组声明顺序计算）`);
+  // 轮转自校验（while(!![]) + push/shift）：解引用的实际顺序可能已被轮转，如实标注
+  if (/while\s*\(\s*!!\[\]\s*\)/.test(code) && /\[\s*'push'\s*\]/.test(code) && /\[\s*'shift'\s*\]\s*\(\)/.test(code)) {
+    notes.push('检测到数组轮转自校验循环（while(!![]) + push/shift）：字符串数组实际顺序可能已被轮转，解引用结果需结合运行时校验');
+  }
+
+  // ② 转义字符串解码（\xNN / \uXXXX 等 → 明文字符）
+  let decodeCount = 0;
+  code = code.replace(JS_STRING_LITERAL, (literal, inner: string) => {
+    if (!inner.includes('\\')) return literal;
+    const decoded = decodeJsStringEscapes(inner);
+    if (decoded === inner) return literal;
+    decodeCount += 1;
+    return escapeJsLiteral(decoded);
+  });
+  if (decodeCount) notes.push(`解码 ${decodeCount} 个转义字符串字面量`);
+
+  // ③ 常量折叠：相邻字符串字面量 + 链合并（迭代至不动点，处理折叠产物再相邻的情形）
+  let foldCount = 0;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const folded = code.replace(/'(?:[^'\\\n]|\\.)*'(?:\s*\+\s*'(?:[^'\\\n]|\\.)*')+/g, chain => {
+      foldCount += 1;
+      const joined = [...chain.matchAll(/'((?:[^'\\\n]|\\.)*)'/g)].map(entry => decodeJsStringEscapes(entry[1])).join('');
+      return escapeJsLiteral(joined);
+    });
+    if (folded === code) break;
+    code = folded;
+  }
+  if (foldCount) notes.push(`折叠 ${foldCount} 处字符串拼接链`);
+
+  return { code, notes };
+};
+
+// ---- /JS 脚本提取（外壳内）----
+
+export interface PdfScriptInfo {
+  // /JS 字面串原文（PDF 层转义解码后，上限 64KB）
+  source: string;
+  // 静态还原结果（deobfuscatePdfJs）
+  deobfuscated: string;
+  notes: string[];
+}
+
 export const inspectPdf = (bytes: Uint8Array): PdfInspectResult => {
   if (bytes.length > PDF_MAX_BYTES) {
     throw new Error(`文件 ${bytes.length} 字节超过 PDF 引擎上限 ${PDF_MAX_BYTES}（20MB）`);
@@ -264,16 +396,15 @@ export const inspectPdf = (bytes: Uint8Array): PdfInspectResult => {
       const declared = Number.parseInt(lengthMatch[1], 10);
       const candidateEnd = dataOffset + declared;
       if (candidateEnd > text.length) {
-        length = text.length - dataOffset;
-        dataEnd = text.length;
-        anomalies.push(`对象 ${objectNumber} 的 /Length ${declared} 越过文件末尾（流数据中截断），长度按剩余 ${length} 字节计`);
+        // 声明越过 EOF：/Length 同样不可信，归入下方 endstream 回退定位（不再按剩余字节计流长）
+        anomalies.push(`对象 ${objectNumber} 的 /Length ${declared} 越过文件末尾，已回退按 endstream 定位流长度`);
       } else if (verifyEndstreamFollows(text, candidateEnd)) {
         length = declared;
         dataEnd = candidateEnd;
       }
     }
     if (length < 0) {
-      // 回退：/Length 缺失 / 间接引用（N 0 R，上面的正则只捕到首个数字）/ 声明与实际不符
+      // 回退：/Length 缺失 / 间接引用（N 0 R，上面的正则只捕到首个数字）/ 声明与实际不符 / 声明越过 EOF
       fallbackLengthCount += 1;
       const endstreamIndex = text.indexOf('endstream', dataOffset);
       if (endstreamIndex === -1) {
@@ -358,6 +489,19 @@ export const inspectPdf = (bytes: Uint8Array): PdfInspectResult => {
   for (const entry of flagHits.slice(0, 40)) suspiciousTexts.push(entry);
   for (const entry of plainHits.slice(0, Math.max(0, 120 - suspiciousTexts.length))) suspiciousTexts.push(entry);
 
+  // —— /JS 脚本提取 + 静态还原（解码PDF字面串后做数组解引用/转义解码/常量折叠，不执行）——
+  const scripts: PdfScriptInfo[] = [];
+  const seenScripts = new Set<string>();
+  for (const match of shell.matchAll(/\/JS(?![A-Za-z0-9])\s*\(/g)) {
+    if (scripts.length >= 10) break;
+    const openIndex = match.index + match[0].length - 1;
+    const source = parseLiteralString(shell, openIndex, 65536);
+    if (source.length < 4 || seenScripts.has(source)) continue;
+    seenScripts.add(source);
+    const deobf = deobfuscatePdfJs(source);
+    scripts.push({ source, deobfuscated: deobf.code, notes: deobf.notes });
+  }
+
   // —— 文件级结构检查（全部不影响顺序扫描的结果，只做标注）——
   if (!/(^|[\r\n])xref[\r\n]/.test(shell)) {
     anomalies.push('未找到 xref 表（被抹除或损坏）；已按顺序扫描对象，解析不受影响');
@@ -376,7 +520,7 @@ export const inspectPdf = (bytes: Uint8Array): PdfInspectResult => {
   if (!text.includes('%%EOF')) anomalies.push('未找到 %%EOF（文件被截断或未写完）');
   if (unpairedEndobj > 0) anomalies.push(`${unpairedEndobj} 个 obj 未找到 endobj（截断或手工拼接痕迹）`);
   if (fallbackLengthCount > 0) {
-    anomalies.push(`${fallbackLengthCount} 个 stream 的 /Length 缺失/为间接引用/声明不符，已按下一个 endstream 回退定位`);
+    anomalies.push(`${fallbackLengthCount} 个 stream 的 /Length 缺失/为间接引用/声明不符/越过文件末尾，已按下一个 endstream 回退定位`);
   }
 
   return {
@@ -388,6 +532,7 @@ export const inspectPdf = (bytes: Uint8Array): PdfInspectResult => {
     metadata,
     comments,
     suspiciousTexts,
+    scripts,
     anomalies,
   };
 };

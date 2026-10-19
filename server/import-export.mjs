@@ -5,6 +5,8 @@ import { mkdir, rm, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 import * as sqlite from 'node:sqlite';
 import {
+  insertExploitNavigation,
+  insertExploits,
   insertNavigation,
   insertNavigationKind,
   insertPayloads,
@@ -23,6 +25,8 @@ import {
 } from './migrations.mjs';
 import {
   defaultSettings,
+  sanitizeExploit,
+  sanitizeExploitNode,
   sanitizeNavItem,
   sanitizePayload,
   sanitizeSettings,
@@ -35,8 +39,8 @@ const now = () => new Date().toISOString();
 const json = value => JSON.stringify(value ?? null);
 const { DatabaseSync } = sqlite;
 
-const resetTargets = new Set(['all', 'payloads', 'tools', 'navigation', 'settings']);
-const resetScopeKeys = ['payloads', 'tools', 'navigation', 'toolNavigation', 'settings'];
+const resetTargets = new Set(['all', 'payloads', 'tools', 'navigation', 'settings', 'exploits']);
+const resetScopeKeys = ['payloads', 'tools', 'navigation', 'toolNavigation', 'settings', 'exploits', 'exploitNavigation'];
 
 const validateResetTarget = value => {
   if (typeof value !== 'string' || !resetTargets.has(value)) {
@@ -50,6 +54,7 @@ const validateResetTarget = value => {
 const affectedResetScopes = target => {
   if (target === 'all') return [...resetScopeKeys];
   if (target === 'navigation') return ['navigation', 'toolNavigation'];
+  if (target === 'exploits') return ['exploits', 'exploitNavigation'];
   return [target];
 };
 
@@ -61,6 +66,8 @@ const readResetState = database => ({
   toolNavigation: rowsToItems(database.prepare("SELECT tree FROM navigation_nodes WHERE kind = 'tools' ORDER BY sort_order, id").all())
     .map(pruneSystemNavigationItem)
     .filter(Boolean),
+  exploits: rowsToItems(database.prepare('SELECT data FROM exploits ORDER BY sort_order, id').all()),
+  exploitNavigation: rowsToItems(database.prepare('SELECT tree FROM exploit_nodes ORDER BY sort_order, id').all()),
   settings: sanitizeSettings(readJsonMetadata(database, 'settings', defaultSettings)),
   xeyeEnabled: isXeyeEnabled(database),
 });
@@ -75,6 +82,8 @@ const makeSeedResetState = defaults => ({
     .map(item => prepareContentItemForInsert(item, sanitizeNavItem, true))
     .map(pruneSystemNavigationItem)
     .filter(Boolean),
+  exploits: normalizeList(defaults.exploits).map(item => prepareContentItemForInsert(item, sanitizeExploit, true)),
+  exploitNavigation: normalizeList(defaults.exploitNavigation).map(item => prepareContentItemForInsert(item, sanitizeExploitNode, true)),
   settings: sanitizeSettings(defaultSettings),
   xeyeEnabled: true,
 });
@@ -84,6 +93,8 @@ const countResetState = state => ({
   tools: state.tools.length,
   navigation: state.navigation.length,
   toolNavigation: state.toolNavigation.length,
+  exploits: state.exploits.length,
+  exploitNavigation: state.exploitNavigation.length,
   settings: 1,
 });
 
@@ -126,6 +137,8 @@ const createResetImpact = (target, beforeState, seedState) => {
       tools: diffResetItems(beforeState.tools, seedState.tools, affectedSet.has('tools')),
       navigation: diffResetItems(beforeState.navigation, seedState.navigation, affectedSet.has('navigation')),
       toolNavigation: diffResetItems(beforeState.toolNavigation, seedState.toolNavigation, affectedSet.has('toolNavigation')),
+      exploits: diffResetItems(beforeState.exploits, seedState.exploits, affectedSet.has('exploits')),
+      exploitNavigation: diffResetItems(beforeState.exploitNavigation, seedState.exploitNavigation, affectedSet.has('exploitNavigation')),
       settings: {
         affected: affectedSet.has('settings'),
         changed: json(beforeState.settings) !== json(seedState.settings),
@@ -223,6 +236,12 @@ const executeReset = ({ database, target, seedState }) => {
       database.prepare('DELETE FROM navigation_nodes').run();
       insertNavigation(database, seedState.navigation, seedState.toolNavigation, { trusted: true });
     }
+    if (target === 'all' || target === 'exploits') {
+      database.prepare('DELETE FROM exploits').run();
+      database.prepare('DELETE FROM exploit_nodes').run();
+      insertExploits(database, seedState.exploits, { trusted: true });
+      insertExploitNavigation(database, seedState.exploitNavigation, { trusted: true });
+    }
     if (target === 'all' || target === 'settings') {
       writeMetadata(database, 'settings', json(seedState.settings));
     }
@@ -290,20 +309,25 @@ const normalizeImportPackage = value => {
   const toolSource = readImportArray(value, 'tools', 'tools');
   const navigationSource = readImportArray(value, 'navigation', 'navigation');
   const toolNavigationSource = readImportArray(value, 'toolNavigation', 'toolNavigation');
+  const exploitSource = readImportArray(value, 'exploits', 'exploits');
+  const exploitNavigationSource = readImportArray(value, 'exploitNavigation', 'exploitNavigation');
   const included = {
     payloads: payloadSource.included,
     tools: toolSource.included,
     navigation: navigationSource.included,
     toolNavigation: toolNavigationSource.included,
+    exploits: exploitSource.included,
+    exploitNavigation: exploitNavigationSource.included,
   };
   if (Object.prototype.hasOwnProperty.call(value, 'settings')) {
     warnings.push('平台信息不参与导入，settings 已自动忽略。');
   }
   if (!Object.values(included).some(Boolean)) {
-    throw new Error('导入文件没有包含可导入的数据，请至少提供 payloads、tools、navigation 或 toolNavigation。');
+    throw new Error('导入文件没有包含可导入的数据，请至少提供 payloads、tools、navigation、toolNavigation、exploits 或 exploitNavigation。');
   }
   assertNavigationImportShape(navigationSource.items, 'navigation');
   assertNavigationImportShape(toolNavigationSource.items, 'toolNavigation');
+  assertNavigationImportShape(exploitNavigationSource.items, 'exploitNavigation');
   const payloads = uniqueItems(payloadSource.items.map(sanitizePayload), 'payloads', warnings);
   const tools = uniqueItems(toolSource.items.map(sanitizeTool), 'tools', warnings)
     .filter(item => {
@@ -317,6 +341,8 @@ const normalizeImportPackage = value => {
   const toolNavigation = uniqueItems(toolNavigationSource.items.map(sanitizeNavItem), 'toolNavigation', warnings)
     .map(pruneSystemNavigationItem)
     .filter(Boolean);
+  const exploits = uniqueItems(exploitSource.items.map(sanitizeExploit), 'exploits', warnings);
+  const exploitNavigation = uniqueItems(exploitNavigationSource.items.map(sanitizeExploitNode), 'exploitNavigation', warnings);
   return {
     format: format || 'payloader.import.v1',
     included,
@@ -324,6 +350,8 @@ const normalizeImportPackage = value => {
     tools,
     navigation,
     toolNavigation,
+    exploits,
+    exploitNavigation,
     warnings,
   };
 };
@@ -388,11 +416,21 @@ const executeImport = ({ database, normalized, mode }) => {
         database.prepare("DELETE FROM navigation_nodes WHERE kind = 'tools'").run();
         insertNavigationKind(database, normalized.toolNavigation, 'tools');
       }
+      if (normalized.included.exploits) {
+        database.prepare('DELETE FROM exploits').run();
+        insertExploits(database, normalized.exploits);
+      }
+      if (normalized.included.exploitNavigation) {
+        database.prepare('DELETE FROM exploit_nodes').run();
+        insertExploitNavigation(database, normalized.exploitNavigation);
+      }
     } else {
       if (normalized.included.payloads) upsertItems(database, 'payloads', normalized.payloads);
       if (normalized.included.tools) upsertItems(database, 'tools', normalized.tools);
       if (normalized.included.navigation) upsertItems(database, 'navigation', normalized.navigation, { kind: 'payloads' });
       if (normalized.included.toolNavigation) upsertItems(database, 'navigation', normalized.toolNavigation, { kind: 'tools' });
+      if (normalized.included.exploits) upsertItems(database, 'exploits', normalized.exploits);
+      if (normalized.included.exploitNavigation) upsertItems(database, 'exploit_navigation', normalized.exploitNavigation);
     }
     writeMetadata(database, 'last_import_at', now());
     writeMetadata(database, 'last_import_mode', mode);
@@ -406,7 +444,7 @@ const previewImportPackage = value => {
     summary: importSummary(normalized),
     warnings: normalized.warnings,
   };
-};
+};
 
 export {
   previewImportPackage,

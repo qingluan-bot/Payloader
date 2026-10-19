@@ -159,6 +159,103 @@ test('vigenereAutoSolve 过短输入：低置信度返回且不崩溃', () => {
   assert.equal(noLetters.confidence, 0);
 });
 
+// ---- P1-1（审计 BUG-01）：短凯撒/ROT13 不再被多列过拟合击败 ----
+// 四向量独立构造（局部 shift 函数，不用引擎自身 encode）；112 字母英文 ≈ 审计报告的短文本场景。
+
+const caesarShift = (text, k) => Array.from(text).map(char => {
+  const code = char.charCodeAt(0);
+  if (code >= 97 && code <= 122) return String.fromCharCode((code - 97 + k) % 26 + 97);
+  if (code >= 65 && code <= 90) return String.fromCharCode((code - 65 + k) % 26 + 65);
+  return char;
+}).join('');
+
+const CAESAR_SHORT = 'The history of cryptography begins thousands of years ago. Julius Caesar used a simple shift to protect military messages during wars.';
+
+test('P1-1 短凯撒四向量（112 字母 × shift 3/7/13/25）：主候选命中单字母真解且高置信', () => {
+  for (const k of [3, 7, 13, 25]) {
+    const result = vigenereAutoSolve(caesarShift(CAESAR_SHORT, k));
+    const expected = String.fromCharCode(65 + k);
+    assert.equal(result.key, expected, `shift ${k} 应命中 key=${expected}，实际 key=${result.key}(${result.keyLen})`);
+    assert.equal(result.keyLen, 1);
+    assert.ok(result.confidence >= 0.7, `shift ${k} confidence=${result.confidence}`);
+    assert.ok(result.plaintext.startsWith('The history'), `明文应还原，实际: ${JSON.stringify(result.plaintext.slice(0, 24))}`);
+  }
+});
+
+test('P1-1 候选列表透明：返回 candidates 且主候选首位、key 各不相同', () => {
+  const result = vigenereAutoSolve(caesarShift(CAESAR_SHORT, 3));
+  assert.ok(Array.isArray(result.candidates) && result.candidates.length >= 2);
+  assert.equal(result.candidates[0].key, result.key);
+  const keys = new Set(result.candidates.map(item => item.key));
+  assert.equal(keys.size, result.candidates.length);
+  for (const item of result.candidates) {
+    assert.ok(typeof item.key === 'string' && item.keyLen >= 1);
+    assert.equal(item.plaintext.length, caesarShift(CAESAR_SHORT, 3).length);
+  }
+});
+
+test('P1-1 长文本回归：300 字母 × keyLen 1/3/6/9/17（含因子族）全部命中', () => {
+  const plain = ('cryptographers build and study methods that keep messages safe from eavesdroppers '
+    + 'and tampering. classical systems relied on secret keys shared in advance, while modern '
+    + 'designs rest on hard mathematical problems and careful implementations. ').repeat(3);
+  for (const keyText of ['A', 'KEY', 'CRYPTO', 'XORSECRET', 'LONGERVIGENEREKEY']) {
+    const result = vigenereAutoSolve(vigenereEncrypt(plain.slice(0, 340), keyText));
+    assert.equal(result.key, keyText.toUpperCase(), `key=${keyText} 应命中，实际 ${result.key}(${result.keyLen})`);
+  }
+});
+
+// ---- GAP-1/BUG-07：knownPlaintext crib ----
+
+test('P1-1 crib knownPlaintext：C07 真题 flag{ 锁出 CRYP 前缀，更长 crib 锁出完整 CRYPTO', () => {
+  // C07：21 字母短维吉尼亚（key=CRYPTO）；'flag{' 恰好约束 4 列 → key 前缀 CRYP
+  const c07 = 'hcyv{owivltks_ecyhlwe_fi}';
+  const withPrefix = vigenereAutoSolve(c07, { knownPlaintext: 'flag{' });
+  assert.ok(withPrefix.key.startsWith('CRYP'), `crib 应锁出 CRYP 前缀，实际 key=${withPrefix.key}`);
+  assert.ok(withPrefix.plaintext.startsWith('flag{'), `crib 锚定的明文应以 flag{ 开头: ${withPrefix.plaintext.slice(0, 10)}`);
+  assert.ok(withPrefix.confidence >= 0.7, `crib 命中置信度应有背书: ${withPrefix.confidence}`);
+  // 候选列表里应含与 crib 一致的解
+  assert.ok((withPrefix.candidates ?? []).every(item => item.plaintext.startsWith('flag{')));
+  // 7 字母 crib（flag{vi）约束全部 6 列 → 完整 key CRYPTO 与精确明文
+  const fullCrib = vigenereAutoSolve(c07, { knownPlaintext: 'flag{vi' });
+  assert.equal(fullCrib.key, 'CRYPTO');
+  assert.equal(fullCrib.plaintext, 'flag{vigenere_classic_ok}');
+});
+
+test('P1-1 crib 与已知明文冲突的长度被排除：无一致长度时回退统计路径不崩溃', () => {
+  // crib 'zzz' 与任何合理周期都可能不一致或一致——只验证不崩溃且返回结构完整
+  const result = vigenereAutoSolve(caesarShift(CAESAR_SHORT, 3), { knownPlaintext: 'zzzz' });
+  assert.ok(typeof result.key === 'string' && result.keyLen >= 1);
+  assert.ok(Array.isArray(result.candidates));
+});
+
+// ---- BUG-09：xorAutoSolve 置信度长度比惩罚 + hintVerified 语义 ----
+
+test('BUG-09 短密文错误 key 不再高置信：密文/keyLen < 8 倍时置信度按比例压低', () => {
+  // 26 字节密文、8 字节 key：统计自由度过高，即使解错也不该给出 0.5+ 置信度
+  const plain = 'flag{cross_fit_short_text!!}';
+  const cipher = xorEncrypt(plain, 'Sup3rK3y!');
+  const result = xorAutoSolve(cipher);
+  const ratio = cipher.length / Math.max(1, result.keyLen);
+  if (ratio < 8) {
+    assert.ok(result.confidence <= 0.4 + 1e-9, `短密文置信度应被压低: confidence=${result.confidence} ratio=${ratio}`);
+  }
+  // 长文本不受影响：135 字节 / 9 字节 key = 15 倍，置信度照常
+  const long = xorEncrypt('The quick brown fox jumps over the lazy dog. '.repeat(3), 'SecretKey');
+  const longResult = xorAutoSolve(long);
+  assert.ok(longResult.confidence >= 0.7, `长文本 confidence=${longResult.confidence}`);
+});
+
+test('BUG-09 hintVerified 语义 = 明文确含 hint（覆盖重合指数派生路径）', () => {
+  const plain = 'The ceremony is scheduled for noon. ' + 'flag{xor_hint_found} ' + 'and the rest of the body continues with ordinary english text for analysis here.';
+  const cipher = xorEncrypt(plain, 'Sup3rSecret!');
+  const result = xorAutoSolve(cipher, { knownHint: 'flag{' });
+  assert.equal(result.hintVerified, result.plaintext.includes('flag{'));
+  assert.ok(result.plaintext.includes('flag{xor_hint_found}'));
+  assert.equal(result.hintVerified, true);
+  // 无 hint 时恒 false
+  assert.equal(xorAutoSolve(cipher).hintVerified, false);
+});
+
 // ---- 单表替换：随机字母表 + cribs ----
 
 const SUBSTITUTION_PLAIN = 'the secret message contains a hidden flag word and enough english text '

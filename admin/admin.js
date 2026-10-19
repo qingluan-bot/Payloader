@@ -19,6 +19,11 @@ const modules = {
     api: '/api/admin/navigation',
     reset: 'navigation',
   },
+  exploits: {
+    title: 'EXP 管理',
+    api: '/api/admin/exploits',
+    reset: 'exploits',
+  },
   clientBuilds: {
     title: '客户端生成',
     api: '/api/admin/client-builds',
@@ -38,10 +43,15 @@ const adminTokenStorageKey = 'payloader-admin-access-token';
 
 const state = {
   module: 'settings',
+  // EXP 管理单模块分区：items=条目管理（主体），tree=分类树管理（模块内分区，不再独立成模块）
+  expSection: 'items',
+  mustChangePassword: false,
   settings: null,
   payloads: [],
   tools: [],
   navigation: [],
+  exploits: [],
+  exploitNavigation: [],
   selectedId: null,
   query: '',
   group: '',
@@ -70,10 +80,6 @@ const state = {
   clientBuildGenerating: false,
   versionStatus: null,
   versionChecking: false,
-  repoMonitorData: null,
-  repoMonitorCheckingIds: new Set(),
-  repoMonitorCheckingAll: false,
-  repoMonitorAdding: false,
   account: null,
   accessToken: sessionStorage.getItem(adminTokenStorageKey) || '',
   navCollapsed: localStorage.getItem('payloader-admin-nav-collapsed') === '1',
@@ -138,9 +144,15 @@ const renderLogoUploadMeta = logoUrl => {
 };
 
 const moduleConfig = () => modules[state.module];
+// EXP 分类树资源 API（合并进 EXP 管理模块后不再有独立模块入口，仅分区使用）
+const exploitNavigationApi = '/api/admin/exploit_navigation';
+// EXP 管理单模块分区：tree 分区只切数据面（列表数据源/编辑器/保存 API），模块仍是 exploits
+const isExpTreeSection = () => state.module === 'exploits' && state.expSection === 'tree';
+const resourceStateKey = () => (isExpTreeSection() ? 'exploitNavigation' : state.module);
+const resourceApi = () => (isExpTreeSection() ? exploitNavigationApi : moduleConfig().api);
 const singletonModules = new Set(['settings', 'clientBuilds', 'updates', 'account']);
 const isSingletonModule = () => singletonModules.has(state.module);
-const activeItems = () => isSingletonModule() ? [] : (state[state.module] || []);
+const activeItems = () => isSingletonModule() ? [] : (state[resourceStateKey()] || []);
 const selectedItem = () => state.module === 'settings'
   ? state.settings
   : activeItems().find(item => item.id === state.selectedId) || null;
@@ -149,6 +161,7 @@ const moduleLabels = {
   payloads: 'Payload',
   tools: '工具命令',
   navigation: '导航树',
+  exploits: 'EXP',
 };
 
 moduleLabels.clientBuilds = '客户端生成';
@@ -179,9 +192,65 @@ const ensureNavCollapseButton = () => {
   syncNavCollapse();
 };
 
-const confirmDiscard = () => {
+// ---- 应用内确认弹窗（F-19）：替代原生 confirm()，破坏性操作支持关键词输入二次确认 ----
+const confirmModal = { open: false, resolve: null, requireText: '' };
+
+const closeConfirmModal = result => {
+  if (!confirmModal.open) return;
+  confirmModal.open = false;
+  confirmModal.requireText = '';
+  const backdrop = $('confirm-modal');
+  if (backdrop) {
+    backdrop.classList.add('hidden');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
+  const resolve = confirmModal.resolve;
+  confirmModal.resolve = null;
+  resolve?.(result === true);
+};
+
+const requestConfirm = ({
+  title,
+  messageHtml,
+  confirmLabel = '确认',
+  cancelLabel = '取消',
+  danger = false,
+  requireText = '',
+}) => new Promise(resolve => {
+  const backdrop = $('confirm-modal');
+  if (!backdrop || confirmModal.open) {
+    resolve(false);
+    return;
+  }
+  confirmModal.open = true;
+  confirmModal.resolve = resolve;
+  confirmModal.requireText = String(requireText || '');
+  $('confirm-modal-title').textContent = title;
+  $('confirm-modal-message').innerHTML = messageHtml;
+  const confirmButton = $('confirm-modal-confirm');
+  confirmButton.textContent = confirmLabel;
+  confirmButton.classList.toggle('danger-solid', danger);
+  const gateInput = $('confirm-modal-gate-input');
+  const needsGate = Boolean(confirmModal.requireText);
+  $('confirm-modal-gate').classList.toggle('hidden', !needsGate);
+  gateInput.value = '';
+  confirmButton.disabled = needsGate;
+  if (needsGate) $('confirm-modal-gate-keyword').textContent = confirmModal.requireText;
+  $('confirm-modal-cancel').textContent = cancelLabel;
+  backdrop.classList.remove('hidden');
+  backdrop.setAttribute('aria-hidden', 'false');
+  (needsGate ? gateInput : confirmButton).focus();
+});
+
+const confirmDiscard = async () => {
   if (!state.dirty) return true;
-  return confirm('当前表单有未保存修改，继续操作会丢失这些修改。确定继续？');
+  return requestConfirm({
+    title: '未保存修改',
+    messageHtml: '当前表单有未保存修改，继续操作会丢失这些修改。',
+    confirmLabel: '继续并丢弃修改',
+    cancelLabel: '留在本页',
+    danger: true,
+  });
 };
 
 const notice = message => {
@@ -273,6 +342,14 @@ const api = async (url, options = {}) => {
     redirectToLogin();
     throw new Error('Session expired, please sign in again');
   }
+  if (response.status === 403) {
+    // 服务端强制改密闸门：任何端点返回 403+mustChangePassword 时切入强制改密模式
+    const body = await response.clone().json().catch(() => null);
+    if (body && body.mustChangePassword) {
+      enterForcedPasswordChange();
+      throw new Error(body.error || '请先修改默认管理员密码');
+    }
+  }
   if (!response.ok) {
     const body = await response.text();
     let message = body;
@@ -306,7 +383,22 @@ const loadSession = async () => {
     throw new Error('Session expired, please sign in again');
   }
   if (!response.ok) throw new Error(await readResponseError(response));
-  return response.json();
+  const body = await response.json();
+  if (body && body.mustChangePassword) state.mustChangePassword = true;
+  return body;
+};
+
+// 强制改密模式：锁死在账号安全模块，直到默认密码被修改（服务端 403 闸门的配套 UI）
+const enterForcedPasswordChange = () => {
+  if (!state.mustChangePassword) {
+    state.mustChangePassword = true;
+    state.draft = null;
+    state.dirty = false;
+    state.module = 'account';
+    state.mobileView = defaultMobileView('account');
+    render();
+  }
+  notice('检测到仍在使用默认管理员密码，请先在下方完成密码修改');
 };
 
 const logoutAdmin = async () => {
@@ -554,9 +646,15 @@ const runImportData = async () => {
     notice('请先预览导入文件');
     return;
   }
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   const modeText = importModeLabel(state.importMode);
-  if (!confirm(`确认按「${modeText}」导入 ${state.importFileName}？\n\n导入后后台数据会刷新，未保存修改会丢失。`)) return;
+  if (!(await requestConfirm({
+    title: '确认导入',
+    messageHtml: `确认按「${escapeHtml(modeText)}」导入 <strong>${escapeHtml(state.importFileName)}</strong>？导入后后台数据会刷新，未保存修改会丢失。`,
+    confirmLabel: '执行导入',
+    danger: true,
+    requireText: 'IMPORT',
+  }))) return;
   state.importing = true;
   state.importResult = null;
   state.importError = '';
@@ -649,6 +747,187 @@ const defaultNav = () => ({
   kind: 'payloads',
   icon: '',
   children: [],
+});
+
+// ---- EXP 模块（v2.0.2）：漏洞利用条目全字段编辑 + 分类树管理 ----
+
+const exploitVulnTypes = [
+  'rce', 'sqli', 'deserialization', 'file-upload', 'auth-bypass', 'access-control',
+  'ssrf', 'xxe', 'path-traversal', 'info-disclosure', 'memory-corruption', 'lpe', 'default-credentials',
+];
+
+const defaultExploit = () => ({
+  id: '',
+  name: '',
+  description: '',
+  vulnType: 'rce',
+  affected: '',
+  severity: 'high',
+  publishedAt: '',
+  vulnerabilityIds: [],
+  exploitCode: [],
+  prerequisites: '',
+  references: [],
+  tags: [],
+  attribution: {},
+});
+
+const defaultExpNode = () => ({
+  id: `expnode-${crypto.randomUUID().slice(0, 8)}`,
+  name: { zh: '新建分类树', en: 'New category tree' },
+  children: [],
+});
+
+const exploitVulnIdRow = (vid = {}, index) => `
+  <div class="exp-row-card" data-section="vulnerabilityIds" data-index="${index}">
+    <span class="exp-row-index">编号 ${index + 1}</span>
+    <button class="exp-row-remove" type="button" data-action="remove-exp-vuln" data-index="${index}" title="删除此编号">✕ 删除</button>
+    <div class="exp-row-grid">
+      ${field(`exvuln-${index}-type`, '编号类型', vid.type || '', { list: 'exvuln-type-options' })}
+      ${field(`exvuln-${index}-value`, '编号', vid.value || '')}
+    </div>
+  </div>
+`;
+
+const exploitCodeRow = (segment = {}, index) => `
+  <div class="exp-row-card exp-row-code" data-section="exploitCode" data-index="${index}">
+    <span class="exp-row-index">代码段 ${index + 1}</span>
+    <button class="exp-row-remove" type="button" data-action="remove-exp-code" data-index="${index}" title="删除本段">✕ 删除</button>
+    <div class="exp-row-grid exp-row-grid-code">
+      ${field(`excode-${index}-title`, '段标题', segment.title || '')}
+      ${field(`excode-${index}-language`, '语言', segment.language || '', { hint: '如 python / bash / http', list: 'excode-lang-options' })}
+    </div>
+    ${textarea(`excode-${index}-code`, '利用代码', segment.code || '', { wide: true, code: true })}
+    ${textarea(`excode-${index}-desc`, '本段说明（可选）', segment.description || '', { wide: true })}
+  </div>
+`;
+
+// 治理 M4：漏洞类型中文映射（后台表单与列表共用）
+const exploitVulnTypeLabels = {
+  rce: '远程代码执行', sqli: 'SQL 注入', deserialization: '反序列化', 'file-upload': '文件上传',
+  'path-traversal': '路径遍历', 'auth-bypass': '认证绕过', 'access-control': '越权访问',
+  'info-disclosure': '信息泄露', lpe: '本地提权', 'memory-corruption': '内存破坏', xss: '跨站脚本',
+  xxe: 'XML 实体注入', ssrf: '服务端请求伪造', csrf: '跨站请求伪造', dos: '拒绝服务',
+  ssti: '模板注入', 'default-credentials': '默认凭据', uncategorized: '未归类',
+};
+const exploitVulnTypeLabel = value => exploitVulnTypeLabels[value] || value;
+
+// 分类挂载候选：展开 EXP 分类树的叶子（值=分类 id 路径，与策展管线 treePath 同形状；文案=名称路径）
+const exploitTreePathOptions = () => {
+  const options = [];
+  const walk = (nodes, idPath, namePath) => {
+    for (const node of nodes || []) {
+      const nextIdPath = [...idPath, node.id];
+      const nextNamePath = [...namePath, getText(node.name) || node.id];
+      if (Array.isArray(node.children) && node.children.length) walk(node.children, nextIdPath, nextNamePath);
+      else options.push({ id: nextIdPath.join('/'), name: `${nextNamePath.join(' / ')}（${node.id}）` });
+    }
+  };
+  walk(state.exploitNavigation, [], []);
+  return options;
+};
+
+const exploitSeverityLabels = { critical: '严重', high: '高危', medium: '中危', low: '低危', unknown: '未评级' };
+
+// 条目概览行：编号/等级/日期/来源一览 + 前台详情直达（编辑表单之上的"详情卡"）
+const exploitOverview = item => {
+  const chips = [
+    `<span class="exp-admin-sev exp-admin-sev-${escapeHtml(item.severity || 'medium')}">${exploitSeverityLabels[item.severity] || item.severity || '中危'}</span>`,
+    ...(item.vulnerabilityIds || []).map(vid => `<span class="exp-admin-vid">${escapeHtml(vid.value)}</span>`),
+    `<span class="exp-admin-meta">${escapeHtml(item.publishedAt || '日期未知')}</span>`,
+    item.source && item.source !== 'curated' ? `<span class="exp-admin-src exp-admin-src-aggregated">聚合来源：${escapeHtml(item.source)}${item.sourceRef ? ` · ${escapeHtml(item.sourceRef)}` : ''}</span>` : '<span class="exp-admin-src exp-admin-src-curated">精选/手工层</span>',
+  ];
+  const frontendLink = item.id ? `<a class="exp-admin-frontend-link" href="/#/exploit/${encodeURIComponent(item.id)}" target="_blank" rel="noopener">在前台查看详情 ↗</a>` : '';
+  return `<div class="exp-admin-overview"><div class="exp-admin-overview-chips">${chips.join('')}</div>${frontendLink}</div>`;
+};
+
+const renderExploitForm = () => {
+  const item = clone(state.draft || selectedItem() || defaultExploit());
+  const attribution = item.attribution || {};
+  const originHint = item.source && item.source !== 'curated'
+    ? `聚合层条目（来源 ${item.source}，上游主键 ${item.sourceRef || '无'}）：编辑后重跑聚合管线时，你的修改会被保留。`
+    : '精选/手工层条目：经人工策展或后台手工创建。';
+  const body = `
+    ${datalist('exvuln-type-options', exploitVulnTypes.map(value => ({ id: value })))}
+    ${datalist('excode-lang-options', [{ id: 'python' }, { id: 'bash' }, { id: 'http' }, { id: 'java' }, { id: 'c' }, { id: 'powershell' }, { id: 'metasploit' }])}
+    ${datalist('exploit-treepath-options', exploitTreePathOptions())}
+    ${exploitOverview(item)}
+    ${section('基础信息', `结构化字段落库，前台与公开 API（AI 检索）共用这份数据。${originHint}`, `
+      <div class="form-grid">
+        ${field('exploit-id', 'ID', item.id, { readonly: true, hint: '新建时由系统生成 EXP-<ULID> 稳定标识。' })}
+        ${field('exploit-name', '标题', item.name)}
+        ${select('exploit-vulntype', '漏洞类型', item.vulnType || 'rce', exploitVulnTypes.map(value => ({ value, label: exploitVulnTypeLabels[value] ? `${exploitVulnTypeLabels[value]}（${value}）` : value })))}
+        ${select('exploit-severity', '严重等级', item.severity || 'high', [
+          { value: 'critical', label: '严重（critical）' },
+          { value: 'high', label: '高危（high）' },
+          { value: 'medium', label: '中危（medium）' },
+          { value: 'low', label: '低危（low）' },
+        ])}
+        ${field('exploit-publishedat', '公开日期', item.publishedAt || '', { hint: '格式 YYYY 或 YYYY-MM-DD，不确定到日就写到月/年。' })}
+        ${field('exploit-affected', '影响产品/组件与版本范围', item.affected || '')}
+        ${textarea('exploit-desc', '漏洞描述', item.description || '', { wide: true })}
+        ${textarea('exploit-prerequisites', '利用条件与前置说明', item.prerequisites || '', { wide: true })}
+        ${field('exploit-tags', '标签', (item.tags || []).join(', '), { hint: '用逗号分隔，4-8 个为宜。' })}
+        ${field('exploit-treepath', '分类挂载', item.treePath || '', { hint: '从 EXP 分类树选择叶子位置（分类树在本模块“分类树”分区维护）；留空表示未挂载。', list: 'exploit-treepath-options' })}
+      </div>
+    `)}
+    ${section('漏洞编号', '多编号并存（CVE / CNVD / EDB-ID / GHSA…），支持按编号直达详情。', `
+      <div class="collection">${(item.vulnerabilityIds || []).map(exploitVulnIdRow).join('') || '<div class="empty">还没有漏洞编号，点击“添加编号”创建一条。</div>'}</div>
+    `, '<button class="btn" type="button" data-action="add-exp-vuln">添加编号</button>')}
+    ${section('利用代码', '多段呈现，每段标注语言；教学导向，不写武器化增强。', `
+      <div class="collection">${(item.exploitCode || []).map(exploitCodeRow).join('') || '<div class="empty">还没有利用代码，点击“添加代码段”创建一段。</div>'}</div>
+    `, '<button class="btn" type="button" data-action="add-exp-code">添加代码段</button>')}
+    ${section('参考与出处', '来源/作者/许可证允许留空，缺失是正常状态；参考链接建议 ≥2 条。', `
+      <div class="form-grid">
+        ${field('exploit-attr-source', '来源', attribution.source || '', { hint: '如公开 PoC 仓库名 / NVD。' })}
+        ${field('exploit-attr-author', '原作者', attribution.author || '')}
+        ${field('exploit-attr-license', '许可证', attribution.license || '')}
+        ${textarea('exploit-references', '参考链接（每行一条）', joinPlainLines(item.references), { wide: true })}
+      </div>
+    `)}
+    <div class="form-actions">
+      ${item.enabled === false ? '<button class="btn" type="button" data-action="restore-exploit">恢复显示（当前已隐藏）</button>' : ''}
+      <button class="btn primary" type="submit">保存 EXP</button>
+      <button class="btn" type="button" id="cancel-item">取消修改</button>
+    </div>
+  `;
+  $('editor-form').innerHTML = body;
+};
+
+const collectExploit = () => ({
+  id: $('exploit-id')?.value.trim() || '',
+  name: $('exploit-name')?.value.trim() || '',
+  description: $('exploit-desc')?.value.trim() || '',
+  vulnType: $('exploit-vulntype')?.value || 'rce',
+  affected: $('exploit-affected')?.value.trim() || '',
+  severity: $('exploit-severity')?.value || 'high',
+  publishedAt: $('exploit-publishedat')?.value.trim() || '',
+  vulnerabilityIds: [...document.querySelectorAll('.exp-row-card[data-section="vulnerabilityIds"]')].map(row => ({
+    type: $(`exvuln-${row.dataset.index}-type`)?.value.trim() || '',
+    value: $(`exvuln-${row.dataset.index}-value`)?.value.trim() || '',
+  })).filter(vid => vid.type && vid.value),
+  exploitCode: [...document.querySelectorAll('.exp-row-card[data-section="exploitCode"]')].map(row => {
+    const segment = {
+      title: $(`excode-${row.dataset.index}-title`)?.value.trim() || '',
+      language: ($(`excode-${row.dataset.index}-language`)?.value.trim() || 'text').toLowerCase(),
+      code: $(`excode-${row.dataset.index}-code`)?.value || '',
+    };
+    const description = $(`excode-${row.dataset.index}-desc`)?.value.trim() || '';
+    if (description) segment.description = description;
+    return segment;
+  }).filter(segment => segment.code.trim()),
+  prerequisites: $('exploit-prerequisites')?.value.trim() || '',
+  references: splitLines($('exploit-references')?.value),
+  tags: splitTags($('exploit-tags')?.value),
+  treePath: $('exploit-treepath')?.value.trim() || '',
+  // 聚合层来源标记透传：服务端 PUT 全量替换，丢失会让聚合条目泄漏进 public-data 快照
+  ...(state.draft?.source ? { source: state.draft.source } : {}),
+  ...(state.draft?.sourceRef ? { sourceRef: state.draft.sourceRef } : {}),
+  attribution: {
+    source: $('exploit-attr-source')?.value.trim() || '',
+    author: $('exploit-attr-author')?.value.trim() || '',
+    license: $('exploit-attr-license')?.value.trim() || '',
+  },
 });
 
 const field = (id, label, value = '', options = {}) => `
@@ -1075,7 +1354,7 @@ const renderLogoManager = item => {
           <button class="btn danger-soft" type="button" data-action="remove-logo" ${logoUrl ? '' : 'disabled'}>移除图片</button>
         </div>
         <div class="logo-path">
-          <span>当前安全路径</span>
+          <span>站点引用路径（自动生成）</span>
           <code>${escapeHtml(logoUrl || '未上传图片')}</code>
         </div>
         ${renderLogoUploadMeta(logoUrl)}
@@ -1110,9 +1389,6 @@ const renderSettingsForm = () => {
         </label>
       </div>
     `)}
-    <div class="form-actions">
-      <button class="btn primary" type="submit">保存站点设置</button>
-    </div>
   `;
   $('editor-form').innerHTML = body;
 };
@@ -1122,8 +1398,6 @@ const formatBuildDate = value => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 };
-
-const officialRepository = { url: 'https://github.com/3516634930/Payloader', label: '3516634930/Payloader' };
 
 const formatVersionDate = (value, fallback = '尚未检查') => {
   if (!value) return fallback;
@@ -1157,54 +1431,6 @@ const versionStatePresentation = value => ({
   checked: ['neutral', '检查完成'],
   error: ['danger', '检查失败'],
 }[value] || ['neutral', '状态未知']);
-
-const stableStateLabel = value => ({
-  'update-available': '有新正式版本',
-  'up-to-date': '版本一致',
-  'local-newer': '本地版本更高',
-  unavailable: '尚未正式发布',
-  unchecked: '尚未检查',
-  unknown: '无法比较',
-}[value] || '尚未检查');
-
-const sourceStateLabel = value => ({
-  synchronized: '提交一致',
-  'remote-ahead': '官方分支有新提交',
-  'local-ahead': '本地提交领先',
-  diverged: '分支已产生差异',
-  unrelated: '无法确认提交关系',
-  'unknown-local-commit': '本地提交号未记录',
-  unchecked: '尚未检查',
-}[value] || '尚未检查');
-
-const stableSourceLabel = value => ({
-  release: 'GitHub Release',
-  tag: 'Git 标签',
-  package: '远端 package.json',
-}[value] || '暂无来源');
-
-// 状态语义色：warning=需关注（分歧/落后/新提交），faint=未知或未发布，空串=正常
-// 注意正常态映射为 ''，不能用 || 兜底（空串会被吞成 fallback）
-const sourceStateTones = {
-  synchronized: '',
-  'local-ahead': '',
-  'remote-ahead': 'warning',
-  diverged: 'warning',
-  unrelated: 'warning',
-  'unknown-local-commit': 'warning',
-  unchecked: 'faint',
-};
-const sourceStateTone = value => (value in sourceStateTones ? sourceStateTones[value] : 'faint');
-
-const stableStateTones = {
-  'update-available': 'warning',
-  'up-to-date': '',
-  'local-newer': '',
-  unavailable: 'faint',
-  unchecked: 'faint',
-  unknown: 'faint',
-};
-const stableStateTone = value => (value in stableStateTones ? stableStateTones[value] : 'faint');
 
 // 空值统一灰显（与有效值拉开层级）
 const emptyValuePattern = /^(?:未发布|未获取|未记录|未知|尚未检查|尚未正式发布|无法比较|未返回|未计划|暂无来源|—)$/;
@@ -1260,30 +1486,23 @@ const renderVersionUpdateCenter = () => {
   const status = state.versionStatus || {};
   const installed = status.installed || {};
   const stable = status.stable || {};
-  const source = status.source || {};
   const error = status.error || null;
   const [tone, label] = versionStatePresentation(state.versionChecking ? 'checking' : status.state);
   const checking = state.versionChecking || status.state === 'checking';
   const rateLimit = status.rateLimit || {};
   const projectRoute = safeProjectRoute(status.projectRoute);
   const stableVersion = !stable.developmentMetadata && stable.version ? `v${stable.version}` : '未发布';
-  const stableChannelSource = stable.developmentMetadata
-    ? '未发现 Release / Tag'
-    : stableSourceLabel(stable.source);
   const installedVersion = installed.version ? `v${installed.version}` : '未知';
   const releaseNotes = summarizeReleaseNotes(stable.notes);
-  // API 配额可视化：有 remaining/limit 时内联迷你进度条，剩余 <20% 转琥珀
-  // isFinite 防御：rateLimit 经 localStorage 持久化回读，类型无契约，NaN 会让宽度样式失效误显满格
+  // API 配额：仅在检查失败时随错误说明展示（正常态对管理员是噪音）
+  // isFinite 防御：rateLimit 经 localStorage 持久化回读，类型无契约，NaN 会让数值展示失效
   const quotaRemaining = Number(rateLimit.remaining);
   const quotaLimit = Number(rateLimit.limit);
   const quota = rateLimit.remaining !== null && rateLimit.remaining !== undefined
     && Number.isFinite(quotaRemaining) && Number.isFinite(quotaLimit) && quotaLimit > 0
     ? { remaining: quotaRemaining, limit: quotaLimit }
     : null;
-  const quotaMarkup = quota
-    ? `<span class="au-quota${quota.remaining / quota.limit < 0.2 ? ' low' : ''}"><span class="au-quota-fill" style="width:${Math.max(0, Math.min(100, Math.round((quota.remaining / quota.limit) * 100)))}%"></span></span>`
-    : '';
-  const quotaText = quota ? `${quota.remaining} / ${quota.limit}` : '未返回';
+  const quotaText = quota ? `${quota.remaining} / ${quota.limit}` : '';
   const body = `
     <div class="version-update-shell">
       <section class="version-update-summary" data-tone="${escapeHtml(tone)}">
@@ -1305,33 +1524,17 @@ const renderVersionUpdateCenter = () => {
             <strong>${escapeHtml(installedVersion)}</strong>
           </header>
           <dl>
-            <div><dt>提交</dt><dd><code>${escapeHtml(installed.commitShort || '未记录')}</code></dd></div>
-            <div><dt>源码状态</dt><dd${sourceStateTone(source.state) ? ` data-tone="${sourceStateTone(source.state)}"` : ''}>${escapeHtml(sourceStateLabel(source.state))}</dd></div>
-            <div><dt>监控官方仓库</dt><dd><a class="au-repo-link" href="${escapeHtml(officialRepository.url)}" target="_blank" rel="noopener">${escapeHtml(officialRepository.label)} ↗</a></dd></div>
+            <div><dt>部署提交</dt><dd><code>${escapeHtml(installed.commitShort || '未记录')}</code></dd></div>
           </dl>
         </section>
 
         <section class="version-update-panel">
           <header>
-            <span>官方发布版本</span>
+            <span>官方最新版本</span>
             <strong>${escapeHtml(stableVersion)}</strong>
           </header>
           <dl>
-            <div><dt>发布状态</dt><dd${stableStateTone(stable.state) ? ` data-tone="${stableStateTone(stable.state)}"` : ''}>${escapeHtml(stableStateLabel(stable.state))}</dd></div>
-            <div><dt>版本来源</dt><dd${stable.developmentMetadata ? ' data-tone="faint"' : ''}>${escapeHtml(stableChannelSource)}</dd></div>
             <div><dt>发布时间</dt><dd>${dimWhenEmpty(formatVersionDate(stable.publishedAt, '未发布'))}</dd></div>
-          </dl>
-        </section>
-
-        <section class="version-update-panel">
-          <header>
-            <span>默认分支源码</span>
-            <strong>${escapeHtml(source.branch || '未获取')}</strong>
-          </header>
-          <dl>
-            <div><dt>同步状态</dt><dd${sourceStateTone(source.state) ? ` data-tone="${sourceStateTone(source.state)}"` : ''}>${escapeHtml(sourceStateLabel(source.state))}</dd></div>
-            <div><dt>远端提交</dt><dd><code>${escapeHtml(source.commitShort || '未获取')}</code></dd></div>
-            <div><dt>提交时间</dt><dd>${dimWhenEmpty(formatVersionDate(source.committedAt, '未获取'))}</dd></div>
           </dl>
         </section>
       </div>
@@ -1339,27 +1542,24 @@ const renderVersionUpdateCenter = () => {
       <section class="version-update-timeline">
         <div><span>本次检查</span><strong>${dimWhenEmpty(formatVersionDate(status.checkedAt, '—'))}</strong></div>
         <div><span>下次计划</span><strong>${dimWhenEmpty(formatVersionDate(status.nextCheckAt, '未计划'))}</strong></div>
-        <div><span>API 剩余</span><strong>${quota ? `${quotaMarkup}${quotaText}` : dimWhenEmpty('未返回')}</strong></div>
       </section>
 
       ${error ? `
         <section class="version-update-error" role="status">
           <strong>${escapeHtml(engineErrorText(error, '版本检查失败'))}</strong>
-          <span>${error.retryAt ? `预计恢复：${escapeHtml(formatVersionDate(error.retryAt))}` : '系统会保留上次成功结果。'}</span>
+          <span>${error.retryAt ? `预计恢复：${escapeHtml(formatVersionDate(error.retryAt))}` : '系统会保留上次成功结果。'}${quota ? ` GitHub API 剩余 ${quotaText}。` : ''}</span>
         </section>
       ` : ''}
 
-      ${stable.notes ? `
+      ${stable.notes && (releaseNotes.items.length || releaseNotes.notices.length) ? `
         <section class="version-update-notes">
           <header>
             <span>版本说明</span>
             <strong>${escapeHtml(releaseNotes.title)}</strong>
           </header>
-          ${releaseNotes.items.length ? `
-            <ul class="version-update-note-list">
-              ${releaseNotes.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
-            </ul>
-          ` : releaseNotes.notices.length ? '' : '<p>完整变更说明和直接下载请查看官方项目。</p>'}
+          <ul class="version-update-note-list">
+            ${releaseNotes.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+          </ul>
           ${releaseNotes.notices.length ? `
             <div class="version-update-note-notices" role="note">
               ${releaseNotes.notices.map(notice => `<p>${escapeHtml(notice)}</p>`).join('')}
@@ -1367,18 +1567,9 @@ const renderVersionUpdateCenter = () => {
           ` : ''}
         </section>
       ` : ''}
-
-      ${renderRepoMonitorSection()}
     </div>
   `;
-  // 重渲染保留订阅输入框的未提交内容与焦点（后台检查完成触发重绘时不打断正在输入的管理员）
-  const previousInput = $('repo-monitor-input');
-  const restoreValue = previousInput ? previousInput.value : null;
-  const hadInputFocus = document.activeElement === previousInput;
   $('editor-form').innerHTML = body;
-  const nextInput = $('repo-monitor-input');
-  if (nextInput && restoreValue !== null) nextInput.value = restoreValue;
-  if (hadInputFocus && nextInput) nextInput.focus();
 };
 
 const formatLargeBytes = value => {
@@ -1468,7 +1659,7 @@ const renderClientTargetMatrix = (targets, selectedTargets, isBuilding) => {
             ${clientTargetMeta(target) ? `<em>${escapeHtml(clientTargetMeta(target))}</em>` : ''}
             <small>${target.supported
               ? target.source === 'official-shell'
-                ? `官方壳 ${escapeHtml(target.shellVersion || '')}`.trim()
+                ? `官方套件 ${escapeHtml(target.shellVersion || '')}`.trim()
                 : '本机工具链'
               : escapeHtml(target.reason || '不可生成')}</small>
           </label>
@@ -1500,7 +1691,7 @@ const renderClientArtifacts = items => {
               <strong>${escapeHtml(item.platformLabel || clientPlatformLabel(item.platform))}</strong>
               <small>${escapeHtml(item.fileName || '')}</small>
             </span>
-            <span>${escapeHtml(item.archLabel || item.arch || '')}<small>${escapeHtml(item.format || '')}${item.buildSource === 'official-shell' ? ` · 官方壳 ${escapeHtml(item.shellVersion || '')}` : ' · 本机构建'}</small></span>
+            <span>${escapeHtml(item.archLabel || item.arch || '')}<small>${escapeHtml(item.format || '')}${item.buildSource === 'official-shell' ? ` · 官方套件 ${escapeHtml(item.shellVersion || '')}` : ' · 本机构建'}</small></span>
             <span>${formatLargeBytes(item.size)}</span>
             <span>${escapeHtml(formatBuildDate(item.generatedAt || item.finishedAt || item.startedAt))}</span>
             <span>${escapeHtml(signingLabel(item.codeSigningConfigured))}</span>
@@ -1572,7 +1763,7 @@ const renderClientBuildFormV2 = () => {
             <span>目标矩阵</span>
             <h3>选择要生成的客户端版本</h3>
           </div>
-          <small>${escapeHtml(environment.platform || '')} / ${escapeHtml(environment.arch || '')}${environment.shellVersion ? ` · 官方壳 ${escapeHtml(environment.shellVersion)}` : ''}</small>
+          <small>${escapeHtml(environment.platform || '')} / ${escapeHtml(environment.arch || '')}${environment.shellVersion ? ` · 官方套件 ${escapeHtml(environment.shellVersion)}` : ''}</small>
         </div>
         ${renderClientTargetMatrix(targets, selectedTargets, isBuilding)}
       </section>
@@ -1599,12 +1790,27 @@ const renderClientBuildFormV2 = () => {
   $('editor-form').innerHTML = body;
 };
 
+// 密码框眼睛按钮（照搬登录页 login.html 的 SVG 与交互，data-eye 区分两态图标）
+const passwordEyeButtons = inputId => `
+  <button class="pw-toggle" type="button" data-action="toggle-password-visibility" data-target="${escapeHtml(inputId)}" aria-label="显示密码" aria-pressed="false" title="显示 / 隐藏密码">
+    <svg data-eye="show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+    <svg data-eye="hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+  </button>
+`;
+
 const renderAccountForm = () => {
   const account = state.account || {};
+  const forcedBanner = state.mustChangePassword ? `
+      <section class="account-security-alert">
+        <strong>必须修改默认密码后才能继续</strong>
+        <span>当前管理员密码仍是系统默认密码，后台所有其他操作已被锁定。请在下方输入新密码并保存，保存成功后需重新登录。</span>
+      </section>
+    ` : '';
   // 直显表单（AW 批次）：不套 section() 弹窗折叠卡——改凭据是低频高危操作，
   // 直接摆在页面上填完点顶栏「保存」才是正常后台的心智模型。
   const body = `
     <div class="account-security-shell">
+      ${forcedBanner}
       <section class="account-security-form" aria-labelledby="aw-account-title">
         <header class="aw-account-head">
           <div>
@@ -1632,18 +1838,27 @@ const renderAccountForm = () => {
           </label>
           <label class="field">
             <span>当前密码</span>
-            <input id="account-current-password" type="password" autocomplete="current-password" maxlength="128" />
+            <span class="field-password-box">
+              <input id="account-current-password" type="password" autocomplete="current-password" maxlength="128" />
+              ${passwordEyeButtons('account-current-password')}
+            </span>
             <small class="field-hint">验证身份必填。</small>
           </label>
           <label class="field">
             <span>新密码</span>
-            <input id="account-new-password" type="password" autocomplete="new-password" maxlength="128" />
+            <span class="field-password-box">
+              <input id="account-new-password" type="password" autocomplete="new-password" maxlength="128" />
+              ${passwordEyeButtons('account-new-password')}
+            </span>
             <small class="field-hint">留空表示只改用户名；如填写，至少 10 位，并包含大小写字母、数字、符号中的三类。</small>
           </label>
           <label class="field field-full">
             <span>确认新密码</span>
-            <input id="account-confirm-password" type="password" autocomplete="new-password" maxlength="128" />
-            <small class="field-hint">再次输入新密码，与新密码保持一致。</small>
+            <span class="field-password-box">
+              <input id="account-confirm-password" type="password" autocomplete="new-password" maxlength="128" />
+              ${passwordEyeButtons('account-confirm-password')}
+            </span>
+            <small class="field-hint" id="pw-match-hint" data-state="">再次输入新密码，与新密码保持一致。</small>
           </label>
         </div>
         <p class="aw-account-note">保存后系统会清空所有后台会话，旧登录态立即失效，需使用新凭据重新登录。</p>
@@ -1651,6 +1866,26 @@ const renderAccountForm = () => {
     </div>
   `;
   $('editor-form').innerHTML = body;
+};
+
+// 确认新密码实时一致性提示（F-18）：匹配打勾 / 不匹配打叉，随输入即时刷新
+const syncPasswordMatchHint = () => {
+  const hint = $('pw-match-hint');
+  if (!hint) return;
+  const newValue = $('account-new-password')?.value || '';
+  const confirmValue = $('account-confirm-password')?.value || '';
+  if (!confirmValue) {
+    hint.textContent = newValue ? '请再次输入新密码。' : '再次输入新密码，与新密码保持一致。';
+    hint.dataset.state = '';
+    return;
+  }
+  if (newValue === confirmValue) {
+    hint.textContent = '✓ 两次输入一致';
+    hint.dataset.state = 'ok';
+  } else {
+    hint.textContent = '✗ 两次输入不一致';
+    hint.dataset.state = 'mismatch';
+  }
 };
 
 const renderPayloadForm = () => {
@@ -1715,6 +1950,25 @@ const renderPayloadForm = () => {
   $('editor-form').innerHTML = body;
 };
 
+// 默认外链（F-20）：系统锁定条目的引用链接只读展示；仅 http(s) 渲染为可点击外链，其余按纯文本展示
+const safeExternalReferenceUrl = value => {
+  const url = String(value || '').trim();
+  return /^https?:\/\//i.test(url) ? url : '';
+};
+
+const lockedReferenceLinks = references => {
+  const links = (Array.isArray(references) ? references : [])
+    .map(reference => String(reference || '').trim())
+    .filter(Boolean);
+  if (!links.length) return '<span class="locked-record-empty">暂无外链</span>';
+  return `<span class="locked-record-links">${links.map(link => {
+    const safeUrl = safeExternalReferenceUrl(link);
+    return safeUrl
+      ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">${escapeHtml(link)}</a>`
+      : `<code>${escapeHtml(link)}</code>`;
+  }).join('')}</span>`;
+};
+
 const renderToolForm = () => {
   const item = clone(state.draft || selectedItem() || defaultTool());
   const locked = Boolean(item.systemLocked);
@@ -1739,8 +1993,10 @@ const renderToolForm = () => {
       </div>
     `)}
     ${locked ? `
-      <div class="form-actions">
+      <div class="form-actions locked-links-block">
         <span class="locked-record-note">默认外链 · 只读</span>
+        ${lockedReferenceLinks(item.references)}
+        <small class="locked-record-hint">由客户端种子生成，请在数据维护中修改。</small>
       </div>
     ` : `
       <div class="form-actions">
@@ -1811,6 +2067,66 @@ const renderNavigationForm = () => {
     `, '<button class="btn" type="button" data-action="add-nav-root-child">添加子节点</button>')}
     <div class="form-actions">
       <button class="btn primary" type="submit">保存导航树</button>
+      <button class="btn" type="button" id="cancel-item">取消修改</button>
+    </div>
+  `;
+  $('editor-form').innerHTML = body;
+};
+
+// ---- EXP 分类树：三级（漏洞大类 → 漏洞类型 → 子类），叶子节点绑定 exploitId ----
+
+const expNodeRows = (nodes = [], pathPrefix = '') => {
+  if (!nodes.length) return '<div class="empty">还没有子节点。</div>';
+  return nodes.map((node, index) => {
+    const path = pathPrefix ? `${pathPrefix}.${index}` : `${index}`;
+    const name = text(node.name);
+    return `
+      <div class="collection-row nav-node" data-path="${path}">
+        <div class="row-head">
+          <strong>${getText(node.name) || node.id || '分类节点'}</strong>
+          <div class="row-actions">
+            <button class="icon-btn" type="button" data-action="add-expnode-child" data-path="${path}">子节点</button>
+            <button class="icon-btn" type="button" data-action="move-expnode-node" data-path="${path}" data-direction="up">↑</button>
+            <button class="icon-btn" type="button" data-action="move-expnode-node" data-path="${path}" data-direction="down">↓</button>
+            <button class="icon-btn danger" type="button" data-action="remove-expnode-node" data-path="${path}">删除</button>
+          </div>
+        </div>
+        <div class="form-grid nav-fields" data-path="${path}">
+          ${field(`expnode-${path}-id`, 'ID', node.id || '', { hint: '稳定英文 slug（小写连字符），深链与种子对齐依赖它。' })}
+          ${field(`expnode-${path}-name-zh`, '名称（中文）', name.zh)}
+          ${field(`expnode-${path}-name-en`, '名称（英文）', name.en)}
+          ${field(`expnode-${path}-exploit`, '绑定 EXP ID', node.exploitId || '', { hint: '叶子节点填 EXP-…；分类节点留空。', list: 'exploit-id-options' })}
+        </div>
+        <div class="collection nested-nav">
+          ${expNodeRows(node.children || [], path)}
+        </div>
+      </div>
+    `;
+  }).join('');
+};
+
+const renderExploitNavigationForm = () => {
+  const item = clone(state.draft || selectedItem() || defaultExpNode());
+  const name = text(item.name);
+  // 树绑定候选只列精选/手工层（无 source 标记）：聚合层万级条目按漏洞类型检索发现，不进树绑定下拉
+  const curatedExploits = state.exploits.filter(exploitItem => !exploitItem.source || exploitItem.source === 'curated');
+  const body = `
+    ${datalist('exploit-id-options', curatedExploits)}
+    ${section('根节点', '每个根节点是一棵漏洞分类树，建议按漏洞大类（Web 应用 / 中间件 / 权限提升…）组织。', `
+      <div class="form-grid">
+        ${field('expnode-root-id', 'ID', item.id, { readonly: true, hint: '稳定标识，由系统生成，不可修改。' })}
+        ${field('expnode-root-name-zh', '名称（中文）', name.zh)}
+        ${field('expnode-root-name-en', '名称（英文）', name.en)}
+        ${field('expnode-root-exploit', '绑定 EXP ID', item.exploitId || '', { hint: '根节点通常不需要绑定。', list: 'exploit-id-options' })}
+      </div>
+    `)}
+    ${section('子节点', '用按钮添加、删除和调整分类层级，不需要手写树结构。', `
+      <div class="collection nested-nav root-nav">
+        ${expNodeRows(item.children || [])}
+      </div>
+    `, '<button class="btn" type="button" data-action="add-expnode-root-child">添加子节点</button>')}
+    <div class="form-actions">
+      <button class="btn primary" type="submit">保存 EXP 分类树</button>
       <button class="btn" type="button" id="cancel-item">取消修改</button>
     </div>
   `;
@@ -1903,6 +2219,32 @@ const collectNavigation = () => {
   if (payloadId) item.payloadId = payloadId;
   if (toolId) item.toolId = toolId;
   const rootChildren = [...document.querySelectorAll('.root-nav > .nav-node')].map(node => collectNavNode(node.dataset.path));
+  if (rootChildren.length) item.children = rootChildren;
+  return item;
+};
+
+const collectExpNode = path => {
+  const node = {
+    id: $(`expnode-${path}-id`)?.value.trim() || `expnode-${crypto.randomUUID().slice(0, 8)}`,
+    name: makeText($(`expnode-${path}-name-zh`)?.value, $(`expnode-${path}-name-en`)?.value),
+  };
+  const exploitId = $(`expnode-${path}-exploit`)?.value.trim();
+  if (exploitId) node.exploitId = exploitId;
+  const card = document.querySelector(`.nav-node[data-path="${CSS.escape(path)}"]`);
+  const childCards = [...(card?.querySelectorAll(':scope > .nested-nav > .nav-node') || [])];
+  const children = childCards.map(child => collectExpNode(child.dataset.path));
+  if (children.length) node.children = children;
+  return node;
+};
+
+const collectExploitNavigation = () => {
+  const item = {
+    id: $('expnode-root-id')?.value.trim() || defaultExpNode().id,
+    name: makeText($('expnode-root-name-zh')?.value, $('expnode-root-name-en')?.value),
+  };
+  const exploitId = $('expnode-root-exploit')?.value.trim();
+  if (exploitId) item.exploitId = exploitId;
+  const rootChildren = [...document.querySelectorAll('.root-nav > .nav-node')].map(node => collectExpNode(node.dataset.path));
   if (rootChildren.length) item.children = rootChildren;
   return item;
 };
@@ -2018,6 +2360,47 @@ const validateContentInput = item => {
     if (!item.references?.length) return validationFailure('请至少填写一个参考链接', 'tool-references');
   }
 
+  if (state.module === 'exploits' && !isExpTreeSection()) {
+    if (!item.name) return validationFailure('请填写 EXP 标题', 'exploit-name');
+    if (!item.description) return validationFailure('请填写漏洞描述（机理 + 危害 + 触发路径）', 'exploit-desc');
+    if (!item.affected) return validationFailure('请填写影响产品/组件与版本范围', 'exploit-affected');
+    if (!item.vulnerabilityIds?.length) return validationFailure('请至少添加一个漏洞编号（CVE / CNVD / EDB-ID…）', 'exploit-name');
+    if (!item.exploitCode?.some(segment => segment.code?.trim())) {
+      return validationFailure('请至少添加一段利用代码', 'exploit-name');
+    }
+    if (!item.prerequisites) return validationFailure('请填写利用条件与前置说明', 'exploit-prerequisites');
+    if (!item.references?.length) return validationFailure('请至少填写一个参考链接', 'exploit-references');
+    if (!/^\d{4}(-\d{2})?(-\d{2})?$/.test(item.publishedAt || '')) {
+      return validationFailure('公开日期格式应为 YYYY、YYYY-MM 或 YYYY-MM-DD', 'exploit-publishedat');
+    }
+    if (item.treePath) {
+      const leafId = String(item.treePath).split('/').pop();
+      const leafIds = new Set();
+      const walkLeaves = nodes => (nodes || []).forEach(node => (
+        Array.isArray(node.children) && node.children.length ? walkLeaves(node.children) : leafIds.add(node.id)
+      ));
+      walkLeaves(state.exploitNavigation);
+      if (!leafIds.has(leafId)) {
+        return validationFailure('分类挂载无效：分类树中不存在该叶子位置', 'exploit-treepath');
+      }
+    }
+  }
+
+  if (isExpTreeSection()) {
+    const node = item;
+    if (!hasBilingualText(node.name)) return validationFailure('请补全根节点中英文名称', 'expnode-root-name-zh');
+    const flat = [];
+    const walk = (children, depth) => {
+      for (const child of children || []) {
+        flat.push({ depth, hasExploit: Boolean(child.exploitId), name: child.name });
+        walk(child.children, depth + 1);
+      }
+    };
+    walk(node.children, 2);
+    if (flat.length > 40) return validationFailure('分类树层级节点过多（>40），请拆分为多棵根树', 'expnode-root-name-zh');
+    if (flat.some(entry => entry.depth > 4)) return validationFailure('分类层级不能超过三级（大类 → 类型 → 子类）', 'expnode-root-name-zh');
+  }
+
   return true;
 };
 
@@ -2027,6 +2410,8 @@ const collectCurrentForm = () => {
   if (state.module === 'payloads') return collectPayload();
   if (state.module === 'tools') return collectTool();
   if (state.module === 'navigation') return collectNavigation();
+  if (state.module === 'exploits' && !isExpTreeSection()) return collectExploit();
+  if (isExpTreeSection()) return collectExploitNavigation();
   return null;
 };
 
@@ -2038,6 +2423,8 @@ const renderEditor = () => {
     if (state.module === 'payloads') renderPayloadForm();
     if (state.module === 'tools') renderToolForm();
     if (state.module === 'navigation') renderNavigationForm();
+    if (state.module === 'exploits' && !isExpTreeSection()) renderExploitForm();
+    if (isExpTreeSection()) renderExploitNavigationForm();
     if (state.module === 'clientBuilds') renderClientBuildFormV2();
     if (state.module === 'updates') renderVersionUpdateCenter();
     if (state.module === 'account') renderAccountForm();
@@ -2052,6 +2439,8 @@ const itemSummary = item => {
   if (state.module === 'payloads') return getText(item.category) || '未分类';
   if (state.module === 'tools') return `${getText(item.category) || '未分类'} · ${(item.commands || []).length} 条命令`;
   if (state.module === 'navigation') return `${item.kind === 'tools' ? '工具' : 'Payload'} · ${(item.children || []).length} 个子节点`;
+  if (state.module === 'exploits' && !isExpTreeSection()) return `${exploitVulnTypeLabel(item.vulnType || 'uncategorized')} · ${({ critical: '严重', high: '高危', medium: '中危', low: '低危', unknown: '未评级' })[item.severity] || item.severity || '未评级'}`;
+  if (state.module === 'exploitNavigation') return `分类树 · ${(item.children || []).length} 个子节点`;
   return '';
 };
 
@@ -2078,15 +2467,34 @@ const itemMetaParts = item => {
       item.payloadId || item.toolId ? '已绑定目标' : '分类节点',
     ];
   }
+  if (state.module === 'exploits' && !isExpTreeSection()) {
+    return [
+      `${item.severity || 'medium'} · ${item.vulnType || 'uncategorized'}`,
+      (item.vulnerabilityIds || []).map(vid => vid.value).join(' / ') || '无编号',
+      item.publishedAt || '日期未知',
+    ];
+  }
+  if (isExpTreeSection()) {
+    return [
+      'EXP 分类树',
+      `${(item.children || []).length} 个子节点`,
+      item.exploitId ? '已绑定目标' : '分类节点',
+    ];
+  }
   return [];
+};
+
+const itemGroupKey = item => {
+  if (state.module === 'navigation') return item.kind === 'tools' ? '工具命令导航' : 'Payload 导航';
+  if (isExpTreeSection()) return 'EXP 分类树';
+  if (state.module === 'exploits' && !isExpTreeSection()) return item.vulnType || 'uncategorized';
+  return getText(item.category) || '未分类';
 };
 
 const itemGroups = () => {
   const groups = new Map();
   for (const item of activeItems()) {
-    const key = state.module === 'navigation'
-      ? (item.kind === 'tools' ? '工具命令导航' : 'Payload 导航')
-      : (getText(item.category) || '未分类');
+    const key = itemGroupKey(item);
     groups.set(key, (groups.get(key) || 0) + 1);
   }
   return [...groups.entries()];
@@ -2095,11 +2503,11 @@ const itemGroups = () => {
 const filteredItems = () => {
   const query = state.query.trim().toLowerCase();
   return activeItems().filter(item => {
-    const group = state.module === 'navigation'
-      ? (item.kind === 'tools' ? '工具命令导航' : 'Payload 导航')
-      : (getText(item.category) || '未分类');
-    if (state.group && group !== state.group) return false;
+    if (state.group && itemGroupKey(item) !== state.group) return false;
     if (!query) return true;
+    const extra = state.module === 'exploits' && !isExpTreeSection()
+      ? (item.vulnerabilityIds || []).map(vid => `${vid.type} ${vid.value}`).join(' ')
+      : '';
     return [
       item.id,
       getText(item.name),
@@ -2108,6 +2516,11 @@ const filteredItems = () => {
       item.kind,
       item.payloadId,
       item.toolId,
+      item.vulnType,
+      item.severity,
+      item.affected,
+      (item.tags || []).join(' '),
+      extra,
     ].filter(Boolean).join(' ').toLowerCase().includes(query);
   });
 };
@@ -2150,13 +2563,13 @@ const renderList = () => {
   const selectedOutsidePage = items.find((item, index) => index >= visibleItemLimit && item.id === state.selectedId);
   const visibleItems = selectedOutsidePage ? [...firstPage, selectedOutsidePage] : firstPage;
   $('item-count').textContent = visibleItems.length < items.length
-    ? `${visibleItems.length} / ${items.length}`
-    : String(items.length);
+    ? `已加载 ${visibleItems.length} / 共 ${items.length} 条`
+    : `共 ${items.length} 条`;
   const filterSummary = $('filter-summary');
   if (filterSummary) {
     filterSummary.textContent = state.group
-      ? `${state.group} · ${items.length} 条`
-      : `全部分类 · ${items.length} 条`;
+      ? `${state.group} · 共 ${items.length} 条`
+      : `全部分类 · 共 ${items.length} 条`;
   }
   if (state.module === 'settings' || state.module === 'account') {
     list.innerHTML = '<div class="empty">站点设置在右侧直接编辑。</div>';
@@ -2171,6 +2584,7 @@ const renderList = () => {
       <span class="item-main">
         <strong>${escapeHtml(getText(item.name) || item.id)}</strong>
         <small class="item-id">${escapeHtml(item.id)}</small>
+        ${(state.module === 'exploits' && !isExpTreeSection()) && item.enabled === false ? '<small class="item-hidden-badge">已隐藏</small>' : ''}
       </span>
       <span class="item-meta">
         ${itemMetaParts(item).map(part => `<small>${escapeHtml(part)}</small>`).join('')}
@@ -2193,8 +2607,12 @@ const updateTopbar = () => {
   document.body.dataset.dirty = state.dirty ? 'true' : 'false';
   syncNavCollapse();
   $('module-title').textContent = moduleConfig().title;
-  $('list-module-label').textContent = moduleLabels[state.module] || moduleConfig().title;
-  $('list-title').textContent = state.module === 'settings' ? '站点设置' : `${moduleConfig().title}列表`;
+  $('list-module-label').textContent = isExpTreeSection()
+    ? 'EXP 分类树'
+    : (moduleLabels[state.module] || moduleConfig().title);
+  $('list-title').textContent = state.module === 'settings'
+    ? '站点设置'
+    : `${isExpTreeSection() ? 'EXP 分类树' : moduleConfig().title}列表`;
   const dataActions = !isSingletonModule();
   const singletonActions = state.module === 'settings' || state.module === 'account';
   const accountModule = state.module === 'account';
@@ -2237,6 +2655,16 @@ const render = () => {
   }
   const moduleSelect = $('admin-module-select');
   if (moduleSelect && state.module !== 'custom') moduleSelect.value = state.module;
+  // EXP 管理模块内分区条（条目管理 / 分类树）：仅 exploits 模块显示，随分区态高亮
+  const expSectionBar = $('exp-section-bar');
+  if (expSectionBar) {
+    expSectionBar.classList.toggle('hidden', state.module !== 'exploits');
+    for (const button of expSectionBar.querySelectorAll('.exp-section-btn')) {
+      const isActive = button.dataset.section === state.expSection;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+  }
   const updateBadge = $('update-nav-badge');
   const updateAvailable = ['update-available', 'source-update-available'].includes(state.versionStatus?.state);
   if (updateBadge) updateBadge.classList.toggle('hidden', !updateAvailable);
@@ -2319,187 +2747,48 @@ const checkVersionNow = async () => {
   }
 };
 
-// ---- 订阅仓库监控（v2.0.1 GitHub 仓库监控线） ----
-
-const repoMonitorItems = () => (Array.isArray(state.repoMonitorData?.items) ? state.repoMonitorData.items : []);
-
-const mergeRepoMonitorItem = item => {
-  const data = state.repoMonitorData || { items: [], nextCheckAt: null };
-  const items = Array.isArray(data.items) ? [...data.items] : [];
-  const index = items.findIndex(entry => entry.id === item.id);
-  if (index === -1) items.push(item);
-  else items[index] = item;
-  state.repoMonitorData = { ...data, items };
-};
-
-const loadRepoMonitors = async () => {
-  state.repoMonitorData = await api('/api/admin/repo-monitors');
-  if (state.module === 'updates') renderVersionUpdateCenter();
-  return state.repoMonitorData;
-};
-
-const checkRepoMonitor = async id => {
-  if (!id || state.repoMonitorCheckingIds.has(id)) return;
-  state.repoMonitorCheckingIds.add(id);
-  if (state.module === 'updates') renderVersionUpdateCenter();
-  try {
-    const result = await api(`/api/admin/repo-monitors/${encodeURIComponent(id)}/check`, { method: 'POST' });
-    for (const item of (Array.isArray(result?.items) ? result.items : [])) mergeRepoMonitorItem(item);
-  } catch (error) {
-    notice(error.message || '仓库检查失败');
-  } finally {
-    state.repoMonitorCheckingIds.delete(id);
-    if (state.module === 'updates') renderVersionUpdateCenter();
-  }
-};
-
-const checkAllRepoMonitors = async () => {
-  if (state.repoMonitorCheckingAll) return;
-  state.repoMonitorCheckingAll = true;
-  renderVersionUpdateCenter();
-  try {
-    state.repoMonitorData = await api('/api/admin/repo-monitors/check', { method: 'POST' });
-    notice('订阅仓库已全部检查');
-  } catch (error) {
-    notice(error.message || '批量检查失败');
-  } finally {
-    state.repoMonitorCheckingAll = false;
-    if (state.module === 'updates') renderVersionUpdateCenter();
-  }
-};
-
-const addRepoMonitor = async () => {
-  if (state.repoMonitorAdding) return;
-  const input = $('repo-monitor-input');
-  const repository = String(input?.value || '').trim();
-  if (!repository) {
-    notice('请输入仓库（owner/repo 或 GitHub 仓库 URL）');
-    input?.focus();
-    return;
-  }
-  state.repoMonitorAdding = true;
-  const button = document.querySelector('[data-action="add-repo-monitor"]');
-  if (button) button.disabled = true;
-  try {
-    const added = await api('/api/admin/repo-monitors', { method: 'POST', body: JSON.stringify({ repository }) });
-    if (input) input.value = '';
-    mergeRepoMonitorItem(added);
-    if (state.module === 'updates') renderVersionUpdateCenter();
-    notice(`已订阅 ${added.owner}/${added.repository}，正在检查…`);
-    void checkRepoMonitor(added.id);
-  } catch (error) {
-    notice(error.message || '添加订阅失败');
-  } finally {
-    state.repoMonitorAdding = false;
-    const addButton = document.querySelector('[data-action="add-repo-monitor"]');
-    if (addButton) addButton.disabled = false;
-    addButton?.focus?.();
-  }
-};
-
-const removeRepoMonitor = async id => {
-  if (!id) return;
-  const item = repoMonitorItems().find(entry => entry.id === id);
-  const label = item ? `${item.owner}/${item.repository}` : '该订阅';
-  if (!confirm(`确认移除订阅 ${label}？移除后可随时重新添加。`)) return;
-  try {
-    await api(`/api/admin/repo-monitors/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    const data = state.repoMonitorData || { items: [], nextCheckAt: null };
-    state.repoMonitorData = { ...data, items: repoMonitorItems().filter(entry => entry.id !== id) };
-    notice(`已移除 ${label}`);
-    renderVersionUpdateCenter();
-  } catch (error) {
-    notice(error.message || '移除订阅失败');
-  }
-};
-
-const renderRepoMonitorSection = () => {
-  const items = repoMonitorItems();
-  const checkingAll = state.repoMonitorCheckingAll;
-  const nextCheckAt = state.repoMonitorData?.nextCheckAt || null;
-  const rows = items.map(item => {
-    const status = item.status || {};
-    const checking = state.repoMonitorCheckingIds.has(item.id) || status.state === 'checking';
-    const release = status.release || null;
-    const commit = status.commit || null;
-    const error = status.error || null;
-    const releaseText = release
-      ? `${release.tag || release.title || 'Release'}${release.updatedAt ? ` · ${formatVersionDate(release.updatedAt, '')}` : ''}`
-      : (status.state === 'checked' ? '无 Release' : '—');
-    // 提交行分层：7 位短码徽标 + 标题（可截断）+ 时间（右对齐不换行）
-    const commitMarkup = commit
-      ? `<span class="au-commit"><code class="au-sha">${escapeHtml((commit.shaShort || commit.sha || '').slice(0, 7))}</code><span class="au-commit-title" title="${escapeHtml(commit.message || '')}">${escapeHtml(commit.message || '—')}</span>${commit.committedAt ? `<span class="au-commit-time">${escapeHtml(formatVersionDate(commit.committedAt, ''))}</span>` : ''}</span>`
-      : '—';
-    const stateBadge = checking
-      ? '<span class="repo-monitor-state">正在检查…</span>'
-      : status.state === 'error'
-        ? '<span class="repo-monitor-badge danger">检查失败</span>'
-        : status.state === 'checked' && status.changed
-          ? '<span class="repo-monitor-badge fresh">有新动态</span>'
-          : '';
-    return `
-      <li class="repo-monitor-item" data-id="${escapeHtml(item.id)}">
-        <div class="repo-monitor-item-main">
-          <div class="repo-monitor-item-title">
-            <a href="${escapeHtml(item.githubUrl || `https://github.com/${item.owner}/${item.repository}`)}" target="_blank" rel="noopener">${escapeHtml(item.owner)}/${escapeHtml(item.repository)}</a>
-            ${item.preset ? '<span class="repo-monitor-badge">预置</span>' : ''}
-            ${stateBadge}
-          </div>
-          ${item.note ? `<p class="repo-monitor-note">${escapeHtml(item.note)}</p>` : ''}
-          <dl>
-            <div><dt>最新 Release</dt><dd>${escapeHtml(releaseText)}</dd></div>
-            <div><dt>最新提交</dt><dd class="au-commit-cell">${commitMarkup}</dd></div>
-            <div><dt>上次检查</dt><dd>${escapeHtml(formatVersionDate(status.checkedAt))}</dd></div>
-          </dl>
-          ${error ? `<p class="repo-monitor-error"><strong>检查失败</strong>${escapeHtml(engineErrorText(error))}</p>` : ''}
-        </div>
-        <div class="repo-monitor-item-actions">
-          <button class="btn" type="button" data-action="check-repo-monitor" data-id="${escapeHtml(item.id)}" ${checking || checkingAll ? 'disabled' : ''}>${checking ? '检查中' : '检查'}</button>
-          <button class="btn" type="button" data-action="remove-repo-monitor" data-id="${escapeHtml(item.id)}" ${checkingAll ? 'disabled' : ''}>移除</button>
-        </div>
-      </li>`;
-  }).join('');
-
-  return `
-    <section class="repo-monitor-section">
-      <header class="repo-monitor-head">
-        <div>
-          <h4>订阅仓库监控</h4>
-          <p>跟踪任意 GitHub 内容源仓库的 Release 与默认分支提交动态（Atom 通道，不占 API 配额）。${nextCheckAt ? `下次自动检查：${escapeHtml(formatVersionDate(nextCheckAt, ''))}。` : '尚未计划自动检查。'}</p>
-        </div>
-        <button class="btn" type="button" data-action="check-all-repo-monitors" ${checkingAll || !items.length ? 'disabled' : ''}>${checkingAll ? '正在检查全部…' : '全部检查'}</button>
-      </header>
-      <div class="repo-monitor-add">
-        <input id="repo-monitor-input" type="text" placeholder="owner/repo 或 https://github.com/owner/repo" maxlength="300" autocomplete="off" spellcheck="false">
-        <button class="btn primary" type="button" data-action="add-repo-monitor"${state.repoMonitorAdding ? ' disabled' : ''}>添加订阅</button>
-      </div>
-      ${items.length ? `<ul class="repo-monitor-list">${rows}</ul>` : '<p class="repo-monitor-empty">暂无订阅仓库，输入 owner/repo 添加。</p>'}
-    </section>
-  `;
-};
-
 const loadAll = async () => {
   await loadSession();
+  // 强制改密状态：其余管理端点会被服务端 403 拦截，只加载豁免的凭据信息并锁在账号安全模块
+  if (state.mustChangePassword) {
+    state.loading = true;
+    updateTopbar();
+    try {
+      state.account = await api('/api/admin/credentials');
+      state.module = 'account';
+      state.draft = null;
+      state.dirty = false;
+      state.mobileView = defaultMobileView('account');
+      render();
+      notice('当前仍在使用默认管理员密码：请先修改密码，修改后需重新登录');
+    } finally {
+      state.loading = false;
+      updateTopbar();
+    }
+    return;
+  }
   state.loading = true;
   updateTopbar();
   try {
-    const [settings, payloads, tools, navigation, clientBuildStatus, versionStatus, account, repoMonitorData] = await Promise.all([
+    const [settings, payloads, tools, navigation, exploits, exploitNavigation, clientBuildStatus, versionStatus, account] = await Promise.all([
       api('/api/admin/settings'),
       api('/api/admin/payloads'),
       api('/api/admin/tools'),
       api('/api/admin/navigation'),
+      api('/api/admin/exploits'),
+      api('/api/admin/exploit_navigation'),
       api('/api/admin/client-builds/status'),
       api('/api/admin/version-status'),
       api('/api/admin/credentials'),
-      api('/api/admin/repo-monitors'),
     ]);
     state.settings = settings || defaultSettings();
     state.payloads = Array.isArray(payloads.items) ? payloads.items : [];
     state.tools = Array.isArray(tools.items) ? tools.items : [];
     state.navigation = Array.isArray(navigation.items) ? navigation.items : [];
+    state.exploits = Array.isArray(exploits.items) ? exploits.items : [];
+    state.exploitNavigation = Array.isArray(exploitNavigation.items) ? exploitNavigation.items : [];
     state.clientBuildStatus = clientBuildStatus;
     state.versionStatus = versionStatus;
-    state.repoMonitorData = repoMonitorData;
     state.account = account;
     if (!isSingletonModule() && !selectedItem()) {
       state.selectedId = activeItems()[0]?.id || null;
@@ -2546,7 +2835,7 @@ const saveCurrent = async () => {
 
     const existing = selectedItem();
     const method = existing && existing.id === item.id ? 'PUT' : 'POST';
-    const url = method === 'PUT' ? `${moduleConfig().api}/${encodeURIComponent(item.id)}` : moduleConfig().api;
+    const url = method === 'PUT' ? `${resourceApi()}/${encodeURIComponent(item.id)}` : resourceApi();
     const saved = await api(url, { method, body: JSON.stringify(item) });
     state.selectedId = saved.id;
     await loadAll();
@@ -2558,11 +2847,13 @@ const saveCurrent = async () => {
   }
 };
 
-const newItem = () => {
-  if (!confirmDiscard()) return;
+const newItem = async () => {
+  if (!(await confirmDiscard())) return;
   if (state.module === 'payloads') state.draft = defaultPayload();
   if (state.module === 'tools') state.draft = defaultTool();
   if (state.module === 'navigation') state.draft = defaultNav();
+  if (state.module === 'exploits' && !isExpTreeSection()) state.draft = defaultExploit();
+  if (isExpTreeSection()) state.draft = defaultExpNode();
   state.selectedId = null;
   state.activeSectionTitle = null;
   state.logoUploadMeta = null;
@@ -2572,17 +2863,17 @@ const newItem = () => {
 };
 
 const moveSelected = async direction => {
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   const item = selectedItem();
   if (!item || state.module === 'settings') return;
   state.saving = true;
   updateTopbar();
   try {
-    const data = await api(`${moduleConfig().api}/${encodeURIComponent(item.id)}/move`, {
+    const data = await api(`${resourceApi()}/${encodeURIComponent(item.id)}/move`, {
       method: 'POST',
       body: JSON.stringify({ direction }),
     });
-    state[state.module] = Array.isArray(data.items) ? data.items : activeItems();
+    state[resourceStateKey()] = Array.isArray(data.items) ? data.items : activeItems();
     render();
   } finally {
     state.saving = false;
@@ -2591,14 +2882,20 @@ const moveSelected = async direction => {
 };
 
 const deleteSelected = async () => {
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   const item = selectedItem();
   if (!item || state.module === 'settings') return;
-  if (!confirm(`确认删除 ${getText(item.name) || item.id}？`)) return;
+  if (!(await requestConfirm({
+    title: '删除当前记录',
+    messageHtml: `确认删除 <strong>${escapeHtml(getText(item.name) || item.id)}</strong>？删除后不可恢复。`,
+    confirmLabel: '删除',
+    danger: true,
+    requireText: item.id,
+  }))) return;
   state.saving = true;
   updateTopbar();
   try {
-    await api(`${moduleConfig().api}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    await api(`${resourceApi()}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
     state.selectedId = null;
     await loadAll();
     state.mobileView = defaultMobileView(state.module);
@@ -2615,7 +2912,7 @@ const resetCurrent = async target => {
   updateTopbar();
   try {
     const impact = await api(`/api/admin/reset-impact?target=${encodeURIComponent(target)}`);
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
 
     if (!impact?.before || !impact?.seed || !impact?.delta || !Array.isArray(impact?.affected)) {
       throw new Error('无法读取完整的重置影响预览，请稍后重试');
@@ -2627,6 +2924,8 @@ const resetCurrent = async target => {
       navigation: 'Payload 导航节点',
       toolNavigation: '工具导航节点',
       settings: '站点设置',
+      exploits: 'EXP 条目',
+      exploitNavigation: 'EXP 分类树节点',
     };
     const impactLines = impact.affected.map(scope => {
       const before = Number(impact.before[scope] || 0);
@@ -2647,17 +2946,18 @@ const resetCurrent = async target => {
     const resetScope = isAll
       ? '这会把站点设置、Payload、工具命令和导航树全部重置为内置默认数据。'
       : `这会把当前模块「${moduleConfig().title}」重置为内置默认数据。`;
-    const confirmed = confirm([
-      resetScope,
-      '',
-      '重置影响预览：',
-      ...impactLines,
-      '',
-      '系统会在写入默认数据前先创建数据库备份；重置成功后会显示备份文件位置。',
-      '现有已保存数据会被覆盖，未保存修改也会丢失。',
-      '',
-      '确认继续吗？',
-    ].join('\n'));
+    const confirmed = await requestConfirm({
+      title: isAll ? '重置全部数据' : '重置当前模块',
+      messageHtml: [
+        escapeHtml(resetScope),
+        '<strong>重置影响预览：</strong>',
+        `<ul class="confirm-modal-list">${impactLines.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`,
+        escapeHtml('系统会在写入默认数据前先创建数据库备份；重置成功后会显示备份文件位置。现有已保存数据会被覆盖，未保存修改也会丢失。'),
+      ].join(''),
+      confirmLabel: '确认重置',
+      danger: true,
+      requireText: isAll ? 'RESET ALL' : 'RESET',
+    });
     if (!confirmed) return;
 
     const result = await api('/api/admin/reset-defaults', { method: 'POST', body: JSON.stringify({ target }) });
@@ -2677,9 +2977,9 @@ const resetCurrent = async target => {
   }
 };
 
-const cancelCurrentEdit = () => {
+const cancelCurrentEdit = async () => {
   if (!state.dirty && !state.draft) return;
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   if (state.module === 'account') {
     state.draft = null;
     state.activeSectionTitle = null;
@@ -2807,7 +3107,7 @@ const commandAt = (draft, sectionName, commandIndex) => {
   return list[index];
 };
 
-document.addEventListener('click', event => {
+document.addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button) return;
 
@@ -2818,36 +3118,57 @@ document.addEventListener('click', event => {
     return;
   }
 
+  // 密码显示/隐藏切换（对齐登录页眼睛按钮的交互）：键盘激活不抢焦点，指针点击回焦输入框
+  if (button.dataset.action === 'toggle-password-visibility') {
+    const input = $(button.dataset.target);
+    if (!input) return;
+    const visible = input.type === 'password';
+    input.type = visible ? 'text' : 'password';
+    button.setAttribute('aria-pressed', String(visible));
+    button.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
+    const showIcon = button.querySelector('[data-eye="show"]');
+    const hideIcon = button.querySelector('[data-eye="hide"]');
+    if (showIcon) showIcon.hidden = visible;
+    if (hideIcon) hideIcon.hidden = !visible;
+    if (event.detail > 0) input.focus();
+    return;
+  }
+
   if (button.dataset.action === 'check-version') {
     checkVersionNow().catch(error => notice(error.message || '版本检查失败'));
     return;
   }
 
-  if (button.dataset.action === 'add-repo-monitor') {
-    void addRepoMonitor();
-    return;
-  }
-
-  if (button.dataset.action === 'check-all-repo-monitors') {
-    void checkAllRepoMonitors();
-    return;
-  }
-
-  if (button.dataset.action === 'check-repo-monitor') {
-    void checkRepoMonitor(button.dataset.id);
-    return;
-  }
-
-  if (button.dataset.action === 'remove-repo-monitor') {
-    void removeRepoMonitor(button.dataset.id);
+  if (button.matches('.exp-section-btn')) {
+    // EXP 管理模块内分区切换（条目管理 / 分类树）：切数据面，模块保持 exploits
+    if (state.module !== 'exploits') return;
+    const nextSection = button.dataset.section === 'tree' ? 'tree' : 'items';
+    if (nextSection === state.expSection) return;
+    if (!(await confirmDiscard())) return;
+    state.expSection = nextSection;
+    // 默认选中该分区第一项：避免树分区落进"空编辑器"无从下手
+    state.selectedId = activeItems()[0]?.id || null;
+    state.query = '';
+    state.group = '';
+    state.visibleItemLimit = itemListPageSize;
+    state.draft = null;
+    state.activeSectionTitle = null;
+    state.dirty = false;
+    $('search').value = '';
+    render();
     return;
   }
 
   if (button.matches('.module-btn')) {
     const nextModule = button.dataset.module;
     if (!nextModule || nextModule === state.module) return;
-    if (!confirmDiscard()) return;
+    if (state.mustChangePassword && nextModule !== 'account') {
+      notice('请先完成默认密码修改，再访问其他模块');
+      return;
+    }
+    if (!(await confirmDiscard())) return;
     state.module = nextModule;
+    if (nextModule === 'exploits') state.expSection = 'items';
     state.selectedId = singletonModules.has(nextModule) ? null : activeItems()[0]?.id || null;
     state.query = '';
     state.group = '';
@@ -2864,7 +3185,6 @@ document.addEventListener('click', event => {
     }
     if (state.module === 'updates') {
       loadVersionStatus({ quiet: true }).catch(error => notice(error.message || '读取版本状态失败'));
-      loadRepoMonitors().catch(error => notice(error.message || '读取订阅仓库失败'));
     }
     return;
   }
@@ -2911,7 +3231,7 @@ document.addEventListener('click', event => {
       setMobileView('editor');
       return;
     }
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
     state.selectedId = button.dataset.id;
     state.draft = null;
     state.activeSectionTitle = null;
@@ -3080,6 +3400,77 @@ document.addEventListener('click', event => {
       swapArrayItem(list, navPathParts(button.dataset.path).at(-1), button.dataset.direction);
     });
   }
+
+  // ---- EXP 表单：行增删直接操作 DOM（DOM 即编辑态，保存时全量收集）----
+  if (action === 'add-exp-vuln') {
+    const collection = $('editor-form')?.querySelector('.exp-row-card[data-section="vulnerabilityIds"]')?.parentElement;
+    if (!collection) return;
+    const nextIndex = Math.max(-1, [...collection.querySelectorAll('.exp-row-card[data-section="vulnerabilityIds"]')]
+      .map(row => Number(row.dataset.index)).reduce((a, b) => Math.max(a, b), -1)) + 1;
+    collection.insertAdjacentHTML('beforeend', exploitVulnIdRow({}, nextIndex));
+    setDirty(true);
+    return;
+  }
+
+  if (action === 'remove-exp-vuln') {
+    button.closest('.exp-row-card[data-section="vulnerabilityIds"]')?.remove();
+    setDirty(true);
+    return;
+  }
+
+  if (action === 'add-exp-code') {
+    const collection = $('editor-form')?.querySelector('.exp-row-card[data-section="exploitCode"]')?.parentElement;
+    if (!collection) return;
+    const nextIndex = [...collection.querySelectorAll('.exp-row-card[data-section="exploitCode"]')]
+      .map(row => Number(row.dataset.index)).reduce((a, b) => Math.max(a, b), -1) + 1;
+    collection.insertAdjacentHTML('beforeend', exploitCodeRow({}, nextIndex));
+    setDirty(true);
+    return;
+  }
+
+  if (action === 'remove-exp-code') {
+    button.closest('.exp-row-card[data-section="exploitCode"]')?.remove();
+    setDirty(true);
+    return;
+  }
+
+  if (action === 'restore-exploit') {
+    const id = $('exploit-id')?.value.trim();
+    if (!id) return;
+    api(`/api/admin/exploits/${encodeURIComponent(id)}/restore`, { method: 'POST' })
+      .then(() => loadAll())
+      .then(() => notice('已恢复显示'))
+      .catch(error => notice(error.message || '恢复失败'));
+    return;
+  }
+
+  if (action === 'add-expnode-root-child') {
+    mutateDraft(draft => {
+      draft.children = Array.isArray(draft.children) ? draft.children : [];
+      draft.children.push(defaultExpNode());
+    });
+  }
+
+  if (action === 'add-expnode-child') {
+    mutateDraft(draft => {
+      const list = getNavListAtPath(draft, button.dataset.path);
+      list.push(defaultExpNode());
+    });
+  }
+
+  if (action === 'remove-expnode-node') {
+    mutateDraft(draft => {
+      const list = getNavListAtPath(draft, button.dataset.path, true);
+      list.splice(navPathParts(button.dataset.path).at(-1), 1);
+    });
+  }
+
+  if (action === 'move-expnode-node') {
+    mutateDraft(draft => {
+      const list = getNavListAtPath(draft, button.dataset.path, true);
+      swapArrayItem(list, navPathParts(button.dataset.path).at(-1), button.dataset.direction);
+    });
+  }
 });
 
 $('editor-form').addEventListener('submit', event => {
@@ -3092,6 +3483,7 @@ $('editor-form').addEventListener('input', () => {
   if (state.module === 'clientBuilds' || state.module === 'updates') return;
   if (state.rendering || state.loading || state.saving) return;
   if (state.module === 'account') {
+    syncPasswordMatchHint();
     setDirty(true);
     return;
   }
@@ -3147,6 +3539,18 @@ $('logout-admin').onclick = () => logoutAdmin();
 $('reset-module').onclick = () => resetCurrent(moduleConfig().reset).catch(error => notice(error.message || '重置默认数据失败'));
 $('reset-all').onclick = () => resetCurrent('all').catch(error => notice(error.message || '重置默认数据失败'));
 $('close-import').onclick = closeImportModal;
+$('confirm-modal-cancel').onclick = () => closeConfirmModal(false);
+$('confirm-modal-confirm').onclick = () => closeConfirmModal(true);
+$('confirm-modal-gate-input').oninput = event => {
+  const confirmButton = $('confirm-modal-confirm');
+  if (confirmButton) confirmButton.disabled = String(event.target.value || '') !== confirmModal.requireText;
+};
+$('confirm-modal-gate-input').onkeydown = event => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  const confirmButton = $('confirm-modal-confirm');
+  if (confirmButton && !confirmButton.disabled) closeConfirmModal(true);
+};
 $('download-template').onclick = () => downloadImportTemplate().catch(error => notice(error.message || '下载导入模板失败'));
 $('preview-import').onclick = () => previewImportData().catch(error => notice(error.message || '导入预览失败'));
 $('run-import').onclick = () => runImportData().catch(error => notice(error.message || '数据导入失败'));
@@ -3207,15 +3611,17 @@ document.addEventListener('click', event => {
   if (event.target?.id === 'import-modal') {
     closeImportModal();
   }
+  if (event.target?.id === 'confirm-modal') {
+    closeConfirmModal(false);
+  }
   if (!event.target.closest('.more-actions') || event.target.closest('.action-menu-item')) {
     setMoreActionsOpen(false);
   }
 });
 
 document.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && event.target?.id === 'repo-monitor-input') {
-    event.preventDefault();
-    void addRepoMonitor();
+  if (event.key === 'Escape' && confirmModal.open) {
+    closeConfirmModal(false);
     return;
   }
   if (event.key === 'Escape' && $('more-actions').getAttribute('aria-expanded') === 'true') {

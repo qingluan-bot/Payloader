@@ -144,8 +144,8 @@
   }
 
   .pwn-intro {
-    border: 1px dashed rgba(0, 240, 255, 0.3);
-    border-radius: 8px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 6px;
     background: var(--bg-card);
     padding: 12px 14px;
     display: grid;

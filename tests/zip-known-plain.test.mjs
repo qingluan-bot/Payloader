@@ -229,3 +229,48 @@ test('⑦ 防呆：明文不足 8 字节 / 密文过短 / 非法 offset / 非法
   assert.throws(() => knownPlainTextAttack(cipher, content.slice(0, 8), { timeBudgetMs: -5 }), /timeBudgetMs/);
   assert.throws(() => knownPlainTextAttack(cipher, content.slice(0, 8), { offset: 1000 }), /密文长度不足/);
 });
+
+// ---- 性能包络与进度位次（真实位次分布，不前置构造真根）----
+
+// 大已知明文的随机位次向量：header 由独立 prng 种子生成（无 findEarlyRootPassword 前置化），
+// 真根落在根表随机位次。2048B 实测：roots≈4848、真根位次 1022（21%）、命中 55.6s。
+test('⑧ 随机位次性能向量（2048B 已知明文，真根不前置）：预算内命中 + plaintext 逐字节一致', { timeout: 300000 }, () => {
+  const prng = makePrng(0x0a11ce);
+  const header = Array.from({ length: 12 }, () => (prng() * 256) | 0);
+  const known = Uint8Array.from(
+    Buffer.from('A'.repeat(2048).split('').map((c, i) => (i % 2 ? 0x41 + (i % 20) : 0x50 + (i % 30)))),
+  );
+  const rest = Uint8Array.from(Buffer.from('Z'.repeat(64)));
+  const content = Uint8Array.from(Buffer.concat([Buffer.from(known), Buffer.from(rest)]));
+  const crc = crcOf(content);
+  header[10] = (crc >>> 16) & 0xff;
+  header[11] = (crc >>> 24) & 0xff;
+  const cipher = zipCryptoCrypt(Uint8Array.from([...header, ...content]), 'kp2048rand');
+  const result = knownPlainTextAttack(cipher, known, {
+    checkByte10: (crc >>> 16) & 0xff,
+    checkByte11: (crc >>> 24) & 0xff,
+    timeBudgetMs: 300000,
+  });
+  assert.ok(result.keys, '2048B 随机位次向量应在 300s 预算内命中（实测 ~56s @ 位次 21%）');
+  assert.equal(result.rootsTotal > 1000, true, '根表应为千级（随机位次成立的规模前提）');
+  assert.ok(result.rootsScanned > 100, '真根位次应远离表头（非前置构造）');
+  assert.deepEqual(Array.from(result.plaintext), Array.from(content), 'plaintext 应逐字节一致');
+  console.log(`  2048B 随机位次：roots=${result.rootsTotal} 位次=${result.rootsScanned}，耗时 ${result.elapsedMs}ms（≈${(result.elapsedMs / result.rootsScanned).toFixed(1)}ms/根）`);
+});
+
+test('⑨ 预算耗尽回报根表位次：512B 随机位次向量小预算截断后 rootsTotal/rootsScanned 可用', () => {
+  const prng = makePrng(0x5eedc0de);
+  const header = Array.from({ length: 12 }, () => (prng() * 256) | 0);
+  const known = Uint8Array.from(
+    Buffer.from('A'.repeat(512).split('').map((c, i) => (i % 2 ? 0x41 + (i % 20) : 0x50 + (i % 30)))),
+  );
+  const content = Uint8Array.from(Buffer.concat([Buffer.from(known), Buffer.from('Z'.repeat(64), 'latin1')]));
+  const crc = crcOf(content);
+  header[10] = (crc >>> 16) & 0xff;
+  header[11] = (crc >>> 24) & 0xff;
+  const cipher = zipCryptoCrypt(Uint8Array.from([...header, ...content]), 'kp512rand');
+  const result = knownPlainTextAttack(cipher, known, { timeBudgetMs: 8000 });
+  assert.equal(result.keys, null, '512B 随机位次向量 8s 预算内应未及真根（单根 ~55ms × 万级根表）');
+  assert.ok(result.rootsTotal >= 1000, `根表规模应千级，实际 ${result.rootsTotal}`);
+  assert.ok(result.rootsScanned >= 1 && result.rootsScanned < result.rootsTotal, 'rootsScanned 应落在 (0, rootsTotal) 区间');
+});

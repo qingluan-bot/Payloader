@@ -147,13 +147,71 @@ test('runtime validates an external package and rejects a tampered file descript
   });
 
   const loaded = await loadExternalDeploymentPackage([destination]);
-  assert.equal(loaded.root, destination);
-  assert.equal(loaded.publicDataPath, join(destination, 'public-data.json'));
-  assert.equal(loaded.customToolsPath, join(destination, 'custom-tools.json'));
+  // Windows 会对 TEMP 路径做真实大小写还原（C:\WINDOWS 与 C:\Windows 随环境波动），大小写不敏感比较
+  assert.equal(loaded.root.toLowerCase(), destination.toLowerCase());
+  assert.equal(loaded.publicDataPath.toLowerCase(), join(destination, 'public-data.json').toLowerCase());
+  assert.equal(loaded.customToolsPath.toLowerCase(), join(destination, 'custom-tools.json').toLowerCase());
 
   const manifestPath = join(destination, 'manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   manifest.files['public-data.json'].size += 1;
   await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
   await assert.rejects(() => loadExternalDeploymentPackage([destination]), /size mismatch/i);
+});
+
+test('P1-2 snapshot extras: payload details and search corpus ride the manifest and resolve at runtime', async t => {
+  const root = await makeTemp('extras');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const destination = join(root, 'deployment.payloader');
+  const payloadDetails = [{ id: 'payload-1', name: { zh: '测试', en: 'Test' }, execution: [{ title: { zh: '执行', en: 'Run' }, command: 'id' }] }];
+  const payloadSearchCorpus = { version: 1, entries: [{ id: 'payload-1', text: 'id' }] };
+
+  const result = await writeClientDeploymentPackage({
+    destination,
+    publicData: publicDataFixture(''),
+    payloadDetails,
+    payloadSearchCorpus,
+    generatedAt: '2026-07-13T00:00:00.000Z',
+  });
+
+  // 新包：四个文件全部落盘，manifest 携带哈希与体积，运行时可解析出对应路径
+  const manifest = JSON.parse(await readFile(join(destination, 'manifest.json'), 'utf8'));
+  for (const fileName of ['public-data.json', 'custom-tools.json', 'payload-details.json', 'payload-search-corpus.json']) {
+    assert.equal(manifest.files[fileName].size > 0, true, `${fileName} 应有非零体积`);
+    assert.match(manifest.files[fileName].sha256, /^[a-f0-9]{64}$/);
+  }
+  const detailsOnDisk = JSON.parse(await readFile(join(destination, 'payload-details.json'), 'utf8'));
+  assert.deepEqual(detailsOnDisk, payloadDetails);
+  const corpusOnDisk = JSON.parse(await readFile(join(destination, 'payload-search-corpus.json'), 'utf8'));
+  assert.deepEqual(corpusOnDisk, payloadSearchCorpus);
+  assert.equal(validateClientDeploymentManifest(manifest), manifest);
+  const loaded = await loadExternalDeploymentPackage([destination]);
+  assert.equal(loaded.payloadDetailsPath.toLowerCase(), join(destination, 'payload-details.json').toLowerCase());
+  assert.equal(loaded.searchCorpusPath.toLowerCase(), join(destination, 'payload-search-corpus.json').toLowerCase());
+  assert.ok(result.manifest);
+
+  // 旧形态包（不传 extras）：两个可选文件缺席，运行时解析为 null，端点回落 404
+  const legacyDestination = join(root, 'legacy.deployment.payloader');
+  await writeClientDeploymentPackage({
+    destination: legacyDestination,
+    publicData: publicDataFixture(''),
+    generatedAt: '2026-07-13T00:00:00.000Z',
+  });
+  const legacyLoaded = await loadExternalDeploymentPackage([legacyDestination]);
+  assert.equal(legacyLoaded.payloadDetailsPath, null);
+  assert.equal(legacyLoaded.searchCorpusPath, null);
+
+  // 类型违规：extras 形状错误直接拒绝
+  await assert.rejects(() => writeClientDeploymentPackage({
+    destination: join(root, 'bad.deployment.payloader'),
+    publicData: publicDataFixture(''),
+    payloadDetails: { not: 'an array' },
+    generatedAt: '2026-07-13T00:00:00.000Z',
+  }), /payload details must be an array/i);
+  await assert.rejects(() => writeClientDeploymentPackage({
+    destination: join(root, 'bad2.deployment.payloader'),
+    publicData: publicDataFixture(''),
+    payloadSearchCorpus: ['not', 'an object'],
+    generatedAt: '2026-07-13T00:00:00.000Z',
+  }), /search corpus must be an object/i);
 });

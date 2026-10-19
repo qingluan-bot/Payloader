@@ -109,6 +109,31 @@ test('checksec 每项建议文案完整', () => {
   }
 });
 
+test('fortify：动态链接二进制的 __*_chk UNDEF 导入计入（P1-13 回归锚，对齐 pwntools checksec）', () => {
+  // sample-ls.elf 有 9 个 __*_chk UNDEF 导入（__printf_chk/__memcpy_chk/__snprintf_chk/
+  // __vfprintf_chk/__memmove_chk 等），pwntools checksec 报 FORTIFY=yes——此前 defined 过滤误报 No
+  const elf = parseElf(lsBytes);
+  const by = Object.fromEntries(elf.checksec.map(item => [item.key, item]));
+  const chkImports = elf.dynamicSymbols.filter(s => !s.defined && /_chk$/.test(s.name) && s.name !== '__stack_chk_fail');
+  assert.equal(chkImports.length, 9, `UNDEF _chk 导入数应为 9：${chkImports.map(s => s.name).join(',')}`);
+  assert.match(by.fortify.value, /^Enabled（9 处 _chk）$/, `fortify=${by.fortify.value}`);
+  // __stack_chk_fail 是 canary 符号，不得计入 fortify
+  const counts = Number.parseInt(by.fortify.value.match(/(\d+)/)[1], 10);
+  assert.equal(counts, chkImports.length);
+});
+
+test('fortify：defined 的 _chk 符号同样计数（静态/提供方形态不回归）', () => {
+  // sample-libc.so 的 _chk 全是 DEFINED（glibc 是 _chk 实现提供方，87 个）——
+  // 去掉 defined 过滤后仍须计数（回归防护：名单扩充不得丢 defined 通道）
+  const elf = parseElf(libcBytes);
+  const by = Object.fromEntries(elf.checksec.map(item => [item.key, item]));
+  const definedChk = elf.dynamicSymbols.filter(s => s.defined && /_chk$/.test(s.name));
+  assert.ok(definedChk.length >= 80, `libc defined _chk 规模异常：${definedChk.length}`);
+  assert.match(by.fortify.value, /^Enabled（\d+ 处 _chk）$/, `fortify=${by.fortify.value}`);
+  const counted = Number.parseInt(by.fortify.value.match(/(\d+)/)[1], 10);
+  assert.ok(counted >= 10, `libc fortify 计数过低：${counted}`);
+});
+
 test('32 位合成 ELF：ELF32 头字段解析走通', () => {
   // 手工合成 ELF32 小端 ET_EXEC / EM_386，一个 PT_LOAD phdr（0x8048000 R-X）。
   const buf = new Uint8Array(52 + 32);

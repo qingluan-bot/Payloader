@@ -5,6 +5,9 @@ import './styles/global.css';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
+import MobileNav from './components/MobileNav';
+import CopyToast from './components/CopyToast';
+import { MOBILE_BREAKPOINT, useMediaQuery } from './components/useMediaQuery';
 import {
   LanguageContext,
   NavContext,
@@ -14,11 +17,16 @@ import {
 } from './appContext';
 import type { ActiveTab, ActiveView, PayloadMode, ThemeMode } from './appContext';
 import { emptyPublicData, parsePublicData } from './data/publicData';
+import { ensurePayloadSearchCorpus, payloadCorpusIsReady } from './data/payloadSearchCorpus';
+import type { PayloadSearchCorpus } from './data/payloadSearchCorpus';
 import type { GlobalVariable, PublicClientBuildInfo, PublicData } from './types';
 import type { Language } from './i18n';
 import { getText } from './i18n';
 import { buildSearchIndex, matchSearchIndex } from './searchIndex';
-import { applyPageSeo, installDeepLinking, syncHashForState } from './utils/seo';
+import { applyPageSeo, installDeepLinking, pushHashForState, readRouteFromHash, syncHashForState } from './utils/seo';
+import type { RouteState } from './utils/seo';
+// 移动端样式必须位于全部组件 import 之后：bundle 内级联压过存量断点规则（见 c699589 同理）
+import './styles/mobile.css';
 
 const LazyEncodingTools = lazy(() => import('./components/EncodingTools'));
 
@@ -47,14 +55,24 @@ function App() {
   const allToolCommands = useMemo(() => publicData.tools, [publicData.tools]);
   const allPayloadNavigation = useMemo(() => publicData.navigation, [publicData.navigation]);
   const allToolNavigation = useMemo(() => publicData.toolNavigation, [publicData.toolNavigation]);
+  const allExploits = useMemo(() => publicData.exploits ?? [], [publicData.exploits]);
+  const allExploitNavigation = useMemo(() => publicData.exploitNavigation ?? [], [publicData.exploitNavigation]);
   const settings = useMemo(() => publicData.settings, [publicData.settings]);
   const ctfCheatsheets = useMemo(() => publicData.ctfCheatsheets ?? {}, [publicData.ctfCheatsheets]);
 
-  const [selectedPayloadId, setSelectedPayloadId] = useState<string | null>(null);
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
-  const [bypassMode, setBypassMode] = useState<PayloadMode>('normal');
-  const [activeTab, setActiveTab] = useState<ActiveTab>('payloads');
-  const [activeView, setActiveView] = useState<ActiveView>('workspace');
+  // 深链初始态：初始 state 直接从 hash 恢复——若等 installDeepLinking 的 effect 恢复，
+  // 先声明的 syncHashForState effect 会用初始值覆写 hash，深链在解析前就被清洗掉
+  const initialRoute = readRouteFromHash();
+  const [selectedPayloadId, setSelectedPayloadId] = useState<string | null>(initialRoute?.payloadId ?? null);
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(initialRoute?.toolId ?? null);
+  const [selectedExploitId, setSelectedExploitId] = useState<string | null>(initialRoute?.exploitId ?? null);
+  const [selectedExploitTypeId, setSelectedExploitTypeId] = useState<string | null>(initialRoute?.exploitTypeId ?? null);
+  // 移动端 payload/工具 分类浏览态（不进 hash，刷新回全部分类）
+  const [mobileCategoryId, setMobileCategoryId] = useState<string | null>(null);
+  const [bypassMode, setBypassMode] = useState<PayloadMode>(initialRoute?.waf ? 'waf' : 'normal');
+  const [activeTab, setActiveTab] = useState<ActiveTab>((initialRoute?.tab as ActiveTab) || 'payloads');
+  // B-6：#/downloads 深链直达下载客户端视图（初始态同 hash 恢复，刷新可用）
+  const [activeView, setActiveView] = useState<ActiveView>(initialRoute?.downloads ? 'clientDownloads' : 'workspace');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const [searchQuery, setSearchQuery] = useState('');
   // CTF 工作台全局密钥（批次 M）：跨工作台实例共享（智能识别 hero ↔ 密码工作台 ↔ 渗透编解码），
@@ -64,15 +82,19 @@ function App() {
   const [language, setLanguage] = useState<Language>('zh');
   const [settledSearchQuery, setSettledSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(settledSearchQuery);
+  // P1-2 搜索语料：命令文本延迟拉取（空闲预取 + 搜索触发重试），并入 payload 搜索索引
+  const [payloadCommandCorpus, setPayloadCommandCorpus] = useState<PayloadSearchCorpus>(() => new Map());
   const searchIndex = useMemo(
-    () => buildSearchIndex(allPayloads, allToolCommands, language),
-    [allPayloads, allToolCommands, language],
+    () => buildSearchIndex(allPayloads, allToolCommands, allExploits, language, payloadCommandCorpus),
+    [allPayloads, allToolCommands, allExploits, language, payloadCommandCorpus],
   );
   const searchMatches = useMemo(
     () => matchSearchIndex(searchIndex, deferredSearchQuery),
     [deferredSearchQuery, searchIndex],
   );
   const closeSidebar = useCallback(() => setSidebarCollapsed(true), []);
+  // 移动模式（≤768px）：底部导航接管主导航、侧栏不挂载、Header 桌面控件隐藏（mobile.css）。
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -81,6 +103,38 @@ function App() {
     );
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
+
+  // 搜索语料空闲预取：首屏关键路径不受影响；用户直接搜索时由下方 effect 兜底触发
+  useEffect(() => {
+    let isCurrent = true;
+    const apply = (map: PayloadSearchCorpus) => {
+      if (isCurrent && map.size) setPayloadCommandCorpus(map);
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(() => {
+        void ensurePayloadSearchCorpus().then(apply);
+      }, { timeout: 4000 });
+      return () => {
+        isCurrent = false;
+        window.cancelIdleCallback(idleId);
+      };
+    }
+    const timer = window.setTimeout(() => {
+      void ensurePayloadSearchCorpus().then(apply);
+    }, 2500);
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  // 搜索触发兜底：用户键入时语料仍未就绪（预取失败/未跑）则再拉一次（模块内去重+退避）
+  useEffect(() => {
+    if (!deferredSearchQuery.trim() || payloadCorpusIsReady()) return;
+    void ensurePayloadSearchCorpus().then(map => {
+      if (map.size) setPayloadCommandCorpus(map);
+    });
+  }, [deferredSearchQuery]);
 
   // Theme with localStorage persistence
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -124,8 +178,12 @@ function App() {
       const t = allToolCommands.find(item => item.id === selectedToolId);
       return t ? { title: getText(t.name, language), description: getText(t.description, language) } : null;
     }
+    if (selectedExploitId) {
+      const e = allExploits.find(item => item.id === selectedExploitId);
+      return e ? { title: e.name, description: e.description } : null;
+    }
     return null;
-  }, [selectedPayloadId, selectedToolId, allPayloads, allToolCommands, language]);
+  }, [selectedPayloadId, selectedToolId, selectedExploitId, allPayloads, allToolCommands, allExploits, language]);
 
   const fallbackBrowserTitle = getText(settings.browserTitle, language) || 'Payloader';
   const fallbackDescription = language === 'zh'
@@ -141,17 +199,32 @@ function App() {
   }, [language]);
 
   // 深链路由：选中状态 → hash URL（可分享/可收藏）；挂载与后退时从 URL 恢复
+  // B-6：进入下载页用 push 留历史条目（浏览器后退回到原视图），其余选中切换维持 replace
+  const prevViewRef = useRef<ActiveView>(initialRoute?.downloads ? 'clientDownloads' : 'workspace');
   useEffect(() => {
-    syncHashForState({ tab: activeTab, payloadId: selectedPayloadId, toolId: selectedToolId, waf: bypassMode === 'waf' });
-  }, [activeTab, selectedPayloadId, selectedToolId, bypassMode]);
+    const routeState: RouteState = { tab: activeTab, payloadId: selectedPayloadId, toolId: selectedToolId, exploitId: selectedExploitId, exploitTypeId: selectedExploitTypeId, waf: bypassMode === 'waf', downloads: activeView === 'clientDownloads' };
+    const enteringDownloads = activeView === 'clientDownloads' && prevViewRef.current !== 'clientDownloads';
+    prevViewRef.current = activeView;
+    if (enteringDownloads) pushHashForState(routeState);
+    else syncHashForState(routeState);
+  }, [activeTab, activeView, selectedPayloadId, selectedToolId, selectedExploitId, selectedExploitTypeId, bypassMode]);
 
   useEffect(() => installDeepLinking(route => {
     if (!route) return;
-    if (route.tab && route.tab !== activeTab) setActiveTab(route.tab as ActiveTab);
+    // B-6：#/downloads ↔ 工作台视图（后退/前进恢复原视图）；downloads 路由不动 tab
+    if (route.downloads && activeView !== 'clientDownloads') setActiveView('clientDownloads');
+    if (!route.downloads && activeView === 'clientDownloads') setActiveView('workspace');
+    if (route.tab && !route.downloads && route.tab !== activeTab) {
+      setActiveTab(route.tab as ActiveTab);
+      // hash 切 tab 不走 switchTab，移动分类浏览态一并清掉
+      setMobileCategoryId(null);
+    }
     if (route.waf !== (bypassMode === 'waf')) setBypassMode(route.waf ? 'waf' : 'normal');
     if (route.payloadId !== selectedPayloadId) setSelectedPayloadId(route.payloadId);
     if (route.toolId !== selectedToolId) setSelectedToolId(route.toolId);
-  }), [activeTab, bypassMode, selectedPayloadId, selectedToolId]);
+    if (route.exploitId !== selectedExploitId) setSelectedExploitId(route.exploitId);
+    if (route.exploitTypeId !== selectedExploitTypeId) setSelectedExploitTypeId(route.exploitTypeId);
+  }), [activeTab, activeView, bypassMode, selectedPayloadId, selectedToolId, selectedExploitId, selectedExploitTypeId]);
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 900px)');
@@ -264,12 +337,14 @@ function App() {
       allToolCommands,
       allPayloadNavigation,
       allToolNavigation,
+      allExploits,
+      allExploitNavigation,
       settings,
       ctfCheatsheets,
       dataLoading,
       dataError,
     }),
-    [allPayloads, allToolCommands, allPayloadNavigation, allToolNavigation, settings, ctfCheatsheets, dataLoading, dataError],
+    [allPayloads, allToolCommands, allPayloadNavigation, allToolNavigation, allExploits, allExploitNavigation, settings, ctfCheatsheets, dataLoading, dataError],
   );
   const languageValue = useMemo(() => ({ language, setLanguage }), [language]);
   const navValue = useMemo(
@@ -282,26 +357,39 @@ function App() {
       setSelectedPayloadId,
       selectedToolId,
       setSelectedToolId,
+      selectedExploitId,
+      setSelectedExploitId,
+      selectedExploitTypeId,
+      setSelectedExploitTypeId,
+      mobileCategoryId,
+      setMobileCategoryId,
       bypassMode,
       setBypassMode,
     }),
-    [activeTab, activeView, selectedPayloadId, selectedToolId, bypassMode],
+    [activeTab, activeView, selectedPayloadId, selectedToolId, selectedExploitId, selectedExploitTypeId, mobileCategoryId, bypassMode],
   );
   const searchValue = useMemo(
-    () => ({ searchQuery, setSearchQuery, deferredSearchQuery, searchMatches }),
-    [searchQuery, deferredSearchQuery, searchMatches],
+    () => ({ searchQuery, setSearchQuery, deferredSearchQuery, searchMatches, payloadCommandCorpus }),
+    [searchQuery, deferredSearchQuery, searchMatches, payloadCommandCorpus],
   );
   const sessionValue = useMemo(
     () => ({ globalVariables, setGlobalVariables: updateGlobalVariables, theme, setTheme, globalSecret, setGlobalSecret }),
     [globalVariables, updateGlobalVariables, theme, globalSecret],
   );
+  // 编解码工具 slot：桌面头部弹层与移动端「更多」页共用同一份 lazy 内容。
+  const encodingToolsSlot = useMemo(() => (
+    <Suspense fallback={<div className="lazy-loading" role="status" aria-live="polite">正在加载编解码工具...</div>}>
+      <LazyEncodingTools />
+    </Suspense>
+  ), []);
   // 引用稳定回调：内联箭头会在 App 每次渲染（含搜索键入）时换引用，击穿下游 memo。
   const openClientDownloads = useCallback(() => {
     setActiveView('clientDownloads');
     setSelectedPayloadId(null);
     setSelectedToolId(null);
+    setSelectedExploitId(null);
     setSearchQuery('');
-  }, [setActiveView, setSelectedPayloadId, setSelectedToolId, setSearchQuery]);
+  }, [setActiveView, setSelectedPayloadId, setSelectedToolId, setSelectedExploitId, setSearchQuery]);
   const handleSidebarNavigate = useCallback(() => {
     setActiveView('workspace');
     if (window.matchMedia('(max-width: 900px)').matches) {
@@ -322,15 +410,11 @@ function App() {
                   setSidebarCollapsed={setSidebarCollapsed}
                   clientBuildInfo={clientBuildInfo}
                   showClientDownloads={!isPackagedOfflineClient}
-                  encodingTools={(
-                    <Suspense fallback={<div className="lazy-loading" role="status" aria-live="polite">正在加载编解码工具...</div>}>
-                      <LazyEncodingTools />
-                    </Suspense>
-                  )}
+                  encodingTools={encodingToolsSlot}
                   onOpenClientDownloads={openClientDownloads}
                 />
                 <div className="main-layout">
-                  {activeTab !== 'ctf' && (
+                  {!isMobile && activeTab !== 'ctf' && (
                     <>
                       <Sidebar
                         collapsed={sidebarCollapsed}
@@ -346,8 +430,15 @@ function App() {
                       )}
                     </>
                   )}
-                  <MainContent clientBuildInfo={clientBuildInfo} />
+                  <MainContent
+                    clientBuildInfo={clientBuildInfo}
+                    encodingTools={encodingToolsSlot}
+                    onOpenClientDownloads={openClientDownloads}
+                    showClientDownloads={!isPackagedOfflineClient}
+                  />
                 </div>
+                {isMobile && <MobileNav />}
+                {isMobile && <CopyToast />}
               </div>
             </SessionContext.Provider>
           </SearchContext.Provider>

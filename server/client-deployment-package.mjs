@@ -12,6 +12,10 @@ const sha256Pattern = /^[a-f0-9]{64}$/;
 const safeLogoRoutePattern = /^\/uploads\/logo\/logo-[A-Za-z0-9.-]+\.(?:png|jpe?g|webp)$/;
 const safeAssetFilePattern = /^assets\/uploads\/logo\/logo-[A-Za-z0-9.-]+\.(?:png|jpe?g|webp)$/;
 const requiredFiles = Object.freeze(['public-data.json', 'custom-tools.json']);
+// P1-2 快照拆分的新增可选文件：payload 全量详情与搜索语料。旧部署包没有它们（清单
+// 校验按可选处理，离线运行时对应端点回落 404）；新构建始终写入。
+const optionalSnapshotFiles = Object.freeze(['payload-details.json', 'payload-search-corpus.json']);
+const knownSnapshotFiles = Object.freeze([...requiredFiles, ...optionalSnapshotFiles]);
 
 const jsonBytes = value => Buffer.from(JSON.stringify(value), 'utf8');
 const hashBytes = value => createHash('sha256').update(value).digest('hex');
@@ -75,8 +79,11 @@ export const validateClientDeploymentManifest = (manifest, options = {}) => {
   for (const fileName of requiredFiles) {
     validateFileDescriptor(manifest.files[fileName], fileName);
   }
-  if (Object.keys(manifest.files).some(fileName => !requiredFiles.includes(fileName))) {
+  if (Object.keys(manifest.files).some(fileName => !knownSnapshotFiles.includes(fileName))) {
     throw new Error('Unexpected deployment file entry.');
+  }
+  for (const fileName of optionalSnapshotFiles) {
+    if (manifest.files[fileName]) validateFileDescriptor(manifest.files[fileName], fileName);
   }
   if (!manifest.assets || typeof manifest.assets !== 'object' || Array.isArray(manifest.assets)) {
     throw new Error('Invalid deployment asset map.');
@@ -141,10 +148,28 @@ export const writeClientDeploymentPackage = async options => {
   };
   const customToolsBytes = jsonBytes(customTools);
 
+  // P1-2 可选快照文件：payload 全量详情 + 搜索语料（builder 新构建恒传；旧测试/旧调用缺省）
+  const snapshotExtras = {};
+  if (options.payloadDetails !== undefined) {
+    if (!Array.isArray(options.payloadDetails)) {
+      throw new Error('Deployment payload details must be an array.');
+    }
+    snapshotExtras['payload-details.json'] = jsonBytes(options.payloadDetails);
+  }
+  if (options.payloadSearchCorpus !== undefined) {
+    if (!options.payloadSearchCorpus || typeof options.payloadSearchCorpus !== 'object' || Array.isArray(options.payloadSearchCorpus)) {
+      throw new Error('Deployment payload search corpus must be an object.');
+    }
+    snapshotExtras['payload-search-corpus.json'] = jsonBytes(options.payloadSearchCorpus);
+  }
+
   try {
     await mkdir(temporary, { recursive: false });
     await writeFile(join(temporary, 'public-data.json'), publicDataBytes);
     await writeFile(join(temporary, 'custom-tools.json'), customToolsBytes);
+    for (const [fileName, bytes] of Object.entries(snapshotExtras)) {
+      await writeFile(join(temporary, fileName), bytes);
+    }
 
     const assets = {};
     if (logoUrl) {
@@ -179,6 +204,11 @@ export const writeClientDeploymentPackage = async options => {
           size: customToolsBytes.length,
           mimeType: 'application/json; charset=utf-8',
         },
+        ...Object.fromEntries(Object.entries(snapshotExtras).map(([fileName, bytes]) => [fileName, {
+          sha256: hashBytes(bytes),
+          size: bytes.length,
+          mimeType: 'application/json; charset=utf-8',
+        }])),
       },
       assets,
       stats: publicStats(publicData),

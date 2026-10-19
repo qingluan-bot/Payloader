@@ -3,6 +3,7 @@
 // 边界：仅 http/https；响应体 2MB 截断；超时默认 15s；请求并发不限制（CTF 目标是用户自己的题目环境）。
 
 import { json } from './http-helpers.mjs';
+import { openCtfTargetGuard } from './ctf-target-guard.mjs';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -23,7 +24,7 @@ const readRequestBody = request => new Promise((resolve, reject) => {
   request.on('error', reject);
 });
 
-export const createCtfProxyRoutes = ({ isCtfEnabled = null } = {}) => {
+export const createCtfProxyRoutes = ({ isCtfEnabled = null, targetGuard = openCtfTargetGuard } = {}) => {
   const registerCtfProxyRoutes = router => {
     router.route(['POST', 'OPTIONS'], '/api/ctf/proxy', async (request, response) => {
       // CORS 预检（dev 前端在 5173、Electron 壳内同源直连）
@@ -50,6 +51,12 @@ export const createCtfProxyRoutes = ({ isCtfEnabled = null } = {}) => {
       const { url, method = 'GET', headers = {}, body = null, timeoutMs = DEFAULT_TIMEOUT_MS } = spec;
       if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
         json(response, 400, { error: '目标必须是 http/https URL。' });
+        return;
+      }
+      // SSRF 防护（环境感知）：非回环监听部署时拦截回环/内网/链路本地目标；本机自用形态全放行
+      const verdict = await targetGuard.checkTarget(url);
+      if (!verdict.allowed) {
+        json(response, 403, { error: verdict.message });
         return;
       }
       const startedAt = Date.now();

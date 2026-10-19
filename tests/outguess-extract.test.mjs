@@ -1,10 +1,10 @@
-// outguess 0.2 提取器测试（批次 SI-3，32 项对标收官件）：核心为回环向量——测试侧自实现
-// 与提取端对偶的嵌入方向（同 ARC4/iterator 前置件、同位流收集规则、同 LSB-first 写序、
-// 头部 XOR as / 数据 XOR tas 双流），直接喂系数数组（outguessRevealFromCoefficients）闭环，
-// 覆盖：位流收集语义（0/+1 跳过、-1 与 |c|≥2 收 LSB）、iterator_adapt 手算数值、
-// 嵌入→提取往返（明文/seed/declaredLength）、空口令、错口令降级断言、位流耗尽与
-// 声明超容错误分支、真实 JPEG（PIL fixture）优雅报错。真实 outguess 编码器产物本机
-// 无原版工具，走回环 + 语义单测锚定（C 源语义逐行核对见 outguessExtract.ts 头注）。
+// outguess 0.2 提取器测试（Lane-F5 更新版）：黄金向量来自真实工具产物——outguess 0.2
+// Linux 原版（kali-run Docker）`outguess -k ogpass -d og-secret.txt carrier.jpg og-out.jpg`
+// 嵌入产物复制为 tests/fixtures/outguess-real-02.jpg（sha256
+// dd13deeea7f61070cef69b53e73e58d27ed9d9208e8db5b3717b81a04e8ad1ef，载荷 40 字节）。
+// 回环向量仍用测试侧镜像嵌入方向覆盖 ARC4/iterator 前置件与位流收集规则，但镜像产物
+// 交付前按提取端新契约做 jpeg-6b 55/62 槽位适配（提取端消费标准之字表解码的系数流时
+// 逐块交换对齐 jpeg-6b 布局，B 域能力审计 BUG#4；真实工具产物为最终裁判）。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,6 +19,23 @@ const { collectOutguessBits, outguessReveal, outguessRevealFromCoefficients } = 
 const { arc4InitKey, iteratorAdapt, iteratorInit, iteratorNext, iteratorSeed } = loadModule(
   path.join(srcDir, 'utils', 'ctf', 'outguessCrypto.ts'),
 );
+
+const ogFixturePath = path.join(projectRoot, 'tests', 'fixtures', 'outguess-real-02.jpg');
+
+// 真实工具产物还原期望：原版 outguess 嵌入的 40 字节载荷（尾带 \n）
+const OG_EXPECTED_PAYLOAD = 'flag{outguess_real_tool_ok} extra bytes\n';
+const OG_EXPECTED_HEX =
+  '666c61677b6f757467756573735f7265616c5f746f6f6c5f6f6b7d2065787472612062797465730a';
+
+// 与提取端消费侧同一语义的 55/62 逐块交换（自反变换）：镜像产物交付前变换一次，
+// 提取端内部再变换回来，恰好还原镜像写入的位布局
+const swapLegacySlots = (coeffs) => {
+  for (let base = 0; base + 64 <= coeffs.length; base += 64) {
+    const slot55 = coeffs[base + 55];
+    coeffs[base + 55] = coeffs[base + 62];
+    coeffs[base + 62] = slot55;
+  }
+};
 
 // ---- 位流收集语义（jdcoefct 钩子 → steg_use_bit：(temp&1)==temp 跳过）----
 
@@ -101,6 +118,7 @@ test('回环：嵌入→提取往返还原明文/seed/declaredLength（常规口
   const plaintext = Uint8Array.from('flag{outguess_roundtrip_0x2}', (ch) => ch.charCodeAt(0));
   const seed = 0x1234;
   embedOutguess(coeffs, 'secret', plaintext, seed);
+  swapLegacySlots(coeffs);
   const { data, seed: gotSeed, declaredLength } = outguessRevealFromCoefficients(coeffs, 'secret');
   assert.deepEqual(Array.from(data), Array.from(plaintext));
   assert.equal(gotSeed, seed);
@@ -111,6 +129,7 @@ test('回环：空口令（空 key 的 MD5 语义）同样成立', () => {
   const coeffs = mockCoeffs(3000);
   const plaintext = Uint8Array.from([0x00, 0xff, 0x41, 0x80, 0x7f, 0x01]);
   embedOutguess(coeffs, '', plaintext, 0xbeef);
+  swapLegacySlots(coeffs);
   const { data } = outguessRevealFromCoefficients(coeffs, '');
   assert.deepEqual(Array.from(data), Array.from(plaintext));
 });
@@ -119,6 +138,7 @@ test('回环：长载荷（>256 字节，触发 u16 长度字段高位）往返'
   const coeffs = mockCoeffs(20000);
   const plaintext = Uint8Array.from({ length: 300 }, (_, i) => (i * 37 + 11) & 0xff);
   embedOutguess(coeffs, 'pw-long', plaintext, 0x4321);
+  swapLegacySlots(coeffs);
   const { data, declaredLength } = outguessRevealFromCoefficients(coeffs, 'pw-long');
   assert.equal(declaredLength, 300);
   assert.deepEqual(Array.from(data), Array.from(plaintext));
@@ -128,6 +148,7 @@ test('错口令：要么报错要么解不出原明文（绝不误还原）', ()
   const coeffs = mockCoeffs(4000);
   const plaintext = Uint8Array.from('correct horse battery staple', (ch) => ch.charCodeAt(0));
   embedOutguess(coeffs, 'right', plaintext, 42);
+  swapLegacySlots(coeffs);
   let leaked = false;
   try {
     const { data } = outguessRevealFromCoefficients(coeffs, 'wrong');
@@ -155,6 +176,45 @@ test('声明长度超过可嵌容量正确报错', () => {
   const coeffs = Int32Array.from({ length: 128 }, (_, i) => (i % 2 === 0 ? 7 : -7));
   // 全 0/1 的位流 + 任意口令解出的 header 不可控——直接检查抛错即可（长度或耗尽分支）
   assert.throws(() => outguessRevealFromCoefficients(coeffs, 'x'), /outguess/);
+});
+
+// ---- 真实工具产物黄金向量（端到端，最终裁判） ----
+
+test('黄金向量：outguess 0.2 Linux 原版产物（ogpass）逐字节还原 40 字节载荷', () => {
+  const bytes = new Uint8Array(fs.readFileSync(ogFixturePath));
+  const data = outguessReveal(bytes, 'ogpass');
+  assert.equal(data.length, 40);
+  assert.equal(Buffer.from(data).toString('hex'), OG_EXPECTED_HEX);
+  assert.equal(Buffer.from(data).toString('latin1'), OG_EXPECTED_PAYLOAD);
+});
+
+test('黄金向量：系数入口与 JPEG 入口结果一致（55/62 槽位适配在两入口同生效）', () => {
+  const bytes = new Uint8Array(fs.readFileSync(ogFixturePath));
+  const { readJpegCoefficients } = loadModule(path.join(srcDir, 'utils', 'ctf', 'jpegCoeffs.ts'));
+  const { mcuOrderCoefficients } = readJpegCoefficients(bytes);
+  const viaCoefficients = outguessRevealFromCoefficients(mcuOrderCoefficients, 'ogpass');
+  const viaJpeg = outguessReveal(bytes, 'ogpass');
+  assert.equal(viaCoefficients.declaredLength, 40);
+  assert.deepEqual(Array.from(viaCoefficients.data), Array.from(viaJpeg));
+});
+
+test('黄金向量：错口令不误还原真实载荷（原版行为：产出垃圾数据而非报错）', () => {
+  const bytes = new Uint8Array(fs.readFileSync(ogFixturePath));
+  let data = null;
+  try {
+    data = outguessReveal(bytes, 'wrongpass');
+  } catch {
+    // 长度异常 / 位流耗尽抛错也合法
+  }
+  if (data !== null) {
+    assert.notEqual(Buffer.from(data).toString('latin1'), OG_EXPECTED_PAYLOAD);
+  }
+});
+
+test('黄金向量：跨工具不误报——jsteg 载体过 outguess 提取器报错', () => {
+  const jstegFixturePath = path.join(projectRoot, 'tests', 'fixtures', 'jsteg-real-carrier.jpg');
+  const bytes = new Uint8Array(fs.readFileSync(jstegFixturePath));
+  assert.throws(() => outguessReveal(bytes, 'k'), /outguess/);
 });
 
 // ---- 真实 JPEG 集成路径（PIL fixture，非 outguess 载荷优雅报错）----

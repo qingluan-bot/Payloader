@@ -26,8 +26,8 @@
   }
 
   .cs-hint {
-    border: 1px dashed rgba(0, 240, 255, 0.3);
-    border-radius: 8px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 6px;
     background: var(--bg-card);
     padding: 12px 14px;
     display: grid;
@@ -63,7 +63,7 @@
     gap: 8px;
     align-content: start;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--bg-card);
     padding: 13px;
   }
@@ -86,8 +86,8 @@
     margin-left: auto;
     min-height: 26px;
     padding: 3px 10px;
-    border: 1px solid rgba(0, 240, 255, 0.45);
-    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 6px;
     background: transparent;
     color: var(--neon-cyan);
     font-size: 11px;
@@ -98,7 +98,7 @@
   }
 
   .cs-jump:hover {
-    background: rgba(0, 240, 255, 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   .cs-summary {

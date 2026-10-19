@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Menu } from '@mantine/core';
 import { useLanguage } from '../../appContext';
 import { label } from '../../utils/codec/bases';
@@ -26,6 +26,34 @@ interface WorkbenchMenuBarProps {
   current?: string;
 }
 
+// 底部渐隐 mask（F-09）：仍有内容可滚时提示"下面还有"，滚到底即消失。
+const SCROLL_FADE_MASK = 'linear-gradient(to bottom, #000 calc(100% - 28px), transparent)';
+
+// 下拉滚动渐隐壳：挂载（每次打开）与滚动时评估"可滚且未到底"，据此开关 mask 内联样式。
+function FadeMenuDropdown({ menuId, children }: { menuId: string; children: React.ReactNode }) {
+  const [faded, setFaded] = useState(false);
+
+  const evaluate = (element: HTMLDivElement) => {
+    const scrollable = element.scrollHeight > element.clientHeight + 4;
+    const atBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 4;
+    setFaded(scrollable && !atBottom);
+  };
+
+  return (
+    <Menu.Dropdown
+      className="wb-menubar-dropdown"
+      data-menubar-menu={menuId}
+      ref={element => {
+        if (element) evaluate(element);
+      }}
+      onScroll={event => evaluate(event.currentTarget)}
+      style={faded ? { maskImage: SCROLL_FADE_MASK, WebkitMaskImage: SCROLL_FADE_MASK } : undefined}
+    >
+      {children}
+    </Menu.Dropdown>
+  );
+}
+
 // 顶部菜单栏（随波逐流形态）：顶部横排菜单 + 下拉操作列表，点击菜单项由调用方立即执行。
 // withinPortal 让下拉脱离横向滚动容器渲染，移动端小屏不被裁剪；Mantine Menu 自带
 // 方向键 + Enter 键盘导航与 Esc 收起。
@@ -39,11 +67,11 @@ const WorkbenchMenuBar = memo(function WorkbenchMenuBar({ menus, ariaLabel, curr
             <Menu.Target>
               <button type="button" className="wb-menubar-trigger">{label(menuDef.name, language)}</button>
             </Menu.Target>
-            <Menu.Dropdown className="wb-menubar-dropdown" data-menubar-menu={menuDef.id}>
+            <FadeMenuDropdown menuId={menuDef.id}>
               {menuDef.groups.map((group, groupIndex) => (
                 <FragmentMenuGroup key={groupIndex} label={group.label} entries={group.entries} language={language} />
               ))}
-            </Menu.Dropdown>
+            </FadeMenuDropdown>
           </Menu>
         ))}
         {current ? (
@@ -58,6 +86,7 @@ const WorkbenchMenuBar = memo(function WorkbenchMenuBar({ menus, ariaLabel, curr
 });
 
 // 下拉内分组（小节标签 + 条目）：用 Fragment 包装避免额外 DOM 干扰 Mantine 菜单键盘导航。
+// 组标题旁展示条数（F-09）：如「换位密码 (6)」，扫 67 项长菜单时先看规模。
 function FragmentMenuGroup({
   label: groupLabel,
   entries,
@@ -69,7 +98,7 @@ function FragmentMenuGroup({
 }) {
   return (
     <>
-      {groupLabel ? <Menu.Label>{groupLabel[language]}</Menu.Label> : null}
+      {groupLabel ? <Menu.Label>{`${groupLabel[language]} (${entries.length})`}</Menu.Label> : null}
       {entries.map(entry => (
         <Menu.Item
           key={entry.key}

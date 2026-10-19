@@ -55,6 +55,9 @@ const validateAdminPassword = value => {
   if (classes < 3) {
     throw new HttpError(400, '管理员密码至少需要包含大小写字母、数字、符号中的三类。');
   }
+  if (publishedExampleAdminPasswords.has(password)) {
+    throw new HttpError(400, '管理员密码不能使用公开的示例密码，请另换一个。');
+  }
   return password;
 };
 
@@ -177,6 +180,9 @@ export const createCredentialStore = ({ env, onCredentialsSaved }) => {
     configuredAdminPassword,
   } = env;
   let adminCredentialsPromise;
+  // 当前生效凭据是否仍是公开示例口令（强制改密判定）；随凭据加载/保存同步重算。
+  // 三态：undefined=凭据尚未加载完成（此窗口按"已锁定"处理，杜绝冷启动绕过），true/false=判定结果
+  let publishedPasswordInUse;
   // 同时进行 scrypt 凭据校验的请求上限：libuv 线程池默认 4 线程，超过即廉价 429。
   const LOGIN_VERIFY_CONCURRENCY = 4;
   let loginVerifyInFlight = 0;
@@ -252,9 +258,19 @@ export const createCredentialStore = ({ env, onCredentialsSaved }) => {
     return credentials;
   };
   
+  const detectPublishedPassword = async passwordHash => {
+    for (const candidate of publishedExampleAdminPasswords) {
+      if (await verifyAdminPasswordHash(candidate, passwordHash)) return true;
+    }
+    return false;
+  };
+
   const getAdminCredentials = () => {
     if (!adminCredentialsPromise) {
-      const pending = loadAdminCredentials();
+      const pending = loadAdminCredentials().then(async credentials => {
+        publishedPasswordInUse = await detectPublishedPassword(credentials.passwordHash);
+        return credentials;
+      });
       const guarded = pending.catch(error => {
         if (adminCredentialsPromise === guarded) adminCredentialsPromise = undefined;
         throw error;
@@ -292,6 +308,7 @@ export const createCredentialStore = ({ env, onCredentialsSaved }) => {
     };
     await setMetadataValue(credentialsMetadataKey, JSON.stringify(credentials));
   adminCredentialsPromise = Promise.resolve(credentials);
+  publishedPasswordInUse = await detectPublishedPassword(credentials.passwordHash);
   onCredentialsSaved();
   return publicCredentialInfo(credentials);
   };
@@ -300,6 +317,7 @@ export const createCredentialStore = ({ env, onCredentialsSaved }) => {
     endLoginVerify,
     getAdminCredentials,
     hashAdminPassword,
+    isUsingPublishedPassword: () => publishedPasswordInUse !== false,
     publicCredentialInfo,
     saveAdminCredentials,
     tryBeginLoginVerify,

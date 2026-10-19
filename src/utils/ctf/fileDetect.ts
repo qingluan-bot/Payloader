@@ -1,5 +1,5 @@
 import { detectFlagFormats } from '../codec/smartDecode';
-import { zeroWidthDecode } from '../codec/textEncodings';
+import { zeroWidthDecode, zeroWidthDecodeAuto } from '../codec/textEncodings';
 
 // 文件自动探测引擎（批次 K 杂项取证域）：魔数识别、信息熵、strings、可疑内容、hexdump、PNG/ZIP 修复。
 // 全部为纯函数，输入只读字节、不执行任何内容；调用方负责 20MB 上限与文件读取。
@@ -411,7 +411,63 @@ export const parsePngIhdr = (bytes: Uint8Array): PngIhdrInfo | null => {
 
 const yieldToUi = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
-// CRC 爆破修复：先试"仅宽被改"，再试"仅高被改"，最后双向 ≤1024。
+// PNG 色彩类型 → 通道数；合法位深集合（PNG spec 11.2.2 IHDR）。
+const PNG_COLOR_CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+const PNG_VALID_DEPTHS = new Set([1, 2, 4, 8, 16]);
+// IDAT 解压累计防御上限：尺寸反推只需总字节数，正常真题远低于该值；炸弹流提前中止。
+const PNG_IDAT_RAW_LIMIT = 1 << 28;
+
+// 拼接全部 IDAT 并流式解压，只累计解出总长（不驻留内容）。环境无 DecompressionStream
+// （node:vm 沙箱白名单 globalThis 注入实现，浏览器 Chrome 103+/node 18+ 原生）或解压失败
+// 返回 null——调用方跳过数学反推段，落回网格枚举，不影响既有修复路径。
+const measureInflatedIdat = async (bytes: Uint8Array): Promise<number | null> => {
+  if (typeof DecompressionStream === 'undefined') return null;
+  const chunks: Uint8Array[] = [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset);
+    if (offset + 12 + length > bytes.length) return null;
+    const type = bytes.subarray(offset + 4, offset + 8);
+    const isIdat = type[0] === 0x49 && type[1] === 0x44 && type[2] === 0x41 && type[3] === 0x54;
+    const isIend = type[0] === 0x49 && type[1] === 0x45 && type[2] === 0x4e && type[3] === 0x44;
+    if (isIdat) chunks.push(bytes.subarray(offset + 8, offset + 8 + length));
+    if (isIend) break;
+    offset += 12 + length;
+  }
+  if (chunks.length === 0) return null;
+  try {
+    const stream = new DecompressionStream('deflate');
+    const writer = stream.writable.getWriter();
+    const input = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let cursor = 0;
+    for (const chunk of chunks) {
+      input.set(chunk, cursor);
+      cursor += chunk.length;
+    }
+    // write/close 的 rejection 一并吞掉（reader.cancel 触发的 AbortError 等），防 unhandledRejection
+    void writer.write(input).then(
+      () => writer.close().then(() => {}, () => {}),
+      () => {},
+    );
+    let total = 0;
+    const reader = stream.readable.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done === true || value === undefined) break;
+      total += value.length;
+      if (total > PNG_IDAT_RAW_LIMIT) {
+        void reader.cancel().catch(() => {});
+        return null;
+      }
+    }
+    return total;
+  } catch {
+    return null;
+  }
+};
+
+// CRC 爆破修复：先试"仅宽被改"，再试"仅高被改"，再按 IDAT 数学反推（双维抹零专用），最后双向 ≤1024 网格。
 // 整个枚举在单份副本上原地改写宽高（每次只重算 17 字节 CRC），命中即返回该副本。
 export const fixPngDimensions = async (bytes: Uint8Array): Promise<{ bytes: Uint8Array; width: number; height: number } | null> => {
   const ihdr = parsePngIhdr(bytes);
@@ -436,6 +492,32 @@ export const fixPngDimensions = async (bytes: Uint8Array): Promise<{ bytes: Uint
   }
   for (let height = 1; height <= 8192; height += 1) {
     if (await check(originalWidth, height)) return { bytes: candidate, width: originalWidth, height };
+  }
+  // 第四段：IDAT 数学反推。两维都被抹零时前两段恒配 0、第三段网格（≤1024²）覆盖不到大尺寸真解
+  // （如 03_png_dimensions kali.png 1453×1080）。解压 IDAT 得扫描流总字节数 N，按位深/色彩类型
+  // 折算每像素字节数 bpp，每行 = w·bpp 像素字节 + 1 过滤字节，N = (w·bpp+1)×h；枚举 N 的因子
+  // 分解得候选 (w,h)，逐个重写宽高对拍存储 CRC32（CRC 未被二次篡改时唯一命中，毫秒级）。
+  // interlace=1 / 非常规位深/色彩类型 / 解压失败时静默跳过，落回网格段，不死循环。
+  const idatRawLength = await measureInflatedIdat(bytes);
+  const channels = PNG_COLOR_CHANNELS[ihdr.colorType];
+  // 子字节位深（1/2/4，colorType 0/3）的真实行宽是 ceil(w·channels·bitDepth/8) 字节，与
+  // "每像素固定字节"模型不符——显式跳过数学段落回网格（CRC 门控下无假阳性，仅该形态覆盖受限）。
+  if (idatRawLength !== null && channels !== undefined && PNG_VALID_DEPTHS.has(ihdr.bitDepth) && bytes[28] === 0 && ihdr.bitDepth >= 8) {
+    const bytesPerPixel = Math.max(1, Math.ceil((channels * ihdr.bitDepth) / 8));
+    const total = idatRawLength;
+    const rowCandidates: number[] = [];
+    for (let divisor = 1; divisor * divisor <= total; divisor += 1) {
+      if (total % divisor !== 0) continue;
+      rowCandidates.push(divisor);
+      if (divisor * divisor !== total) rowCandidates.push(total / divisor);
+    }
+    for (const row of rowCandidates) {
+      if (row <= bytesPerPixel || (row - 1) % bytesPerPixel !== 0) continue;
+      const width = (row - 1) / bytesPerPixel;
+      const height = total / row;
+      if (width > 0x7fffffff || height > 0x7fffffff) continue;
+      if (await check(width, height)) return { bytes: candidate, width, height };
+    }
   }
   for (let width = 1; width <= 1024; width += 1) {
     for (let height = 1; height <= 1024; height += 1) {
@@ -508,17 +590,34 @@ export const fixZipPseudoEncryption = (bytes: Uint8Array): { bytes: Uint8Array; 
 export interface ZeroWidthExtraction {
   payload: string;
   zeroWidthCount: number;
+  // 多进制自动路径命中时回填制式与模式（如 'quaternary' + 'text'）；存量二元解出时不填。
+  scheme?: string;
+  mode?: string;
 }
 
-// 文件场景的零宽提取：按 UTF-8 容错解码后收集 U+200B/U+200C 序列，能凑满 8bit 组则按零宽编码解出 payload。
+// 文件场景的零宽提取：先按存量二元（U+200B/U+200C 8bit）解保证旧用例不回归；失败或空则走
+// 多进制自动探测（330k 四元/三元、radix2-text 混合形态），命中时回填 scheme/mode。
+// legacy 先行必须以 U+200B 在场为门卫：真实二元载荷几乎必含 0 bit；纯 200C 流（多进制载荷
+// 符号数恰为 8 的倍数时）会被 legacy 解成全 0xFF 垃圾并短路掉 auto 路径（review P1 实证）。
 export const extractZeroWidthFromText = (text: string): ZeroWidthExtraction => {
-  const zeroWidthCount = (text.match(/[\u200b\u200c]/g) || []).length;
+  // 竖线交替而非字符类：U+200D 会被 no-misleading-character-class 规则拦截。
+  const zeroWidthCount = (text.match(/\u200b|\u200c|\u200d|\u202c|\ufeff/g) || []).length;
   if (!zeroWidthCount) return { payload: '', zeroWidthCount: 0 };
   let payload = '';
-  try {
-    payload = zeroWidthDecode(text);
-  } catch {
-    payload = '';
+  if (text.includes('\u200b')) {
+    try {
+      payload = zeroWidthDecode(text);
+    } catch {
+      payload = '';
+    }
+    // legacy 解出但替换符占多数（非合法 UTF-8 的全 0xFF 形态）同样让位 auto。
+    if (payload) {
+      const replacementRatio = (payload.match(/\uFFFD/g) || []).length / payload.length;
+      if (replacementRatio > 0.3) payload = '';
+    }
   }
-  return { payload, zeroWidthCount };
+  if (payload) return { payload, zeroWidthCount };
+  const auto = zeroWidthDecodeAuto(text);
+  if (auto) return { payload: auto.payload, zeroWidthCount, scheme: auto.scheme, mode: auto.mode };
+  return { payload: '', zeroWidthCount };
 };

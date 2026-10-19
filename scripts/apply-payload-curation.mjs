@@ -45,12 +45,19 @@ export const auditCurationCoverage = (payloadsInput, options = {}) => {
   const payloadIds = new Set(asList(payloadsInput).map(item => item.id));
   const reviewCounts = new Map();
   const reviewedEntries = [];
+  // 同 id 多文档按声明顺序级联（后者修订胜出），重复检查只拦"同 id 且声明内容完全一致"的冗余；
+  // 内容不同的声明是合法修订，不再计为 duplicate。
+  const reviewContentSeen = new Map();
   for (const document of asList(options.overrideDocuments)) {
     for (const entry of asList(document?.entries)) {
       const id = String(entry?.id || '').trim();
       if (!id) continue;
       reviewedEntries.push(entry);
       reviewCounts.set(id, (reviewCounts.get(id) || 0) + 1);
+      const contentKey = JSON.stringify(entry);
+      const seen = reviewContentSeen.get(id) || new Set();
+      seen.add(contentKey);
+      reviewContentSeen.set(id, seen);
     }
   }
   const decisions = [
@@ -135,7 +142,11 @@ export const auditCurationCoverage = (payloadsInput, options = {}) => {
     && !retiredDecisionIds.has(id)
     && !generatedPayloadIds.has(id)
   )).sort();
-  const duplicateReviewIds = [...reviewCounts].filter(([, count]) => count > 1).map(([id]) => id).sort();
+  // 冗余重复 = 同 id 被声明多次且所有声明内容完全一致；内容不同的多文档声明是合法级联修订
+  const duplicateReviewIds = [...reviewContentSeen]
+    .filter(([id, seen]) => seen.size === 1 && (reviewCounts.get(id) || 0) > 1)
+    .map(([id]) => id)
+    .sort();
   const duplicateDecisionIds = [...decisionCounts].filter(([, count]) => count > 1).map(([id]) => id).sort();
   const complete = ![
     missingReviewIds,
@@ -195,6 +206,27 @@ export const loadReviewConfiguration = async directoryInput => {
     }
   }
   const overrideDocuments = await Promise.all(overrideFiles.map(fileName => readJson(join(directory, fileName))));
+  // 同 id 多文档归属：一个 payload id 只归属最后一次声明它的文档（manifest 顺序）。
+  // 被取代的旧声明彻底退出（不参与覆盖、应用与覆盖度统计），否则条目被新文档应用后
+  // 旧声明会在下一轮以"未应用"复活并回滚新内容（级联与幂等的冲突，历史无同 id 场景故未暴露）。
+  const lastDeclaredDocByEntryId = new Map();
+  overrideDocuments.forEach((document, documentIndex) => {
+    for (const entry of asList(document?.entries)) {
+      const id = String(entry?.id || '').trim();
+      if (id) lastDeclaredDocByEntryId.set(id, documentIndex);
+    }
+  });
+  const ownedOverrideDocuments = overrideDocuments.map((document, documentIndex) => ({
+    ...document,
+    entries: asList(document?.entries).filter(entry => (
+      lastDeclaredDocByEntryId.get(String(entry?.id || '').trim()) === documentIndex
+    )),
+    ...(Array.isArray(document?.sourceIds) ? {
+      sourceIds: document.sourceIds.filter(id => (
+        lastDeclaredDocByEntryId.get(String(id || '').trim()) === documentIndex
+      )),
+    } : {}),
+  }));
   const decisionsName = String(manifest.decisionsFile || 'tool-decisions.json');
   const toolOverrideNames = manifestDocumentNames(manifest, fileNames, {
     pluralKey: 'toolOverrideFiles',
@@ -252,7 +284,7 @@ export const loadReviewConfiguration = async directoryInput => {
       payloadCommandOverrides: payloadCommandOverrideNames,
       collectionSplits: collectionSplitNames,
     },
-    overrideDocuments,
+    overrideDocuments: ownedOverrideDocuments,
     toolMigrations: [...asList(decisions.toolMigrations), ...collectionEntries('toolMigrations')],
     payloadSplits: [...asList(decisions.payloadSplits), ...collectionEntries('payloadSplits')],
     collectionSplits: [...asList(decisions.collectionSplits), ...collectionEntries('collectionSplits')],
@@ -418,9 +450,25 @@ export const prepareCurationOptions = (options = {}, payloadsInput = [], toolsIn
       return { ...withoutPrefix, sourceIds: activeEntryIds, entries };
     }
     if (!document.sourceIds.length) return { ...document, entries };
-    const sourceIds = document.sourceIds.filter(id => (
-      !isRetiredManagedSource(id) && !alreadyAppliedOverrideIds.has(String(id || '').trim())
-    ));
+    // alreadyAppliedOverrideIds 是跨文档全局记账：条目被旧文档应用过不代表本文档内容也应用过。
+    // 命中集合时按本文档 entry 与库内实际内容重新比对，防止新治理文档被旧文档误杀（sourceIds/entries 不对称会让校验报 UNKNOWN_ID）。
+    const documentEntriesById = new Map(entries.map(entry => [String(entry?.id || '').trim(), entry]));
+    const entryStillPending = id => {
+      const key = String(id || '').trim();
+      const entry = documentEntriesById.get(key);
+      const current = currentPayloadsById.get(key);
+      if (!entry || !current) return false;
+      const fields = document?.contentStandard >= 3 ? strictOverrideStateFields : legacyOverrideStateFields;
+      return !fields.every(field => (
+        JSON.stringify(current[field]) === JSON.stringify(
+          field === 'attackChain' ? expectedAttackChain(entry, current) : entry?.[field],
+        )
+      ));
+    };
+    const sourceIds = document.sourceIds.filter(id => {
+      if (isRetiredManagedSource(id)) return false;
+      return !alreadyAppliedOverrideIds.has(String(id || '').trim()) || entryStillPending(id);
+    });
     if (!sourceIds.length && document.sourceIds.every(id => (
       isRetiredManagedSource(id) || alreadyAppliedOverrideIds.has(String(id || '').trim())
     ))) return null;
@@ -442,7 +490,7 @@ export const prepareCurationOptions = (options = {}, payloadsInput = [], toolsIn
           const currentEntry = current?.[patch?.area]?.[patch?.index];
           if (!currentEntry) return true;
           if (String(currentEntry?.command || '') !== String(patch?.command ?? '')) return true;
-          return ['title', 'description', 'syntaxBreakdown', 'platform', 'requiresAdmin'].some(field => (
+          return ['title', 'description', 'syntaxBreakdown', 'platform', 'requiresAdmin', 'kind', 'effectiveness'].some(field => (
             patch?.[field] !== undefined
             && JSON.stringify(currentEntry?.[field]) !== JSON.stringify(patch[field])
           ));

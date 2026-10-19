@@ -4,16 +4,20 @@ import { fixRarPseudoEncryption, fixRarSignature, inspectRar } from '../../utils
 import type { RarInspectResult } from '../../utils/ctf/rarInspect';
 import { bruteRarPassword, detectRarEncryptedEntries } from '../../utils/ctf/rarBrute';
 import { downloadBytes } from './ffDownload';
+import { Icon } from '../Icon';
 
 // RAR4 取证卡：条目表/结构线索/一键伪加密清位与签名重写（SimpleRAR 型头修复题），修复产物下载。
 // 带 salt 的真加密条目渲染 RAR3 口令爆破区（SHA-1 拉伸 + AES-128-CBC 快筛 + 解压 CRC 终验）。
 interface RarInspectCardProps {
   fileName: string;
   bytes: Uint8Array;
+  // 用修复文件继续分析（SimpleRAR 型闭环：签名重写→伪加密清位→整链重跑）；
+  // 缺省时只提供修复产物下载，与旧版行为一致。
+  onContinueWithBytes?: (bytes: Uint8Array, name: string) => void;
   language: 'zh' | 'en';
 }
 
-function RarInspectCard({ fileName, bytes, language }: RarInspectCardProps) {
+function RarInspectCard({ fileName, bytes, onContinueWithBytes, language }: RarInspectCardProps) {
   const zh = language === 'zh';
   const baseName = fileName.replace(/\.[^.]+$/, '');
   const result = useMemo<{ inspected?: RarInspectResult; error?: string }>(() => {
@@ -24,7 +28,26 @@ function RarInspectCard({ fileName, bytes, language }: RarInspectCardProps) {
     }
   }, [bytes]);
   const signatureFix = useMemo(() => fixRarSignature(bytes), [bytes]);
-  const pseudoFix = useMemo(() => fixRarPseudoEncryption(bytes), [bytes]);
+  // 坏签名文件上 fixRarPseudoEncryption 会抛"先修签名"——渲染期必须兜住（SimpleRAR 型入口）。
+  const pseudoFix = useMemo(() => {
+    try {
+      return fixRarPseudoEncryption(bytes);
+    } catch {
+      return { fixed: null, changes: [] as string[] };
+    }
+  }, [bytes]);
+  // 修复闭环的最终产物：签名坏→重写后在其上清伪加密位（与执行器链同序）；签名完好→直接用伪加密清位版。
+  const chainedFixed = useMemo(() => {
+    const sigFixed = signatureFix.fixed;
+    if (sigFixed) {
+      try {
+        return fixRarPseudoEncryption(sigFixed).fixed ?? sigFixed;
+      } catch {
+        return sigFixed;
+      }
+    }
+    return pseudoFix.fixed;
+  }, [signatureFix.fixed, pseudoFix.fixed]);
   // 真加密条目（detect 抛错 = 无加密/RAR5/无盐伪加密，均不渲染爆破区）。
   const encryptedEntries = useMemo(() => {
     try { return detectRarEncryptedEntries(bytes); } catch { return []; }
@@ -120,7 +143,7 @@ function RarInspectCard({ fileName, bytes, language }: RarInspectCardProps) {
           <span className="ff-label">{zh ? '条目表' : 'Entries'}</span>
           {inspected.entries.map((entry, index) => (
             <div key={`${entry.name}-${index}`} className="ff-row">
-              <span className="ff-badge">{entry.isDirectory ? '📁' : '📄'} {entry.name}</span>
+              <span className="ff-badge">{entry.isDirectory ? <Icon name="layers" size={12} /> : <Icon name="file-text" size={12} />} {entry.name}</span>
               <span className="ff-badge">{entry.method === 0x30 ? 'stored' : `method ${entry.method}`}</span>
               {entry.encrypted && <span className="ff-badge ff-badge-warn">{zh ? '加密位' : 'encrypted'}</span>}
             </div>
@@ -219,6 +242,18 @@ function RarInspectCard({ fileName, bytes, language }: RarInspectCardProps) {
             {pseudoFix.fixed && (
               <button type="button" className="ff-button ff-button-primary" onClick={() => downloadFixed(pseudoFix.fixed!, 'unlocked')}>
                 {zh ? `清除伪加密位（${pseudoFix.changes.length} 处）` : `Clear pseudo-encryption (${pseudoFix.changes.length})`}
+              </button>
+            )}
+            {chainedFixed && onContinueWithBytes && (
+              <button
+                type="button"
+                className="ff-button"
+                onClick={() => {
+                  onContinueWithBytes(chainedFixed, `${baseName}-fixed${fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '.rar'}`);
+                  notifications.show({ message: zh ? '已载入修复版文件，正在重新分析。' : 'Loaded the fixed file; re-analyzing.', color: 'teal', autoClose: 2000 });
+                }}
+              >
+                {zh ? '用修复文件继续分析' : 'Continue with fixed file'}
               </button>
             )}
           </div>

@@ -424,30 +424,235 @@ export const decodeGifFrame = (
   return rgba;
 };
 
-// 批量惰性解码：把前 maxFrames 帧的 RGBA 就地填进 frame.imageData（供缩略图/帧下载）。
-// 单帧解码失败即停并写入 anomalies（后续帧大概率同样损坏），返回成功帧数。
 // 累计像素总预算：恶意 GIF（声明大尺寸+超短 LZW 流）×64 帧可同步分配数 GB RGBA 卡死页面，
 // 超预算截断并记 anomalies（单帧上限 GIF_MAX_PIXELS 之外的第二道防线）。
 export const GIF_MAX_TOTAL_PIXELS = 64_000_000;
 
+// 预算内单帧解码步（decodeGifFrames 同步批量与 decodeGifQr 异步分批共用）：成功返回 true 并累加
+// 预算；超过帧数上限/像素预算或解码失败返回 false（原因写入 anomalies），调用方应终止解码循环
+// （后续帧大概率同样损坏）。
+interface FrameDecodeBudget { decoded: number; totalPixels: number }
+
+const decodeFrameWithinBudget = (
+  bytes: Uint8Array,
+  result: GifInspectResult,
+  frame: GifFrame,
+  budget: FrameDecodeBudget,
+  maxFrames: number,
+): boolean => {
+  if (budget.decoded >= maxFrames) return false;
+  if (budget.totalPixels + frame.width * frame.height > GIF_MAX_TOTAL_PIXELS) {
+    result.anomalies.push(`累计像素达 ${GIF_MAX_TOTAL_PIXELS} 上限：仅解码前 ${budget.decoded} 帧，其余帧可用原始 LZW 流下载后离线分析`);
+    return false;
+  }
+  try {
+    frame.imageData = decodeGifFrame(bytes, frame, result.globalColorTable);
+    budget.totalPixels += frame.width * frame.height;
+    budget.decoded += 1;
+    return true;
+  } catch (error) {
+    result.anomalies.push(`帧 ${frame.index} 解码中止：${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+};
+
+// 批量惰性解码：把前 maxFrames 帧的 RGBA 就地填进 frame.imageData（供缩略图/帧下载），返回成功帧数。
 export const decodeGifFrames = (bytes: Uint8Array, result: GifInspectResult, options: { maxFrames?: number } = {}): number => {
   const maxFrames = options.maxFrames ?? 64;
-  let decoded = 0;
-  let totalPixels = 0;
+  const budget: FrameDecodeBudget = { decoded: 0, totalPixels: 0 };
   for (const frame of result.frames) {
-    if (decoded >= maxFrames) break;
-    if (totalPixels + frame.width * frame.height > GIF_MAX_TOTAL_PIXELS) {
-      result.anomalies.push(`累计像素达 ${GIF_MAX_TOTAL_PIXELS} 上限：仅解码前 ${decoded} 帧，其余帧可用原始 LZW 流下载后离线分析`);
-      break;
+    if (!decodeFrameWithinBudget(bytes, result, frame, budget, maxFrames)) break;
+  }
+  return budget.decoded;
+};
+
+// ============================================================================
+// GIF 帧→二维码自动解题链（G-1 give_you_flag 级）：逐帧合成到画布 → 直接解码门测 →
+// 深扫帧走 qrDecode.autoRepairQr（遮挡剔除 + 模块网格重建 + 补定位角 + 放大解码）→
+// 多帧票选。覆盖"QR 与卡通像素叠加/定位角被抹/非整数缩放"类帧，decodeQrCodes 直解
+// 不出的二维码由此链兜底。依赖 qrDecode/imageOps（均无回边，无环）。
+// ============================================================================
+
+import { autoRepairQr, decodeQrCodes } from './qrDecode';
+import { MAX_ANALYSIS_PIXELS } from './imagePlanes';
+
+export interface GifQrHit {
+  frameIndex: number;
+  text: string;
+  // 命中来路：direct = 整帧直接解码；repaired = 自动修复链解出。
+  via: 'direct' | 'repaired';
+  // 票数：同一文本在多帧解出时的帧数（单帧命中为 1）。
+  votes: number;
+  // repaired 命中时附加的网格信息；direct 命中为 null。
+  moduleCount: number | null;
+  moduleSize: number | null;
+}
+
+export interface GifQrScanResult {
+  framesScanned: number;
+  // 走过深扫（autoRepairQr）的帧号。
+  deepFrames: number[];
+  hits: GifQrHit[];
+  notes: string[];
+}
+
+export interface GifQrProgress {
+  // 已扫描帧数 / 本轮计划扫描帧数（min(帧数, maxFrames)）。
+  done: number;
+  total: number;
+}
+
+export interface GifQrScanOptions {
+  // 参与扫描的帧数上限（默认 128；帧解码有 6400 万累计像素红线兜底）。
+  maxFrames?: number;
+  // 深扫帧数上限（autoRepairQr 单帧秒级～十几秒，防多帧全扫拖死 UI）。默认 4。
+  maxDeepFrames?: number;
+  // 每处理多少帧让出一次主线程（默认 4）；做过深扫的帧处理完必让出。
+  batchSize?: number;
+  // 进度回调：每个让出点触发一次（同步调用，可安全 setState 刷新加载态）。
+  onProgress?: (progress: GifQrProgress) => void;
+}
+
+// 置信黑像素计数与包围盒（复用 autoRepairQr 的灰度判定口径由其内部处理；
+// 这里只做"是否值得深扫"的粗门测：数黑像素的量级与形状）。
+const frameQrGate = (rgba: Uint8ClampedArray, width: number, height: number): boolean => {
+  const pixels = width * height;
+  if (pixels > MAX_ANALYSIS_PIXELS) return false;
+  let blackCount = 0;
+  let minX = width;
+  let maxX = -1;
+  let minY = height;
+  let maxY = -1;
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    const base = pixel * 4;
+    const r = rgba[base];
+    const g = rgba[base + 1];
+    const b = rgba[base + 2];
+    if (Math.abs(r - g) > 12 || Math.abs(g - b) > 12) continue; // 彩色像素忽略
+    if ((r + g + b) / 3 >= 128) continue;
+    blackCount += 1;
+    const x = pixel % width;
+    const y = (pixel - x) / width;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  if (blackCount < 120 || maxX < 0) return false;
+  const bboxW = maxX - minX + 1;
+  const bboxH = maxY - minY + 1;
+  if (bboxW < 24 || bboxH < 24 || bboxW > 480 || bboxH > 480) return false;
+  const aspect = bboxW / bboxH;
+  return aspect >= 0.5 && aspect <= 2;
+};
+
+// 让出主线程：优先 scheduler.yield()（Chromium 129+，无 setTimeout 的 4ms 嵌套钳制），回退
+// setTimeout(0)。浏览器与 Node 通用——测试与真题执行器同样依赖它分批让步。
+type SchedulerWithYield = { yield?: () => Promise<void> };
+
+const yieldToMainThread = (): Promise<void> => {
+  const scheduler = (globalThis as { scheduler?: SchedulerWithYield }).scheduler;
+  if (typeof scheduler?.yield === 'function') return scheduler.yield();
+  return new Promise(resolve => setTimeout(resolve, 0));
+};
+
+// 帧→QR 自动链主入口。合成语义：画布白底起步，逐帧把 alpha>0 的像素画到 (left,top)，
+// disposal 2（恢复背景）在扫完该帧后把帧矩形清回白色；disposal 3 按恢复背景近似处理
+// （CTF 素材罕见，见 notes）。命中按 票数降序 → direct 优先 → 文本字典序 排序。
+// 异步分批执行：帧解码→合成→QR 扫描逐帧推进，每 batchSize 帧让出一次主线程并回报进度
+// （深扫帧 autoRepairQr 单帧秒级，处理完必让出），几十帧的 GIF 不再整段冻结 UI。
+export const decodeGifQr = async (bytes: Uint8Array, options?: GifQrScanOptions): Promise<GifQrScanResult> => {
+  const result = inspectGif(bytes);
+  const maxFrames = options?.maxFrames ?? 128;
+  const maxDeepFrames = options?.maxDeepFrames ?? 4;
+  const batchSize = Math.max(1, options?.batchSize ?? 4);
+  const report = options?.onProgress;
+  const notes: string[] = [];
+  const width = result.logicalWidth;
+  const height = result.logicalHeight;
+  const totalPlanned = Math.min(result.frames.length, maxFrames);
+  if (width < 1 || height < 1) {
+    return { framesScanned: 0, deepFrames: [], hits: [], notes: [...notes, '逻辑屏幕尺寸异常，无法合成画布'] };
+  }
+  const canvas = new Uint8ClampedArray(width * height * 4).fill(255);
+  const textFrames = new Map<string, GifQrHit>();
+  const deepFrames: number[] = [];
+  let framesScanned = 0;
+  const budget: FrameDecodeBudget = { decoded: 0, totalPixels: 0 };
+
+  const record = (frameIndex: number, text: string, via: 'direct' | 'repaired', moduleCount: number | null, moduleSize: number | null) => {
+    const existing = textFrames.get(text);
+    if (existing) {
+      existing.votes += 1;
+      return;
     }
-    try {
-      frame.imageData = decodeGifFrame(bytes, frame, result.globalColorTable);
-      totalPixels += frame.width * frame.height;
-      decoded += 1;
-    } catch (error) {
-      result.anomalies.push(`帧 ${frame.index} 解码中止：${error instanceof Error ? error.message : String(error)}`);
-      break;
+    textFrames.set(text, { frameIndex, text, via, votes: 1, moduleCount, moduleSize });
+  };
+
+  for (const frame of result.frames) {
+    if (!decodeFrameWithinBudget(bytes, result, frame, budget, maxFrames)) break;
+    const data = frame.imageData;
+    if (!data) continue; // 预算步成功必有像素，此处为类型收窄
+    // 帧像素落画布（透明索引像素已在 decodeGifFrame 中置 alpha=0，跳过不落）。
+    for (let y = 0; y < frame.height; y += 1) {
+      const canvasY = frame.top + y;
+      if (canvasY < 0 || canvasY >= height) continue;
+      for (let x = 0; x < frame.width; x += 1) {
+        const canvasX = frame.left + x;
+        if (canvasX < 0 || canvasX >= width) continue;
+        const source = (y * frame.width + x) * 4;
+        if (data[source + 3] === 0) continue;
+        const target = (canvasY * width + canvasX) * 4;
+        canvas[target] = data[source];
+        canvas[target + 1] = data[source + 1];
+        canvas[target + 2] = data[source + 2];
+        canvas[target + 3] = 255;
+      }
+    }
+    // 门测 1：整帧直接解码（干净 QR 帧直接命中，成本最低）。
+    const direct = decodeQrCodes(canvas, width, height).filter(hit => hit.text.length > 0);
+    for (const hit of direct) record(frame.index, hit.text, 'direct', null, null);
+    // 门测 2：灰度黑像素量级/形状像 QR 且直接解码无果 → 深扫（预算内）。
+    let didDeepScan = false;
+    if (direct.length === 0 && deepFrames.length < maxDeepFrames && frameQrGate(canvas, width, height)) {
+      deepFrames.push(frame.index);
+      didDeepScan = true;
+      const repaired = autoRepairQr(canvas, width, height);
+      for (const hit of repaired) record(frame.index, hit.text, 'repaired', hit.moduleCount, hit.moduleSize);
+    }
+    // disposal 2/3：该帧区域恢复背景（白）。disposal 3 严格说恢复前一帧，按背景近似。
+    if (frame.disposal === 2 || frame.disposal === 3) {
+      for (let y = 0; y < frame.height; y += 1) {
+        const canvasY = frame.top + y;
+        if (canvasY < 0 || canvasY >= height) continue;
+        for (let x = 0; x < frame.width; x += 1) {
+          const canvasX = frame.left + x;
+          if (canvasX < 0 || canvasX >= width) continue;
+          const target = (canvasY * width + canvasX) * 4;
+          canvas[target] = 255;
+          canvas[target + 1] = 255;
+          canvas[target + 2] = 255;
+          canvas[target + 3] = 255;
+        }
+      }
+    }
+    framesScanned += 1;
+    // 让出主线程：批满 / 本帧做过秒级深扫 / 扫到计划末帧。深扫后必让保证进度可刷新。
+    if (didDeepScan || framesScanned % batchSize === 0 || framesScanned === totalPlanned) {
+      report?.({ done: framesScanned, total: totalPlanned });
+      await yieldToMainThread();
     }
   }
-  return decoded;
+  report?.({ done: framesScanned, total: totalPlanned });
+  if (budget.decoded < result.frames.length) {
+    notes.push(`仅 ${budget.decoded}/${result.frames.length} 帧完成像素解码，其余帧未参与 QR 扫描`);
+  }
+  if (result.frames.some(frame => frame.disposal === 3)) {
+    notes.push('存在 disposal=3 帧，按"恢复为背景色"近似合成，极端情况可能影响该帧判读');
+  }
+  const hits = [...textFrames.values()].sort((left, right) =>
+    right.votes - left.votes
+    || (left.via === 'direct' ? -1 : 1) - (right.via === 'direct' ? -1 : 1)
+    || left.text.localeCompare(right.text));
+  return { framesScanned, deepFrames, hits, notes };
 };

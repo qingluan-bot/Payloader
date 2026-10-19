@@ -11,6 +11,10 @@ const maxPackageFileBytes = 128 * 1024 * 1024;
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const safeLogoRoutePattern = /^\/uploads\/logo\/logo-[A-Za-z0-9.-]+\.(?:png|jpe?g|webp)$/;
 const safeAssetFilePattern = /^assets\/uploads\/logo\/logo-[A-Za-z0-9.-]+\.(?:png|jpe?g|webp)$/;
+const requiredSnapshotFiles = Object.freeze(['public-data.json', 'custom-tools.json']);
+// P1-2 快照拆分新增可选文件：payload 全量详情与搜索语料（旧部署包没有，端点回落 404）
+const optionalSnapshotFiles = Object.freeze(['payload-details.json', 'payload-search-corpus.json']);
+const knownSnapshotFiles = Object.freeze([...requiredSnapshotFiles, ...optionalSnapshotFiles]);
 
 const unique = values => [...new Set(values.filter(Boolean))];
 
@@ -65,11 +69,14 @@ const validateManifest = (manifest, expectedContract = CLIENT_BUILD_CONTRACT_VER
   if (!manifest.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)) {
     throw new Error('Invalid deployment file map.');
   }
-  for (const fileName of ['public-data.json', 'custom-tools.json']) {
+  for (const fileName of requiredSnapshotFiles) {
     validateDescriptor(manifest.files[fileName], fileName);
   }
-  if (Object.keys(manifest.files).some(fileName => !['public-data.json', 'custom-tools.json'].includes(fileName))) {
+  if (Object.keys(manifest.files).some(fileName => !knownSnapshotFiles.includes(fileName))) {
     throw new Error('Unexpected deployment file entry.');
+  }
+  for (const fileName of optionalSnapshotFiles) {
+    if (manifest.files[fileName]) validateDescriptor(manifest.files[fileName], fileName);
   }
   if (!manifest.assets || typeof manifest.assets !== 'object' || Array.isArray(manifest.assets)) {
     throw new Error('Invalid deployment asset map.');
@@ -135,6 +142,12 @@ const loadExternalDeploymentPackage = async (candidates, options = {}) => {
       'custom-tools.json',
       manifest.files['custom-tools.json'].size,
     );
+    const payloadDetailsPath = manifest.files['payload-details.json']
+      ? await resolveVerifiedFile(candidate, realRoot, 'payload-details.json', manifest.files['payload-details.json'].size)
+      : null;
+    const searchCorpusPath = manifest.files['payload-search-corpus.json']
+      ? await resolveVerifiedFile(candidate, realRoot, 'payload-search-corpus.json', manifest.files['payload-search-corpus.json'].size)
+      : null;
     const assets = {};
     for (const [route, descriptor] of Object.entries(manifest.assets)) {
       assets[route] = {
@@ -149,6 +162,8 @@ const loadExternalDeploymentPackage = async (candidates, options = {}) => {
       manifestPath,
       publicDataPath,
       customToolsPath,
+      payloadDetailsPath,
+      searchCorpusPath,
       assets,
     };
   }

@@ -660,7 +660,12 @@ export const applyPayloadOverrides = (payloadsInput, documentsInput, options = {
       throw new Error(`Invalid payload override document ${document?.sourcePrefix || '<unknown>'}: ${preview}`);
     }
     for (const entry of asList(preparedDocument.entries)) {
-      if (entriesById.has(entry.id)) throw new Error(`Payload override appears in multiple documents: ${entry.id}`);
+      // 同 id 多文档按传入顺序级联：后声明的条目修订并胜出（治理批次覆盖既有条目的正规通道），
+      // 内容完全一致时静默去重；声明不一致时输出提示，不再阻断（历史 43 文档零冲突，行为不变）。
+      const previous = entriesById.get(entry.id);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(entry)) {
+        console.warn(`[curate] payload ${entry.id} 在多个 override 文档中声明不一致，采用声明顺序靠后的条目`);
+      }
       entriesById.set(entry.id, entry);
     }
   }
@@ -715,7 +720,7 @@ export const validatePayloadCommandOverrideDocument = (document, sourcePayloadsI
       // title/description-only patch（command 字段缺省）合法：不触碰命令，仅更新元数据字段。
       if (patch?.command !== undefined && !nextCommand.trim()) errors.push(overrideError('EMPTY_COMMAND', id, key));
       // command 相同但携带元数据修正（title/description 等）的 patch 合法，不算 NOOP。
-      const hasMetadataPatch = ['title', 'description', 'syntaxBreakdown', 'platform', 'requiresAdmin']
+      const hasMetadataPatch = ['title', 'description', 'syntaxBreakdown', 'platform', 'requiresAdmin', 'kind', 'effectiveness']
         .some(field => patch?.[field] !== undefined);
       if (patch?.command !== undefined && nextCommand === sourceCommand && !hasMetadataPatch) {
         errors.push(overrideError('NOOP_COMMAND', id, key));
@@ -740,6 +745,12 @@ export const validatePayloadCommandOverrideDocument = (document, sourcePayloadsI
       }
       if (patch.requiresAdmin !== undefined && typeof patch.requiresAdmin !== 'boolean') {
         errors.push(overrideError('INVALID_PATCH_REQUIRES_ADMIN', id, key));
+      }
+      if (patch.kind !== undefined && !['bypass', 'control'].includes(patch.kind)) {
+        errors.push(overrideError('INVALID_PATCH_KIND', id, key));
+      }
+      if (patch.effectiveness !== undefined && !['A', 'B', 'C'].includes(patch.effectiveness)) {
+        errors.push(overrideError('INVALID_PATCH_EFFECTIVENESS', id, key));
       }
     }
   }
@@ -772,6 +783,8 @@ export const applyPayloadCommandOverrides = (payloadsInput, document, options = 
       if (patch.syntaxBreakdown !== undefined) current.syntaxBreakdown = clone(patch.syntaxBreakdown);
       if (patch.platform !== undefined) current.platform = patch.platform;
       if (patch.requiresAdmin !== undefined) current.requiresAdmin = patch.requiresAdmin;
+      if (patch.kind !== undefined) current.kind = patch.kind;
+      if (patch.effectiveness !== undefined) current.effectiveness = patch.effectiveness;
       next.attackChain = asList(next.attackChain).map(step => (
         step?.payload && patch.command !== undefined && commandKey(step.payload) === commandKey(previousCommand)
           ? { ...step, payload: nextCommand }

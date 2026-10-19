@@ -3,6 +3,10 @@
 // 位流语义（jpeg-6b-steg/jdcoefct.c decompress_onepass 钩子 → jpg.c steg_use_bit）：
 // - 逐 MCU、块内 k=0..63 自然序（含 DC）喂每个系数；系数（JCOEF short→unsigned short）满足
 //   (temp & 1) == temp 即跳过——等价跳过 0 与 +1，-1（0xFFFF）与 |c|≥2 全部收 LSB；
+// - 块内 55/62 两槽为 jpeg-6b jpeg_natural_order 的历史互换序（与 F5 同源），本仓 vendor
+//   解码器按标准之字表落系数，消费前逐块 55↔62 交换对齐 jpeg-6b 布局（jsteg Go 版用
+//   标准序，不受影响）；真实工具黄金向量：outguess 0.2 Linux 原版产物
+//   （tests/fixtures/outguess-real-02.jpg，口令 ogpass）。
 // - 渐进 JPEG（SOF2）走 decompress_data 无钩子，vendor 解码器本就拒绝渐进，与原版能力一致。
 // 提取语义（outguess-main.c steg_retrieve，默认无 -e 即无 Golay ECC）：
 // - as = arc4_initkey("Encryption", key)，tas = as 结构体拷贝（同初态第二条流）；
@@ -62,7 +66,15 @@ export const outguessRevealFromCoefficients = (
   mcuOrderCoefficients: Int32Array | number[],
   password: string,
 ): { data: Uint8Array; seed: number; declaredLength: number } => {
-  const stream = collectOutguessBits(mcuOrderCoefficients);
+  // jpeg-6b 布局适配：防御性拷贝后逐块交换 55/62 两槽（jpeg_natural_order 历史互换序，
+  // 与 f5Extract.swapLegacySlots55And62 同一处工具链根因），不改动调用方传入的数组
+  const coeff = Int32Array.from(mcuOrderCoefficients);
+  for (let base = 0; base + 64 <= coeff.length; base += 64) {
+    const slot55 = coeff[base + 55];
+    coeff[base + 55] = coeff[base + 62];
+    coeff[base + 62] = slot55;
+  }
+  const stream = collectOutguessBits(coeff);
   if (stream.totalBits < 64) {
     throw new Error(`outguess：可嵌位仅 ${stream.totalBits} 位（需至少 64 位读头部），该图无法承载 outguess 嵌入`);
   }

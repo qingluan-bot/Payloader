@@ -280,7 +280,7 @@
    ]
   },
   {
-   "id": "api2-",
+   "id": "api2-inline-fragment-authz",
    "name": {
     "zh": "GraphQL 内联片段字段授权验证",
     "en": "GraphQL Inline-Fragment Field Authorization Validation"

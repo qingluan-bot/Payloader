@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { useLanguage } from '../../appContext';
+import { Icon } from '../Icon';
 
 interface GlobalSecretBarProps {
   value: string;
@@ -16,7 +17,7 @@ function GlobalSecretBar({ value, onChange, placeholder }: GlobalSecretBarProps)
 
   return (
     <div className="global-secret-bar">
-      <label htmlFor={secretFieldId}>{language === 'zh' ? '🔑 全局密钥' : '🔑 Global key'}</label>
+      <label htmlFor={secretFieldId}><Icon name="key" size={16} /> {language === 'zh' ? '全局密钥' : 'Global key'}</label>
       <input
         id={secretFieldId}
         value={value}

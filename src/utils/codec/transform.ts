@@ -1,11 +1,17 @@
 // CODEC-IMPORTS
 import { smartDecode } from './smartDecode';
-import { a1z26Decode, a1z26Encode, affineTransform, asciiDecode, asciiEncode, atbashTransform, baudotDecode, baudotEncode, bcdDecode, bcdEncode, binaryDecode, binaryEncode, bubbleBabbleDecode, bubbleBabbleEncode, cStringDecode, cStringEncode, caesar, decodeUnixTime, decodeUtf16Bytes, dnaDecode, dnaEncode, encodeUnixTime, encodeUtf16Bytes, enigmaTransform, grayDecode, grayEncode, gsm7Decode, gsm7Encode, htmlDecode, htmlEncode, jsStringDecode, jsonStringDecode, keyboardShift, morseDecode, morseEncode, natoDecode, natoEncode, octalDecode, octalEncode, quotedPrintableDecode, quotedPrintableEncode, rot47, rot8000, rotBruteforce, unicodeDecode, unicodeEncode, utf7Decode, utf7Encode, xmlDecode, xmlEncode, yEncDecode, yEncEncode, zeroWidthDecode, zeroWidthEncode } from './textEncodings';
-import { base64ToText, bytesToHex, decodeAscii85, decodeBase32, decodeBase32768, decodeBase36, decodeBase45, decodeBase58, decodeBase58Check, decodeBase62, decodeBase91, decodeBech32, decodeUuencode, decodeXxencode, decodeZ85, decodeZBase32, encodeAscii85, encodeBase32, encodeBase32768, encodeBase36, encodeBase45, encodeBase58, encodeBase58Check, encodeBase62, encodeBase91, encodeBech32, encodeUuencode, encodeXxencode, encodeZ85, encodeZBase32, fromBase64Url, hexToBytes, textToBase64, toBase64Url } from './bases';
-import { utf8Decoder, utf8Encoder } from './alphabets';
+import { a1z26Decode, a1z26Encode, affineTransform, asciiDecode, asciiEncode, atbashTransform, baudotDecode, baudotEncode, bcdDecode, bcdEncode, binaryDecode, binaryEncode, bubbleBabbleDecode, bubbleBabbleEncode, cStringDecode, cStringEncode, caesar, decodeUnixTime, decodeUtf16Bytes, dnaDecode, dnaEncode, encodeUnixTime, encodeUtf16Bytes, enigmaTransform, grayDecode, grayEncode, gsm7Decode, gsm7Encode, htmlDecode, htmlEncode, jsStringDecode, jsonStringDecode, keyboardShift, morseDecode, morseEncode, natoDecode, natoEncode, octalDecode, octalEncode, quotedPrintableDecode, quotedPrintableEncode, rot47, rot8000, rotBruteforce, unicodeDecode, unicodeEncode, utf7Decode, utf7Encode, xmlDecode, xmlEncode, yEncDecode, yEncEncode, zeroWidthDecodeAuto, zeroWidthEncode, zeroWidthSchemeDecode, zeroWidthSchemeEncode } from './textEncodings';
+import { base64ToBytes, base64ToText, bytesToHex, decodeAscii85, decodeBase32768Bytes, decodeBase32Bytes, decodeBase36Bytes, decodeBase45Bytes, decodeBase58Bytes, decodeBase58Check, decodeBase62, decodeBase91, decodeBech32, decodeBytesToFidelityText, decodeUuencode, decodeXxencode, decodeZ85, decodeZBase32Bytes, encodeAscii85, encodeBase32, encodeBase32768, encodeBase36, encodeBase45, encodeBase58, encodeBase58Check, encodeBase62, encodeBase91, encodeBech32, encodeUuencode, encodeXxencode, encodeZ85, encodeZBase32, hexToBytes, textToBase64, toBase64Url } from './bases';
+import { utf8Encoder } from './alphabets';
 import { decodePemBlock, decodePunycode, encodePemBlock, encodePunycode, parseAsn1Der, parseBson, parseCbor, parseJwkJwe, parseMessagePack, parseProtobufRaw, parseSmsPdu, parseSshPublicKey } from './binaryFormats';
-import { aesCmacTransform, aesDecryptCbc, aesDecryptCtr, aesEncryptCbc, aesEncryptCtr, aesGcmTransform, aesKeyWrapTransform, aesOfbTransform, aesRawBlockTransform, bip39Seed, cryptoJsCipherTransform, digest, hmac, identifyHash, nobleAeadTransform, nobleStreamTransform, openSslAes256CbcTransform, rc4Transform, sm4Transform, teaTransform, xxteaTransform } from './crypto';
-import { adfgxTransform, autokeyTransform, baconDecode, baconEncode, beaufortTransform, bifidTransform, columnarDecode, columnarEncode, fourSquareTransform, gronsfeldTransform, hillTransform, magicXorHelper, nihilistTransform, playfairTransform, polybiusDecode, polybiusEncode, portaTransform, railFenceDecode, railFenceEncode, scytaleDecode, scytaleEncode, singleByteXorBruteforce, substitutionTransform, tapCodeDecode, tapCodeEncode, trifidTransform, vigenereTransform, xorKnownPlaintext, xorTransform } from './classical';
+import { aesCmacTransform, aesDecryptCbc, aesDecryptCtr, aesEncryptCbc, aesEncryptCtr, aesGcmTransform, aesKeyWrapTransform, aesOfbTransform, aesRawBlockTransform, bip39Seed, cryptoJsCipherTransform, digest, hmac, identifyHash, nobleAeadTransform, nobleStreamTransform, openSslAes256CbcTransform, rc4Transform, sm4Transform, teaTransform, twoDesMeetInTheMiddle, xxteaTransform } from './crypto';
+import { adfgxTransform, autokeyTransform, baconDecode, baconEncode, beaufortTransform, bifidTransform, columnarDecode, columnarEncode, fourSquareTransform, gronsfeldTransform, hillTransform, magicXorHelper, nihilistTransform, playfairTransform, polybiusDecode, polybiusEncode, portaTransform, railFenceDecode, railFenceEncode, scytaleDecode, scytaleEncode, singleByteXorBruteforce, solitaireTransform, substitutionTransform, tapCodeDecode, tapCodeEncode, trifidTransform, vigenereTransform, xorKnownPlaintext, xorTransform } from './classical';
+import { babaiCvpSolve, knapsackLowDensitySolve, latticeReduceText } from './lattice';
+import { cryptoTryAllSolve } from './cryptoTryAll';
+import { spiralMatrixDecode, spiralMatrixEncode } from './spiralMatrix';
+import { vicTransform } from './classical';
+import { geohashTransform } from './parityNumeric';
+import { symbolCiphersTransform } from './symbolCiphers';
 import { rabinRawTransform, rsaHelper, rsaRawTransform } from './rsa';
 import { cbcDemoTransform, coppersmithStereotypedSolve, parsePgpMessage, rsaOaepDecryptFromText, rsaOaepEncryptFromText } from './pgp';
 import { discreteLogHelper, signatureNonceReuseHelper } from './prng';
@@ -13,7 +19,7 @@ import { mt19937Helper } from './smartDecode';
 import { setSmartDecodeExecutor } from './smartBase';
 import { formatZipListing, listZip, lzStringDecompress } from './opsCc2';
 import { checksumMatrix, defang, entropyReport, extractData, extractPrintableStrings, filetimeToUnix, inputToBytes, refang, reverseBitsPerByte, rotateBits, shiftBits, swapEndianness, textLineTool, unixToFiletime, bitwiseWithKey } from './opsCyberchef';
-import { substitutionAutoSolve, vigenereAutoSolve, xorAutoSolve } from './autoSolve';
+import { cjkSubstitutionHint, isCjkDominatedText, substitutionAutoSolve, vigenereAutoSolve, xorAutoSolve } from './autoSolve';
 import { paddingOracleReport } from './paddingOracle';
 import { magicChainReport } from './magicChain';
 import { crc32AttackReport } from './crc32Attack';
@@ -21,7 +27,7 @@ import { base64StegoReport } from './base64Stego';
 import { snowStegoReport } from './snowStego';
 import { cloakifyAutoReport, cloakifyDecode } from './cloakify';
 import { ttlStegoReport } from '../ctf/ttlStego';
-import { brainfuckToOokText, cryptoAttackHelper, encodeBrainfuckText, frequencyAnalysis, hashLengthExtensionHelper, jsfuckInspector, lcgHelper, lfsrHelper, ookToBrainfuckText, runBrainfuck } from './attacks';
+import { brainfuckToOokText, cryptoAttackHelper, encodeBrainfuckText, frequencyAnalysis, hashLengthExtensionHelper, jsfuckInspector, lcgHelper, lfsrHelper, lfsrPredictHelper, ookToBrainfuckText, runBrainfuck, truncatedLcgHelper, xorshiftHelper } from './attacks';
 import { cloudShadowDecode, cloudShadowEncode, baijiaxingDecode, baijiaxingEncode, bearDecode, bearEncode, buddhaDecode, buddhaEncode, buddhaV2Decode, hexagramDecode, hexagramEncode, sexagesimalDecode, sexagesimalEncode } from './chineseCiphers';
 import { albamTransform, carbonaroTransform, ciscoType7Decode, ciscoType7Encode, cetaceanDecode, cetaceanEncode, decabitDecode, decabitEncode, pizziniDecode, pizziniEncode } from './mapCiphers';
 import { parityBaseTransform } from './parityBases';
@@ -64,15 +70,18 @@ export async function transform(operationId: OperationId, direction: Direction, 
     case 'unix-time':
       return direction === 'encode' ? encodeUnixTime(input) : decodeUnixTime(input);
     case 'base64':
-      return direction === 'encode' ? textToBase64(input) : base64ToText(input);
+      // 字节保真出口（B4-3）：共享层 base64ToText 保持 legacy 评分口径（smart-decode 探针隔离），
+      // 操作出口统一 \xNN 保真——非 UTF-8 载荷不再静默 U+FFFD 丢字节。
+      return direction === 'encode' ? textToBase64(input) : decodeBytesToFidelityText(base64ToBytes(input));
     case 'base64url':
-      return direction === 'encode' ? toBase64Url(input) : fromBase64Url(input);
+      return direction === 'encode' ? toBase64Url(input) : decodeBytesToFidelityText(base64ToBytes(input));
     case 'base32':
-      return direction === 'encode' ? encodeBase32(input, params.variant) : decodeBase32(input, params.variant);
+      // 字节保真出口（B4-3）：同 base64——出口层 \xNN 呈现，共享文本函数保持 legacy。
+      return direction === 'encode' ? encodeBase32(input, params.variant) : decodeBytesToFidelityText(decodeBase32Bytes(input, params.variant));
     case 'base45':
-      return direction === 'encode' ? encodeBase45(input) : decodeBase45(input);
+      return direction === 'encode' ? encodeBase45(input) : decodeBytesToFidelityText(decodeBase45Bytes(input));
     case 'base58':
-      return direction === 'encode' ? encodeBase58(input) : decodeBase58(input);
+      return direction === 'encode' ? encodeBase58(input) : decodeBytesToFidelityText(decodeBase58Bytes(input));
     case 'base58check':
       return direction === 'encode' ? encodeBase58Check(input, params.versionHex) : decodeBase58Check(input);
     case 'bech32':
@@ -80,7 +89,7 @@ export async function transform(operationId: OperationId, direction: Direction, 
     case 'base62':
       return direction === 'encode' ? encodeBase62(input) : decodeBase62(input);
     case 'base36':
-      return direction === 'encode' ? encodeBase36(input) : decodeBase36(input);
+      return direction === 'encode' ? encodeBase36(input) : decodeBytesToFidelityText(decodeBase36Bytes(input));
     case 'base91':
       return direction === 'encode' ? encodeBase91(input) : decodeBase91(input);
     case 'ascii85':
@@ -91,11 +100,13 @@ export async function transform(operationId: OperationId, direction: Direction, 
     case 'xxencode':
       return direction === 'encode' ? encodeXxencode(input) : decodeXxencode(input);
     case 'z-base-32':
-      return direction === 'encode' ? encodeZBase32(input) : decodeZBase32(input);
+      return direction === 'encode' ? encodeZBase32(input) : decodeBytesToFidelityText(decodeZBase32Bytes(input));
     case 'base32768':
-      return direction === 'encode' ? encodeBase32768(input) : decodeBase32768(input);
+      return direction === 'encode' ? encodeBase32768(input) : decodeBytesToFidelityText(decodeBase32768Bytes(input));
     case 'hex':
-      if (direction === 'decode') return utf8Decoder.decode(hexToBytes(input));
+      // 字节保真出口（B4-3）：\xNN 呈现 + 文末附原始 hex，不再静默 U+FFFD 丢字节
+      // （\x89PNG 形态可直接复制给下一层解码，hexToBytes 原生剥离 \x 前缀）。
+      if (direction === 'decode') return decodeBytesToFidelityText(hexToBytes(input));
       if (params.variant === 'decimal') return Array.from(utf8Encoder.encode(input)).map(byte => `0x${byte.toString(16).padStart(2, '0')}`).join(' ');
       if (params.variant === 'hex') return Array.from(utf8Encoder.encode(input)).map(byte => `\\x${byte.toString(16).padStart(2, '0')}`).join('');
       return bytesToHex(utf8Encoder.encode(input));
@@ -143,8 +154,19 @@ export async function transform(operationId: OperationId, direction: Direction, 
       return Array.from(input).reverse().join('');
     case 'keyboard-shift':
       return keyboardShift(input, params.variant, direction === 'decode');
-    case 'zero-width':
-      return direction === 'encode' ? zeroWidthEncode(input) : zeroWidthDecode(input);
+    case 'zero-width': {
+      // 编码：指定三元/四元走 330k 多进制口径，'auto'/'binary' 落回存量二元；
+      // 解码：'auto' 走多进制自动探测，指定制式按 text 模式（330k 默认）解，'binary'/'auto' 之外不存在其他回落。
+      const zeroWidthScheme = params.zeroWidthScheme;
+      if (direction === 'encode') {
+        if (zeroWidthScheme === 'ternary' || zeroWidthScheme === 'quaternary') return zeroWidthSchemeEncode(input, zeroWidthScheme);
+        return zeroWidthEncode(input);
+      }
+      if (zeroWidthScheme === 'ternary' || zeroWidthScheme === 'quaternary') return zeroWidthSchemeDecode(input, zeroWidthScheme);
+      const auto = zeroWidthDecodeAuto(input);
+      if (!auto) throw new Error('未能识别零宽隐写的制式，请手动指定二元/三元/四元');
+      return auto.payload;
+    }
     case 'hash':
       return digest(input, params.hashAlgorithm);
     case 'hash-identify':
@@ -249,11 +271,12 @@ export async function transform(operationId: OperationId, direction: Direction, 
     case 'xor':
       return direction === 'encode'
         ? bytesToHex(xorTransform(utf8Encoder.encode(input), params.secret))
-        : utf8Decoder.decode(xorTransform(hexToBytes(input), params.secret));
+        // 字节保真出口（B4-3）：XOR 破出的明文常是二进制/混合载荷，\xNN 呈现不再 U+FFFD。
+        : decodeBytesToFidelityText(xorTransform(hexToBytes(input), params.secret));
     case 'xor-auto-solve':
       return xorAutoSolveDecode(input, params);
     case 'vigenere-auto':
-      return vigenereAutoSolveReport(input);
+      return vigenereAutoSolveReport(input, params);
     case 'substitution-auto':
       return substitutionAutoSolveReport(input, params);
     case 'xor-bruteforce':
@@ -391,6 +414,59 @@ export async function transform(operationId: OperationId, direction: Direction, 
       return hashLengthExtensionHelper(input, params.hashAlgorithm, params.secret, params.knownPlaintext);
     case 'crypto-attack-helper':
       return cryptoAttackHelper(input);
+    case 'xorshift-helper':
+      return xorshiftHelper(input, params.secret);
+    case 'truncated-lcg-helper':
+      return truncatedLcgHelper(input, params.secret);
+    case 'lfsr-predict-helper':
+      return lfsrPredictHelper(input);
+    case 'lattice-reduce':
+      return latticeReduceText(input);
+    case 'knapsack-lowdensity':
+      return knapsackLowDensitySolve(input);
+    case 'babai-cvp':
+      return babaiCvpSolve(input);
+    case 'crypto-tryall': {
+      const cribs = params.cribs ? params.cribs.split(/[;,，、\s]+/).map(s => s.trim()).filter(Boolean) : undefined;
+      // IV 参数并入文本 iv= 字段（cryptoTryAllSolve 从文本捕获 IV），cribs 走 options
+      const textWithIv = params.iv.trim() ? `${input}\niv=${params.iv.trim()}` : input;
+      return cryptoTryAllSolve(textWithIv, params.secret, { cribs });
+    }
+    case 'twodes-mitm': {
+      // 输入支持多行/分号分隔的多对明密文，每行按出现顺序取前两个偶数长 hex 串（明文在前、密文在后）
+      const pairs: Array<{ plaintextHex: string; ciphertextHex: string }> = [];
+      for (const line of input.split(/\n|;/)) {
+        const hexes = (line.match(/(?:0x)?[0-9a-fA-F]{16,}/g) ?? [])
+          .map(h => h.replace(/^0x/i, ''))
+          .filter(h => h.length % 2 === 0);
+        if (hexes.length >= 2) pairs.push({ plaintextHex: hexes[0], ciphertextHex: hexes[1] });
+      }
+      if (!pairs.length) throw new Error('2DES 中间相遇需要明密文对：每行一个 pair，格式如 plaintextHex=0123456789ABCDEF ciphertextHex=85E813540F0AB405（支持多行）');
+      const bits = (params.secret || '10,10').split(/[,，\s]+/).map(n => Number.parseInt(n, 10)).filter(n => Number.isFinite(n) && n >= 1);
+      return twoDesMeetInTheMiddle(pairs, { k1Bits: bits[0], k2Bits: bits[1] ?? bits[0] });
+    }
+    case 'solitaire':
+      return solitaireTransform(input, params.deck, params.secret, direction === 'decode');
+    case 'vic':
+      return vicTransform(input, params.secret, params.keyword2, params.personalNumber, params.keyGroup, direction === 'decode');
+    case 'geohash':
+      return geohashTransform(input, direction, params.digits);
+    case 'spiral-matrix':
+      return direction === 'encode'
+        ? spiralMatrixEncode(input, params.variant, params.columns)
+        : spiralMatrixDecode(input, params.variant);
+    case 'zodiac-408':
+    case 'wabun':
+    case 'babylonian':
+    case 'mayan':
+    case 'egyptian-numerals':
+    case 'astro-symbols':
+    case 'dice':
+    case 'dominoes':
+    case 'trilitere':
+    case 'monome-binome':
+    case 'hieroglyph-single':
+      return symbolCiphersTransform(operationId, direction, input, params);
     case 'frequency-analysis':
       return frequencyAnalysis(input);
     case 'buddha':
@@ -527,6 +603,7 @@ export async function transform(operationId: OperationId, direction: Direction, 
     case 'spoon':
     case 'manchester':
     case 'emoji-encoder':
+    case 'homophone-contrast':
       return parityCnTransform(operationId, direction, input, params);
     case 'otp':
     case 'multiplicative':
@@ -602,33 +679,54 @@ const xorAutoSolveDecode = (input: string, params: Record<ParamKey, string>): st
   ].filter(Boolean).join('\n');
 };
 
-const vigenereAutoSolveReport = (input: string): string => {
+const vigenereAutoSolveReport = (input: string, params: Record<ParamKey, string>): string => {
   const letters = input.replace(/[^a-zA-Z]/g, '');
-  if (letters.length < 30) throw new Error('Vigenère 自动破译至少需要 30 个字母（建议 80+）');
-  const result = vigenereAutoSolve(input);
+  // 下限 30 → 12（审计 BUG-07）：真题常见 20 字母级短维吉尼亚，直接拒收会把选手推出门；
+  // 12-30 字母给出低置信警告 + 候选列表，配合已知明文 crib 仍可锁定解。
+  if (letters.length < 12) throw new Error('Vigenère 自动破译至少需要 12 个字母（统计意义下建议 80+；更短请把已知明文片段填入「已知明文」栏走 crib 锁定，或用 vigenere 工具直接试 key）');
+  const crib = params.knownPlaintext?.trim() || undefined;
+  const result = vigenereAutoSolve(input, crib ? { knownPlaintext: crib } : {});
   // key 长度搜索上限 min(20, 字母数/2)：真实 key 超上限时短文本统计必然失效，明示边界（审计 P2）。
   const keyLenLimit = Math.min(20, Math.floor(letters.length / 2));
   const lines = [
-    'Vigenère 自动破译（IC 择长 + 卡方拟合）',
+    'Vigenère 自动破译（IC 择长 + 卡方拟合' + (crib ? ' + 已知明文 crib 锚定' : '') + '）',
     '',
     'key: ' + result.key,
     'keyLen: ' + result.keyLen + '（搜索上限 ' + keyLenLimit + '，key 超上限需已知明文 crib）',
+    'confidence: ' + result.confidence.toFixed(2),
+    crib ? '已知明文锚点: ' + crib : '',
+    letters.length < 30 ? '注意：字母数不足 30，统计可靠性有限——请并排核对下方候选，或补一段已知明文（如 flag{ 开头片段）重新求解' : '',
+    result.confidence < 0.5 ? '注意：confidence 偏低——key 可能超上限或文本过短，建议用「vigenere」工具 + 猜测 key 验证' : '',
     '',
     '—— 明文 ——',
     result.plaintext.slice(0, 2000),
   ];
-  if (result.alternate) {
+  const otherCandidates = (result.candidates ?? []).filter(item => item.key !== result.key).slice(0, 4);
+  if (result.alternate && otherCandidates.length === 0) {
     lines.push(
       '',
       '—— 因子族候选（keyLen ' + result.keyLen + ' 是 ' + result.alternate.keyLen + ' 的整数倍；短文本下长密钥可过拟合出伪英文，正确解常是较短者）——',
       'key: ' + result.alternate.key + '（keyLen ' + result.alternate.keyLen + '）',
       result.alternate.plaintext.slice(0, 2000),
     );
+  } else if (otherCandidates.length > 0) {
+    lines.push(
+      '',
+      '—— 候选列表（按过拟合校正分排序；短文本多列精修可把伪英文推过真解，真解可能不在主候选）——',
+      ...otherCandidates.map(item => `key: ${item.key}（keyLen ${item.keyLen}）\n${item.plaintext.slice(0, 400)}`),
+    );
   }
-  return lines.join('\n');
+  return lines.filter(Boolean).join('\n');
 };
 
 const substitutionAutoSolveReport = (input: string, params: Record<ParamKey, string>): string => {
+  // 中文为主的输入不走英文频率爬山：分发层短路，直接给指向「谐音对照解码」操作的提示。
+  if (isCjkDominatedText(input)) {
+    return [
+      '输入以中文为主，英文单表替换频率破译不适用（中文谐音替换无字母频率可用）。',
+      cjkSubstitutionHint,
+    ].join('\n');
+  }
   const letters = input.replace(/[^a-zA-Z]/g, '');
   if (letters.length < 25) throw new Error('替换密码自动破译至少需要 25 个字母（频率分析下限）');
   const cribs = (params.knownPlaintext || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean);

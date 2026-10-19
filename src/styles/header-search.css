@@ -1,0 +1,102 @@
+/* HeaderSearch 下拉预览（B-4 / walkthrough E-07）：防抖下拉预览 + 整页兜底。
+   浮层规范：实色底 var(--bg-card) + 1px var(--border-color) + var(--shadow-md) + var(--radius-md)。
+   本文件在 Header.tsx 中位于 header.css 之后引入：同 specificity 后者胜，仅新增 hs-* 命名空间，
+   对 .search-box 只补一个定位上下文（header.css 未声明 position）。 */
+
+.search-box {
+  position: relative;
+}
+
+.hs-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 1200;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.hs-group {
+  padding: 8px 12px 4px;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: lowercase;
+  user-select: none;
+}
+
+.hs-option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-height: 34px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.hs-option[aria-selected="true"] {
+  background: var(--bg-hover);
+}
+
+.hs-option-label {
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hs-option-meta {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hs-hit {
+  color: var(--neon-cyan);
+  font-weight: 600;
+}
+
+.hs-option-all {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.hs-option-all .hs-option-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hs-option-all[aria-selected="true"] .hs-option-label {
+  color: var(--neon-cyan);
+}
+
+.hs-option-go {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.hs-empty {
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}

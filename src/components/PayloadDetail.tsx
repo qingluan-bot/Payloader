@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { useLanguage, useNav, useSession, useStaticData } from '../appContext';
 import { getText } from '../i18n';
-import type { AttackChainStep, I18nText, PayloadExecution, SyntaxPart } from '../types';
+import type { AttackChainStep, I18nText, PayloadExecution, PayloadItem, SyntaxPart } from '../types';
+import { cachedPayloadDetail, fetchPayloadDetail } from '../data/payloadDetailCache';
 import { resolveVariableParts, resolveVariableText } from '../utils/variables';
+import { sourceLabel } from '../utils/exploit-labels';
 import { useCopyFeedback } from '../utils/clipboard';
 import SyntaxModal from './SyntaxModal';
 import { label, payloadIdAliases, tutorialIsSubstantive } from './payloadDetailText';
@@ -12,6 +14,7 @@ import PayloadDetailHeader from './PayloadDetailHeader';
 import ExecutionListPanel from './ExecutionListPanel';
 import AttackChainPanel from './AttackChainPanel';
 import TutorialPanel from './TutorialPanel';
+import { MOBILE_BREAKPOINT, useMediaQuery } from './useMediaQuery';
 import '../styles/payload-detail.css';
 
 interface PayloadDetailProps {
@@ -20,9 +23,10 @@ interface PayloadDetailProps {
 
 function PayloadDetail({ payloadId }: PayloadDetailProps) {
   const { globalVariables } = useSession();
-  const { bypassMode } = useNav();
+  const { bypassMode, setSelectedPayloadId } = useNav();
   const { language } = useLanguage();
   const { allPayloads } = useStaticData();
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const { copiedKey: copiedIndex, copy } = useCopyFeedback();
   const [selectedSyntax, setSelectedSyntax] = useState<{ syntax: SyntaxPart[]; title: I18nText } | null>(null);
   const [sectionSelection, setSectionSelection] = useState<{ payloadId: string; section: DetailSection }>({
@@ -32,7 +36,28 @@ function PayloadDetail({ payloadId }: PayloadDetailProps) {
   const [payloadQueryState, setPayloadQueryState] = useState({ payloadId, value: '' });
 
   const resolvedPayloadId = payloadIdAliases[payloadId] || payloadId;
-  const payload = allPayloads.find(item => item.id === payloadId) || allPayloads.find(item => item.id === resolvedPayloadId);
+  // P1-2 首屏载荷瘦身：列表条目只含投影字段，详情级内容按需拉取。
+  // 挂载初值取缓存命中；未命中时 effect 内异步拉取（key 由父组件绑定 payloadId，
+  // 切换条目触发重挂，局部状态自然清零）。拉取失败回落列表态渲染（旧离线包 404 场景）。
+  const [detail, setDetail] = useState<PayloadItem | null>(() => cachedPayloadDetail(resolvedPayloadId));
+  const [detailMissing, setDetailMissing] = useState(false);
+  const listItem = allPayloads.find(item => item.id === payloadId) || allPayloads.find(item => item.id === resolvedPayloadId);
+
+  useEffect(() => {
+    if (cachedPayloadDetail(resolvedPayloadId)) return;
+    let isCurrent = true;
+    fetchPayloadDetail(resolvedPayloadId).then(item => {
+      if (!isCurrent) return;
+      if (item) setDetail(item);
+      else setDetailMissing(true);
+    });
+    return () => {
+      isCurrent = false;
+    };
+  }, [resolvedPayloadId]);
+
+  const payload = detail ?? listItem;
+  const detailPending = !detail && !detailMissing && Boolean(listItem);
   const hasSubstantiveTutorial = tutorialIsSubstantive(payload?.tutorial);
   const hasWafContent = Boolean(payload?.wafBypass?.length);
   const requestedSection = sectionSelection.payloadId === payloadId ? sectionSelection.section : 'payloads';
@@ -44,7 +69,9 @@ function PayloadDetail({ payloadId }: PayloadDetailProps) {
   const executionItems = useMemo<PayloadExecution[]>(() => {
     if (!payload) return [];
     if (bypassMode === 'waf') return payload.wafBypass || [];
-    return payload.execution;
+    // 列表投影态（详情未到达）execution 为 undefined：链式 fallback 的 useMemo 无条件
+    // 求值，必须兜底空数组，否则 executionItems[0] 渲染期崩树
+    return payload.execution || [];
   }, [bypassMode, payload]);
 
   const attackChainItems = useMemo<AttackChainStep[]>(() => {
@@ -129,6 +156,15 @@ function PayloadDetail({ payloadId }: PayloadDetailProps) {
 
   return (
     <div className="payload-detail">
+      {isMobile && (
+        <button
+          type="button"
+          className="mobile-detail-back"
+          onClick={() => setSelectedPayloadId(null)}
+        >
+          <span aria-hidden="true">←</span> {language === 'zh' ? '返回列表' : 'Back to list'}
+        </button>
+      )}
       <PayloadDetailHeader
         payload={payload}
         hasSubstantiveTutorial={hasSubstantiveTutorial}
@@ -138,35 +174,77 @@ function PayloadDetail({ payloadId }: PayloadDetailProps) {
         copiedKey={copiedIndex}
       />
 
-      {activeSection === 'payloads' && (
-        <ExecutionListPanel
-          items={filteredExecutionItems}
-          totalCount={executionItems.length}
-          modeLabel={modeLabel}
-          hasWafContent={hasWafContent}
-          payloadQuery={payloadQuery}
-          onQueryChange={event => setPayloadQueryState({ payloadId, value: event.target.value })}
-          onClearQuery={() => setPayloadQueryState({ payloadId, value: '' })}
-          copiedKey={copiedIndex}
-          onCopy={copyText}
-          onCopyVisible={copyVisible}
-          onSelectSyntax={setSelectedSyntax}
-          renderCommand={renderCommandWithHighlights}
-        />
+      {detailMissing && (
+        // 详情拉取失败（旧离线包 404 等）：如实告知当前只有列表态基础信息
+        <p className="related-exploits-hint" role="note">
+          {language === 'zh'
+            ? '详情内容暂时不可用（离线包较旧或网络异常），当前展示基础信息。'
+            : 'Detail content is unavailable (older offline package or network issue); showing basic info.'}
+        </p>
       )}
 
-      {activeSection === 'chain' && (
-        <AttackChainPanel
-          steps={attackChainItems}
-          language={language}
-          copiedKey={copiedIndex}
-          onCopy={copyText}
-          renderCommand={renderCommandWithHighlights}
-        />
-      )}
+      {detailPending ? (
+        // 详情未到达前渲染列表态骨架：头部（名称/描述/分类）由列表投影即时呈现
+        <div className="payload-detail-skeleton" role="status" aria-live="polite">
+          <span className="skeleton-line w-40" aria-hidden="true" />
+          <span className="skeleton-line w-90" aria-hidden="true" />
+          <span className="skeleton-line w-75" aria-hidden="true" />
+          <span className="skeleton-line w-60" aria-hidden="true" />
+        </div>
+      ) : (
+        <>
+          {activeSection === 'payloads' && (
+            <>
+              <ExecutionListPanel
+                items={filteredExecutionItems}
+                totalCount={executionItems.length}
+                modeLabel={modeLabel}
+                hasWafContent={hasWafContent}
+                payloadQuery={payloadQuery}
+                onQueryChange={event => setPayloadQueryState({ payloadId, value: event.target.value })}
+                onClearQuery={() => setPayloadQueryState({ payloadId, value: '' })}
+                copiedKey={copiedIndex}
+                onCopy={copyText}
+                onCopyVisible={copyVisible}
+                onSelectSyntax={setSelectedSyntax}
+                renderCommand={renderCommandWithHighlights}
+              />
+              {Boolean(payload?.relatedExploits?.length) && (
+                <section className="related-exploits-card" aria-label={language === 'zh' ? '相关 EXP' : 'Related exploits'}>
+                  <h3>{language === 'zh' ? '相关 EXP' : 'Related exploits'}</h3>
+                  <p className="related-exploits-hint">
+                    {language === 'zh' ? '按漏洞编号与影响产品自动关联的公开利用程序：' : 'Public exploits auto-linked by CVE and affected product:'}
+                  </p>
+                  <ul>
+                    {(payload.relatedExploits ?? []).map(item => (
+                      <li key={item.id}>
+                        <a href={`#/exploit/${encodeURIComponent(item.id)}`}>{item.name}</a>
+                        {/* E-11：来源统一同一 chip 形态（圆角描边 + 等宽内边距），仅配色按来源区分 */}
+                        <span className={`related-exploits-source src-${item.source || 'curated'}`}>
+                          {sourceLabel(item.source || 'curated', language)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
 
-      {activeSection === 'tutorial' && hasSubstantiveTutorial && payload.tutorial && (
-        <TutorialPanel payload={payload} tutorial={payload.tutorial} language={language} />
+          {activeSection === 'chain' && (
+            <AttackChainPanel
+              steps={attackChainItems}
+              language={language}
+              copiedKey={copiedIndex}
+              onCopy={copyText}
+              renderCommand={renderCommandWithHighlights}
+            />
+          )}
+
+          {activeSection === 'tutorial' && hasSubstantiveTutorial && payload.tutorial && (
+            <TutorialPanel payload={payload} tutorial={payload.tutorial} language={language} />
+          )}
+        </>
       )}
 
       {selectedSyntax && (

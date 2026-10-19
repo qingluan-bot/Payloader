@@ -12,6 +12,8 @@ import {
   deleteCustomContent,
   ensureStoreReady,
   getMetadataValue,
+  getPayloadDetail,
+  getPayloadSearchCorpus,
   getPublicData,
   getResetImpact,
   getSettings,
@@ -19,11 +21,14 @@ import {
   listAdminItems,
   listCustomContent,
   listCustomPayloads,
+  listPublicExploits,
   moveAdminItem,
   previewImportPackage,
   resetDefaultData,
+  restoreAdminItem,
   saveAdminItem,
   saveCustomContent,
+  saveExploitNavigationItem,
   saveNavigationItem,
   saveSettings,
   setMetadataValue,
@@ -37,11 +42,6 @@ import {
 import { officialProjectUrl, publicProjectRoute } from './project-attribution.mjs';
 import { createShutdownController } from './server-lifecycle.mjs';
 import { createVersionChecker, VERSION_STATUS_METADATA_KEY } from './version-checker.mjs';
-import {
-  createRepoMonitor,
-  REPO_MONITOR_STATUS_METADATA_KEY,
-  REPO_MONITOR_SUBSCRIPTIONS_METADATA_KEY,
-} from './repo-monitor.mjs';
 import { baseResponseHeaders, json, methodNotAllowed, safeErrorPayload, text } from './http-helpers.mjs';
 
 export { readBody } from './http-helpers.mjs';
@@ -51,12 +51,14 @@ import { createCredentialStore } from './admin-credentials.mjs';
 import { createSessionManager } from './admin-session.mjs';
 import { Router } from './router.mjs';
 import { createPublicRoutes } from './routes-public.mjs';
+import { createExploitRoutes } from './routes-exploits.mjs';
 import { createAuthRoutes } from './routes-auth.mjs';
+import { createCaptchaService } from './admin-captcha.mjs';
 import { createAdminRoutes } from './routes-admin.mjs';
 import { createLogoUploader } from './routes-logo.mjs';
 import { createCtfProxyRoutes } from './routes-ctf-proxy.mjs';
 import { createCtfPortscanRoutes } from './routes-ctf-portscan.mjs';
-import { createRepoMonitorRoutes } from './routes-repo-monitor.mjs';
+import { createCtfTargetGuard, resolveCtfTargetPolicy } from './ctf-target-guard.mjs';
 import { createStaticHandlers } from './static.mjs';
 
 const rootDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -101,6 +103,7 @@ const credentials = createCredentialStore({
 const {
   endLoginVerify,
   getAdminCredentials,
+  isUsingPublishedPassword,
   publicCredentialInfo,
   saveAdminCredentials,
   tryBeginLoginVerify,
@@ -118,6 +121,12 @@ const {
 
 const publicDataResponder = createPublicDataResponder({
   loadData: getPublicData,
+  responseHeaders: baseResponseHeaders,
+});
+
+// 搜索语料响应器（P1-2）：命令文本独立端点，ETag/压缩/内存快照机制与 public-data 同源
+const payloadSearchCorpusResponder = createPublicDataResponder({
+  loadData: getPayloadSearchCorpus,
   responseHeaders: baseResponseHeaders,
 });
 
@@ -155,32 +164,30 @@ const services = {
     loadStatus: () => getMetadataValue(VERSION_STATUS_METADATA_KEY, ''),
     saveStatus: value => setMetadataValue(VERSION_STATUS_METADATA_KEY, value),
   }),
-  // 订阅仓库监控（v2.0.1）：Atom 通道多目标引擎，token 仅取环境变量，端点全走管理端鉴权
-  repoMonitor: createRepoMonitor({
-    loadSubscriptions: () => getMetadataValue(REPO_MONITOR_SUBSCRIPTIONS_METADATA_KEY, null),
-    saveSubscriptions: value => setMetadataValue(REPO_MONITOR_SUBSCRIPTIONS_METADATA_KEY, value),
-    loadStatuses: () => getMetadataValue(REPO_MONITOR_STATUS_METADATA_KEY, null),
-    saveStatuses: value => setMetadataValue(REPO_MONITOR_STATUS_METADATA_KEY, value),
-  }),
 };
 
 const router = new Router();
 createPublicRoutes({
   publicDataResponder,
+  payloadSearchCorpusResponder,
   ensureApplicationReady: (...args) => ensureApplicationReady(...args),
   officialProjectUrl,
   publicProjectRoute,
   getPublicClientBuildInfo,
   clientBuildDownload,
   getPublicData,
+  getPayloadDetail,
   baseResponseHeaders,
 }).registerPublicRoutes(router);
+createExploitRoutes({ listExploits: listPublicExploits }).registerExploitRoutes(router);
+const captchaService = createCaptchaService();
 createAuthRoutes({
   readAdminSession,
   createAdminSession,
   revokeSession,
   getAdminCredentials,
   validAdminCredentials,
+  isUsingPublishedPassword,
   tryBeginLoginVerify,
   endLoginVerify,
   checkRateLimit,
@@ -188,6 +195,7 @@ createAuthRoutes({
   respondTooManyRequests,
   failedLoginLimit,
   adminRequestLimit,
+  captchaService,
 }).registerAuthRoutes(router);
 createAdminRoutes({
   services,
@@ -205,8 +213,10 @@ createAdminRoutes({
   listAdminItems,
   saveAdminItem,
   saveNavigationItem,
+  saveExploitNavigationItem,
   deleteAdminItem,
   moveAdminItem,
+  restoreAdminItem,
   getClientBuildStatus,
   startClientBuild,
   clientBuildDownload,
@@ -217,9 +227,11 @@ createAdminRoutes({
 createLogoUploader({ logoUploadDir, safeResolve }).registerLogoRoutes(router);
 // CTF 解题模块开关（批次 TG）：settings.ctfEnabled 缺省即开；proxy/portscan 端点服务端强制执行
 const isCtfEnabled = async () => (await getSettings()).ctfEnabled !== false;
-createCtfProxyRoutes({ isCtfEnabled }).registerCtfProxyRoutes(router);
-createCtfPortscanRoutes({ isCtfEnabled }).registerCtfPortscanRoutes(router);
-createRepoMonitorRoutes({ repoMonitor: services.repoMonitor }).registerRepoMonitorRoutes(router);
+// SSRF 防护（环境感知）：本机回环监听放行（题目靶机场景完整），非回环监听默认拦截内网/回环目标；
+// PAYLOADER_CTF_TARGET_POLICY=off|protected 可显式覆盖（见 ctf-target-guard.mjs）
+const ctfTargetGuard = createCtfTargetGuard({ policy: resolveCtfTargetPolicy({ serverHost: host }) });
+createCtfProxyRoutes({ isCtfEnabled, targetGuard: ctfTargetGuard }).registerCtfProxyRoutes(router);
+createCtfPortscanRoutes({ isCtfEnabled, targetGuard: ctfTargetGuard }).registerCtfPortscanRoutes(router);
 staticHandlers.registerStaticRoutes(router);
 
 export const ensureApplicationReady = async () => {
@@ -228,6 +240,7 @@ export const ensureApplicationReady = async () => {
     getAdminCredentials(),
     getJwtSecret(),
     publicDataResponder.prepare(),
+    payloadSearchCorpusResponder.prepare(),
   ]);
   return true;
 };
@@ -248,6 +261,15 @@ const handleRequest = async (request, response) => {
       if (await router.dispatch(request, response, url, 'auth-entry', context)) return;
       if (!checkRateLimit(request, response, 'admin-request', adminRequestLimit)) return;
       if (!await requireAuth(request, response)) return;
+      // 强制改密闸门：仍在使用公开示例口令时，除凭据读取/修改外的一切管理端点一律 403，
+      // 服务端强制（前端引导只是配套），防止拿到默认口令的攻击者绕过 UI 直接调 API
+      if (isUsingPublishedPassword() && url.pathname !== '/api/admin/credentials') {
+        json(response, 403, {
+          error: '当前仍在使用默认管理员密码，请先完成密码修改（账号安全 → 登录凭据）再执行其他管理操作。',
+          mustChangePassword: true,
+        });
+        return;
+      }
       if (await router.dispatch(request, response, url, 'admin', context)) return;
       text(response, 404, 'Not found');
       return;
@@ -268,11 +290,9 @@ const handleRequest = async (request, response) => {
 
 export const createAdminServer = (options = {}) => {
   if (options.versionChecker) services.versionChecker = options.versionChecker;
-  if (options.repoMonitor) services.repoMonitor = options.repoMonitor;
   const server = createServer((request, response) => handleRequest(request, response));
   server.once('close', () => {
     services.versionChecker.stop();
-    services.repoMonitor.stop();
   });
   return server;
 };
@@ -283,15 +303,12 @@ export const startAdminServer = async () => {
   await ensureApplicationReady();
   const credentials = await getAdminCredentials();
   await services.versionChecker.start();
-  await services.repoMonitor.start();
   const server = createAdminServer({
     versionChecker: services.versionChecker,
-    repoMonitor: services.repoMonitor,
   });
   await new Promise((resolveListen, rejectListen) => {
     const onError = error => {
       services.versionChecker.stop();
-      services.repoMonitor.stop();
       rejectListen(error);
     };
     server.once('error', onError);

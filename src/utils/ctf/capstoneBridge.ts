@@ -182,7 +182,8 @@ export const scanGadgets = async (
       for (let back = lookback; back >= 1; back--) {
         const start = anchorEnd - 1 - back;
         if (start < 0) continue;
-        // 长链优先：先试最长的回看窗口，命中即取（ROPgadget 语义：完整指令链）。
+        // 长链优先回看（ROPgadget 语义：完整指令链），命中后继续尝试更短窗口——把"纯 gadget
+        // 起始"（无前导填充，如 nop 链后的 pop rdi ; ret 本体）作为同锚点补充条目全量列出。
         const result = tryDecodeAt(start, anchorEnd);
         if (!result) continue;
         const address = vaddrBase + start;
@@ -190,9 +191,10 @@ export const scanGadgets = async (
         if (filter && !result.text.toLowerCase().includes(filter)) continue;
         seen.add(address);
         hits.push({ address, offset: globalOffset + start, gadgets: result.text, size: result.size });
-        break;
       }
-      if (seen.size >= limit * 4) break; // 粗截断：去重后统一裁剪（带过滤词时按锚点计数防失控）。
+      // 粗截断：同锚点多窗口后条目更多，阈值放宽到 limit*16 维持原有锚点覆盖量
+      //（带过滤词时按锚点计数防失控）。
+      if (seen.size >= limit * 16) break;
       scannedAnchors += 1;
       if (scannedAnchors >= limit * 8) break;
     }

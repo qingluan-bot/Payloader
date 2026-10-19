@@ -6,6 +6,7 @@ import { isOperationVisible } from '../utils/codec/audience';
 import { hydrateCodecHeavyData } from '../utils/codec/heavyData';
 import type { OperationId } from '../utils/codec/types';
 import { ctfModules } from './ctf/registry';
+import { Icon } from './Icon';
 import { detectFileTypes, ROUTE_EXT_GROUPS } from '../utils/ctf/fileDetect';
 import CtfHero from './ctf/CtfHero';
 import { useSmartIdentify } from './codec/useSmartIdentify';
@@ -199,7 +200,16 @@ const CtfToolkit = memo(function CtfToolkit() {
           className="ctf-domain-nav"
           value={activeModuleId}
           onChange={setActiveModuleId}
-          data={ctfModules.map(module => ({ value: module.id, label: `${module.icon} ${module.name[language]}` }))}
+          data={ctfModules.map(module => ({
+            value: module.id,
+            // label 接受 ReactNode：域图标走统一 SVG（module.icon 已是 IconName）。
+            label: (
+              <span className="ctf-domain-nav-label">
+                <Icon name={module.icon} size={16} />
+                {module.name[language]}
+              </span>
+            ),
+          }))}
           aria-label={language === 'zh' ? '题型域导航' : 'Challenge categories'}
         />
       </nav>

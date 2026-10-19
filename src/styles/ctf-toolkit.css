@@ -84,3 +84,10 @@
         .ctf-toolkit .encoding-header-compact h2:hover::after {
           color: var(--neon-cyan);
         }
+
+        /* 域导航图标（A8 emoji 清零）：SegmentedControl label 内统一 SVG 图标与文字的对齐。 */
+        .ctf-domain-nav-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }

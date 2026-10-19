@@ -78,7 +78,8 @@ test('the production server removes static Xeye metadata after an administrator 
 });
 
 test('sidebar uses an accessible tree with semantic controls', async () => {
-  const sidebar = await read('src/components/Sidebar.tsx');
+  // MA 移动重构：树本体在 NavTree（Sidebar 壳 + 移动端分类 sheet 共用），断言跟随实现位置
+  const sidebar = await read('src/components/NavTree.tsx');
 
   assert.match(sidebar, /role=["']tree["']/);
   assert.match(sidebar, /role=["']treeitem["']/);
@@ -90,7 +91,7 @@ test('sidebar uses an accessible tree with semantic controls', async () => {
 });
 
 test('sidebar search keeps one roving tab stop on the first visible root', async () => {
-  const sidebar = await read('src/components/Sidebar.tsx');
+  const sidebar = await read('src/components/NavTree.tsx');
 
   assert.match(sidebar, /firstVisibleRootId/);
   assert.match(sidebar, /isTreeItemVisible/);
@@ -136,7 +137,8 @@ test('public search controls expose stable form names', async () => {
   // F5 拆分：搜索输入框分属 HeaderSearch/VariablesMenu/ExecutionListPanel，断言跟随拆分文件
   const [headerSearch, variablesMenu, executionList] = await Promise.all([
     read('src/components/HeaderSearch.tsx'),
-    read('src/components/VariablesMenu.tsx'),
+    // MA 移动重构：变量面板主体拆至 VariablesPanel（头部下拉与移动端更多页共用），断言跟随
+    read('src/components/VariablesPanel.tsx'),
     read('src/components/ExecutionListPanel.tsx'),
   ]);
 
@@ -330,9 +332,10 @@ test('admin mobile controls meet touch targets and polish CSS is balanced', asyn
 });
 
 test('admin shell uses enterprise action hierarchy and mobile module selection', async () => {
-  const [html, login, admin] = await Promise.all([
+  const [html, login, loginScript, admin] = await Promise.all([
     read('admin/index.html'),
     read('admin/login.html'),
+    read('admin/login.js'),
     read('admin/admin.js'),
   ]);
 
@@ -341,9 +344,15 @@ test('admin shell uses enterprise action hierarchy and mobile module selection',
   assert.match(html, /class=["'][^"']*more-actions-menu/);
   assert.doesNotMatch(html, /class=["']stats-grid["']/);
   assert.match(html, /aria-label=["']更多后台操作["']/);
-  assert.match(login, /<h1[^>]*id=["']login-title["'][^>]*>Payloader Admin<\/h1>/);
-  assert.doesNotMatch(login, /login-intro|login-capabilities|login-security/);
-  assert.doesNotMatch(login, /统一维护|面向管理员|内容管理|结构治理|发布交付|管理员身份验证|会话使用/);
+  assert.match(login, /<h1[^>]*>Payloader Admin<\/h1>/);
+  assert.match(login, /class=["'][^"']*login-brand["']/);
+  assert.match(login, /id=["']password-visibility["'][^>]*aria-pressed=["']false["']/);
+  assert.match(login, /id=["']capslock-hint["'][^>]*hidden/);
+  assert.match(login, /id=["']captcha-answer["']/);
+  assert.match(login, /id=["']captcha-image["'][^>]*aria-label=["']看不清？点击更换验证码["']/);
+  assert.match(loginScript, /fetch\(['"]\/api\/admin\/captcha['"]/);
+  assert.match(loginScript, /captchaToken,\s*captchaAnswer: captchaAnswer\.value\.trim\(\)/);
+  assert.doesNotMatch(login, /安全运营，一处掌控|会话令牌仅保存在当前浏览器标签页|欢迎回来/);
   assert.doesNotMatch(html, /管理前台展示的内容和结构|正在编辑/);
   for (const subtitle of ['标题、Logo', '命令、教程、引用', '工具分类和命令库', '前台左侧分类结构', '版本与源码状态', '快速添加文本内容']) {
     assert.doesNotMatch(html, new RegExp(`<small>${subtitle}</small>`));
@@ -373,12 +382,15 @@ test('admin exposes a responsive and text-safe system update center', async () =
   assert.match(admin, /releaseNotes\.notices\.map\(notice => `<p>\$\{escapeHtml\(notice\)\}<\/p>`\)/);
   assert.match(admin, /notices:\s*\[\.\.\.new Set\(notices\)\]\.slice\(0, 2\)/);
   assert.match(admin, /state\.versionChecking/);
-  assert.match(admin, /官方发布版本/);
-  assert.match(admin, /未发现 Release \/ Tag/);
+  assert.match(admin, /官方最新版本/);
+  // 2026-09-28 瘦身：默认分支源码面板与重复状态行移除，版本说明仅在实质内容时渲染
+  assert.doesNotMatch(admin, /默认分支源码|版本来源|监控官方仓库|发布状态|同步状态/);
+  assert.doesNotMatch(admin, /<span>API 剩余<\/span>/);
+  assert.doesNotMatch(admin, /完整变更说明和直接下载请查看官方项目/);
   assert.match(admin, /formatVersionDate\(stable\.publishedAt, '未发布'\)/);
   assert.match(admin, /readOnlyStatusModule/);
   assert.match(styles, /\.version-update-shell\s*\{/);
-  assert.match(styles, /\.version-update-timeline\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,/);
+  assert.match(styles, /\.version-update-timeline\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
   assert.match(styles, /\.version-update-note-notices\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
   assert.match(styles, /@media \(max-width: 860px\)[\s\S]*?\.version-update-grid[\s\S]*?grid-template-columns:\s*1fr/);
 
@@ -456,13 +468,21 @@ test('admin shell is public while admin data uses explicit Bearer authorization'
   const staticServer = await read('server/static.mjs');
   const session = await read('server/admin-session.mjs');
   const admin = await read('admin/admin.js');
+  const authRoutes = await read('server/routes-auth.mjs');
+  const captchaService = await read('server/admin-captcha.mjs');
 
-  assert.match(login, /admin-polish\.css/);
+  assert.match(login, /\/admin\/login\.css/);
+  assert.doesNotMatch(login, /<style>/);
   assert.doesNotMatch(login, /Bearer JWT/);
   assert.doesNotMatch(login, /HttpOnly Cookie/);
   assert.match(loginScript, /body\.tokenType !== 'Bearer'/);
   assert.match(loginScript, /sessionStorage\.setItem\(tokenStorageKey, body\.accessToken\)/);
   assert.doesNotMatch(loginScript, /正在建立安全会话|登录成功，正在进入后台|进入后台/);
+  // 图形验证码强制：登录先过即焚校验再进凭据验证，答案默认不回显
+  assert.match(authRoutes, /captchaService\.verify\(body\.captchaToken, body\.captchaAnswer\)/);
+  assert.match(authRoutes, /captchaInvalid: true/);
+  assert.match(captchaService, /timingSafeEqual/);
+  assert.match(captchaService, /PAYLOADER_CAPTCHA_ECHO_ANSWER === '1'/);
   assert.match(staticServer, /'\/admin\/login'[\s\S]*?serveStatic\(request, response, join\(adminDir, 'login\.html'\)\)/);
   assert.match(staticServer, /adminStaticPath\(url\.pathname\)[\s\S]*?serveStatic\(request, response, adminPath\)/);
   assert.match(staticServer, /checkRateLimit\(request, response, 'admin-page', adminRequestLimit\)/);
@@ -536,7 +556,8 @@ test('admin custom content supports payload and tool destinations through the na
 });
 
 test('sidebar derives custom entries from the active payload or tool collection', async () => {
-  const sidebar = await read('src/components/Sidebar.tsx');
+  // MA 移动重构：分类树本体迁至 NavTree（Sidebar 壳与移动端分类 sheet 共用），契约断言跟随实现位置
+  const sidebar = await read('src/components/NavTree.tsx');
 
   assert.match(sidebar, /allToolCommands/);
   assert.match(sidebar, /toolId: item\.id/);
@@ -592,8 +613,9 @@ test('CTF file modules stay mounted across domain switches; smart identify lives
   assert.equal(ctfModuleContracts.filter(module => module.heroMode === 'collapsed').length, 6);
   assert.match(toolkit, /activeModuleId !== CIPHER_MODULE_ID/, 'cipher 域不得渲染 hero');
   assert.match(toolkit, /encoding-header-compact/, '标题必须收敛为一行紧凑形态');
-  assert.match(workbench, /SmartDetectBar/, 'CTF 态工作台必须内嵌智能识别条');
-  assert.match(workbench, /isCtfMode \? \(\s*<SmartDetectBar/, '识别条仅 CTF 态渲染（渗透态保留 DetectStrip）');
+  // M4 移动三 tab：SmartDetectBar 随输入 tab 门控（mobileOnly/mobilePanel），CTF 态渲染语义不变
+  assert.match(workbench, /isCtfMode \? \(/, '识别条仅 CTF 态渲染（渗透态保留 DetectStrip）');
+  assert.match(workbench, /mobilePanel === 'input'\) \? \(/, '移动端识别条随输入 tab 门控');
   assert.match(workbench, /focusOperation\(id, input \|\| undefined\)/, '识别条芯片点击必须聚焦+以当前输入执行');
   // 全局密钥栏 hero 退役后由工作台常驻承载（两种模态都渲染）。
   assert.doesNotMatch(workbench, /!\{?isCtfMode && \(\s*<GlobalSecretBar/);
@@ -649,4 +671,24 @@ test('workbench action marks use category-appropriate verbs (behavioral)', () =>
   // Vigenere（crypto 类）：保持加/解密
   const vigenereMarks = marksOf('vigenere');
   assert.ok(vigenereMarks.some(m => m === '【Vigenere解密】'), `密码类应保持解密: ${vigenereMarks.join(',')}`);
+});
+
+test('exploit severity unknown renders without crashing (assets complete)', async () => {
+  // severity 官方档校准后，无 NVD 评分条目 severity='unknown'（29647 条聚合库占比可观）。
+  // ExploitDetail 的本地 severityLabels 曾漏 unknown 键 → severityChip 读 .className 抛
+  // TypeError → React 整树白屏（EXP 分类浏览全挂）。三处资产必须同步齐备：
+  const [component, css, types, labels] = await Promise.all([
+    read('src/components/ExploitDetail.tsx'),
+    read('src/styles/exploit.css'),
+    read('src/types/index.ts'),
+    read('src/utils/exploit-labels.ts'),
+  ]);
+  // ① 组件本地表必须有 unknown 键且 severityChip 消费它
+  assert.match(component, /unknown:\s*\{\s*zh:\s*['"]未评级['"],\s*className:\s*['"]unknown['"]\s*\}/);
+  // ② 类型联合必须含 unknown（否则 Record 缺键 compile 期就拦不住运行时 undefined）
+  assert.match(types, /ExploitSeverity\s*=\s*[^;]*'unknown'/);
+  // ③ CSS 必须有 exp-sev-unknown 档（否则徽标裸样式）
+  assert.match(css, /\.exp-sev-unknown\s*\{/);
+  // ④ 全局标签表（admin/检索共用）保持 unknown 条目
+  assert.match(labels, /unknown:\s*\{\s*zh:\s*['"]未评级['"]\s*\}/);
 });

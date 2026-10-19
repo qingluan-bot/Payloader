@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useLanguage, useSession, useStaticData } from '../appContext';
+import { useLanguage, useNav, useSession, useStaticData } from '../appContext';
 import { t, getText } from '../i18n';
 import { isProtectedExternalUrl, openProtectedExternalLink } from '../protectedLinks';
 import type { SyntaxPart, I18nText } from '../types';
 import { resolveVariableParts, resolveVariableText } from '../utils/variables';
 import { useCopyFeedback } from '../utils/clipboard';
 import SyntaxModal from './SyntaxModal';
+import { MOBILE_BREAKPOINT, useMediaQuery } from './useMediaQuery';
 import '../styles/tool-detail.css';
 
 interface ToolDetailProps {
@@ -16,6 +17,8 @@ function ToolDetail({ toolId }: ToolDetailProps) {
   const { globalVariables } = useSession();
   const { language } = useLanguage();
   const { allToolCommands } = useStaticData();
+  const { setSelectedToolId } = useNav();
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const { copiedKey: copiedIndex, copy } = useCopyFeedback();
   const [selectedSyntax, setSelectedSyntax] = useState<{syntax: SyntaxPart[], title: I18nText} | null>(null);
 
@@ -53,6 +56,15 @@ function ToolDetail({ toolId }: ToolDetailProps) {
 
   return (
     <div className="tool-detail">
+      {isMobile && (
+        <button
+          type="button"
+          className="mobile-detail-back"
+          onClick={() => setSelectedToolId(null)}
+        >
+          <span aria-hidden="true">←</span> {language === 'zh' ? '返回列表' : 'Back to list'}
+        </button>
+      )}
       <div className="tool-header">
         <div className="tool-title-section">
           <h1 className="tool-title">{getText(tool.name, language)}</h1>
@@ -86,13 +98,17 @@ function ToolDetail({ toolId }: ToolDetailProps) {
         <div className="installation-section">
           <h3>{t('tool.installation', language)}</h3>
           <div className="code-block">
-            <code>{renderCommand(getText(tool.installation, language))}</code>
-            <button 
-              className={`copy-btn ${copiedIndex === 'install' ? 'copied' : ''}`}
-              onClick={() => copyToClipboard(getText(tool.installation, language), 'install')}
-            >
-              {copiedIndex === 'install' ? t('payload.copied', language) : t('payload.copy', language)}
-            </button>
+            <div className="code-block-head">
+              <span className="code-lang">shell</span>
+              <button
+                type="button"
+                className={`copy-btn ${copiedIndex === 'install' ? 'copied' : ''}`}
+                onClick={() => copyToClipboard(getText(tool.installation, language), 'install')}
+              >
+                {copiedIndex === 'install' ? t('payload.copied', language) : t('payload.copy', language)}
+              </button>
+            </div>
+            <pre className="code-block-pre"><code>{renderCommand(getText(tool.installation, language))}</code></pre>
           </div>
         </div>
       )}
@@ -105,20 +121,30 @@ function ToolDetail({ toolId }: ToolDetailProps) {
             <div key={index} className="command-item">
               <div className="command-header">
                 <h4 className="command-name">{getText(cmd.name, language)}</h4>
-                {cmd.platform && (
-                  <span className={`badge platform-${cmd.platform}`}>
-                    {cmd.platform === 'all' ? t('payload.allPlatforms', language) : cmd.platform === 'windows' ? t('payload.windows', language) : t('payload.linux', language)}
-                  </span>
-                )}
               </div>
               <p className="command-desc">{getText(cmd.description, language)}</p>
               <div className="code-block-wrapper">
                 <div className="code-block">
-                  <code>{renderCommand(cmd.command)}</code>
+                  <div className="code-block-head">
+                    {cmd.platform && (
+                      <span className="code-lang">
+                        {cmd.platform === 'all' ? t('payload.allPlatforms', language) : cmd.platform === 'windows' ? t('payload.windows', language) : t('payload.linux', language)}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className={`copy-btn ${copiedIndex === `${index}` ? 'copied' : ''}`}
+                      onClick={() => copyToClipboard(cmd.command, `${index}`)}
+                    >
+                      {copiedIndex === `${index}` ? t('payload.copied', language) : t('payload.copy', language)}
+                    </button>
+                  </div>
+                  <pre className="code-block-pre"><code>{renderCommand(cmd.command)}</code></pre>
                 </div>
-                <div className="code-actions">
-                  {cmd.syntaxBreakdown && cmd.syntaxBreakdown.length > 0 && (
-                    <button 
+                {cmd.syntaxBreakdown && cmd.syntaxBreakdown.length > 0 && (
+                  <div className="code-actions">
+                    <button
+                      type="button"
                       className="syntax-btn"
                       onClick={() => setSelectedSyntax({
                         syntax: cmd.syntaxBreakdown!,
@@ -127,14 +153,8 @@ function ToolDetail({ toolId }: ToolDetailProps) {
                     >
                       {t('payload.syntaxAnalysis', language)}
                     </button>
-                  )}
-                  <button 
-                    className={`copy-btn ${copiedIndex === `${index}` ? 'copied' : ''}`}
-                    onClick={() => copyToClipboard(cmd.command, `${index}`)}
-                  >
-                    {copiedIndex === `${index}` ? t('payload.copied', language) : t('payload.copy', language)}
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
               {cmd.examples && cmd.examples.length > 0 && (
                 <div className="examples-section">

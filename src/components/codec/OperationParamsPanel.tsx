@@ -20,10 +20,12 @@ interface OperationParamsPanelProps {
   // 归一化后的下拉显示值（rabbit/hexagram/parity 表越界回落），由宿主经 workbenchActions 计算。
   variantValue: string;
   hashAlgorithmValue: string;
+  // F-11：参数缺失报错联动——"展开参数"按钮红描边提示一次（宿主 2s 后复位）
+  optionsPulse?: boolean;
 }
 
 // 操作摘要 + 参数面板（原 CodecWorkbench 内联整块受控组件化迁出）：状态与回调全部经 props 传入，回调签名不变。
-function OperationParamsPanel({ operation, language, showOptions, setShowOptions, params, setParams, variantValue, hashAlgorithmValue }: OperationParamsPanelProps) {
+function OperationParamsPanel({ operation, language, showOptions, setShowOptions, params, setParams, variantValue, hashAlgorithmValue, optionsPulse = false }: OperationParamsPanelProps) {
   return (
     <>
       <div className="operation-summary">
@@ -32,7 +34,11 @@ function OperationParamsPanel({ operation, language, showOptions, setShowOptions
           <span>{label(operation.summary, language)}</span>
         </div>
         {operation.params?.length ? (
-          <button type="button" className="options-toggle" onClick={() => setShowOptions(value => !value)}>
+          <button
+            type="button"
+            className={`options-toggle${optionsPulse ? ' pulse-hint' : ''}`}
+            onClick={() => setShowOptions(value => !value)}
+          >
             {showOptions ? (language === 'zh' ? '收起参数' : 'Hide options') : (language === 'zh' ? '展开参数' : 'Show options')}
           </button>
         ) : null}
@@ -322,6 +328,17 @@ function OperationParamsPanel({ operation, language, showOptions, setShowOptions
               <input type="number" value={params.shift} onChange={event => setParams({ ...params, shift: event.target.value })} />
             </label>
           )}
+          {operation.params.includes('zeroWidthScheme') && (
+            <label>
+              <span>{language === 'zh' ? '零宽制式' : 'Zero-width radix'}</span>
+              <select value={params.zeroWidthScheme} onChange={event => setParams({ ...params, zeroWidthScheme: event.target.value })}>
+                <option value="auto">{language === 'zh' ? '自动' : 'Auto'}</option>
+                <option value="binary">{language === 'zh' ? '二元（U+200B/U+200C）' : 'Binary (U+200B/U+200C)'}</option>
+                <option value="ternary">{language === 'zh' ? '三元' : 'Ternary'}</option>
+                <option value="quaternary">{language === 'zh' ? '四元（330k）' : 'Quaternary (330k)'}</option>
+              </select>
+            </label>
+          )}
           {operation.params.includes('separator') && (
             <label>
               <span>{language === 'zh' ? '分隔符' : 'Separator'}</span>
@@ -356,6 +373,30 @@ function OperationParamsPanel({ operation, language, showOptions, setShowOptions
               <input value={params.knownPlaintext} onChange={event => setParams({ ...params, knownPlaintext: event.target.value })} placeholder="flag{ / PNG header / PK" />
             </label>
           )}
+          {operation.params.includes('referencePlain') && (
+            <label className="wide-option">
+              <span>{language === 'zh' ? '对照明文' : 'Reference plaintext'}</span>
+              <textarea
+                value={params.referencePlain}
+                onChange={event => setParams({ ...params, referencePlain: event.target.value })}
+                rows={4}
+                spellCheck={false}
+                placeholder={language === 'zh' ? '粘贴与密文同一替换体系的原文片段' : 'Paste plaintext sharing the substitution with the ciphertext'}
+              />
+            </label>
+          )}
+          {operation.params.includes('referenceCipher') && (
+            <label className="wide-option">
+              <span>{language === 'zh' ? '对照密文' : 'Reference ciphertext'}</span>
+              <textarea
+                value={params.referenceCipher}
+                onChange={event => setParams({ ...params, referenceCipher: event.target.value })}
+                rows={4}
+                spellCheck={false}
+                placeholder={language === 'zh' ? '粘贴与对照明文逐字对齐的替换文片段' : 'Paste the substituted text aligned with the reference plaintext'}
+              />
+            </label>
+          )}
           {operation.params.includes('mimeType') && (
             <label>
               <span>MIME</span>
@@ -366,6 +407,24 @@ function OperationParamsPanel({ operation, language, showOptions, setShowOptions
             <label>
               <span>{language === 'zh' ? 'PEM 块类型' : 'PEM block label'}</span>
               <input value={params.blockLabel} onChange={event => setParams({ ...params, blockLabel: event.target.value })} placeholder="PUBLIC KEY / CERTIFICATE / PRIVATE KEY" />
+            </label>
+          )}
+          {operation.params.includes('columns') && (
+            <label>
+              <span>{language === 'zh' ? '列数（空=自动 √n）' : 'Columns (blank = auto √n)'}</span>
+              <input type="number" min="1" value={params.columns} onChange={event => setParams({ ...params, columns: event.target.value })} />
+            </label>
+          )}
+          {operation.params.includes('personalNumber') && (
+            <label>
+              <span>{language === 'zh' ? '个人号（1-9）' : 'Personal number (1-9)'}</span>
+              <input type="number" min="1" max="9" value={params.personalNumber} onChange={event => setParams({ ...params, personalNumber: event.target.value })} />
+            </label>
+          )}
+          {operation.params.includes('keyGroup') && (
+            <label>
+              <span>{language === 'zh' ? '密钥组（5 位数字）' : 'Key group (5 digits)'}</span>
+              <input value={params.keyGroup} onChange={event => setParams({ ...params, keyGroup: event.target.value })} placeholder="77651" />
             </label>
           )}
         </div>

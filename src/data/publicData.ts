@@ -1,4 +1,4 @@
-import type { GlobalVariable, NavItem, PayloadItem, PublicData, SiteSettings, ToolCommand } from '../types';
+import type { ExploitItem, GlobalVariable, NavItem, PayloadItem, PublicData, SiteSettings, ToolCommand } from '../types';
 
 const isObject = (value: unknown): value is Record<string, unknown> => (
   Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -35,6 +35,8 @@ export const emptyPublicData = (): PublicData => ({
   tools: [],
   navigation: [],
   toolNavigation: [],
+  exploits: [],
+  exploitNavigation: [],
 });
 
 export const parsePublicData = (value: unknown): PublicData => {
@@ -64,5 +66,7 @@ export const parsePublicData = (value: unknown): PublicData => {
     tools: isArray<ToolCommand>(value.tools),
     navigation: isArray<NavItem>(value.navigation),
     toolNavigation: isArray<NavItem>(value.toolNavigation),
+    exploits: isArray<ExploitItem>(value.exploits),
+    exploitNavigation: isArray<NavItem>(value.exploitNavigation),
   };
 };

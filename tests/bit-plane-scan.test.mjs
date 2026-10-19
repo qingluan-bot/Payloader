@@ -2,6 +2,8 @@
 // lsbFirst 位序变体、与 extractLsbBytes 语义一致性、排序/maxHits、退化输入。
 // 测试向量全部程序化构造（无外部 fixture），加载统一走 tests/helpers/compileTsModule.mjs。
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import test from 'node:test';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
@@ -206,4 +208,133 @@ test('scanBitPlanes 退化输入：空图/越界尺寸返回空数组不崩溃',
   assert.equal(scanBitPlanes(new Uint8Array(0), 0, 0).length, 0);
   assert.equal(scanBitPlanes(new Uint8Array(16), 2, 2).length, 0);
   assert.equal(scanBitPlanes(new Uint8Array(16), 0, 8).length, 0);
+});
+
+// ---- 真题验收：BMP 行序维（BUG#6/打野）与 2-LSB 多位采样（G-3/10_lsb_png） ----
+// 解码器为测试内最小实现（24bpp BMP / 非隔行 PNG），与 canvas/canvas 语义一致：产出的
+// RGBA 均为 top-down 行序，行序维由 scanBitPlanes 的 rowOrder 组合覆盖。
+
+const decodeBmp24Rgba = bytes => {
+  assert.equal(String.fromCharCode(bytes[0], bytes[1]), 'BM', '真题应为 BMP');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const offset = view.getUint32(10, true);
+  const width = view.getInt32(18, true);
+  const height = view.getInt32(22, true);
+  const bitCount = view.getUint16(28, true);
+  assert.equal(bitCount, 24, '仅覆盖 24bpp 真题');
+  const rows = Math.abs(height);
+  const stride = (width * 3 + 3) & ~3;
+  const rgba = new Uint8Array(width * rows * 4);
+  for (let y = 0; y < rows; y += 1) {
+    const srcRow = height < 0 ? y : rows - 1 - y;
+    for (let x = 0; x < width; x += 1) {
+      const base = offset + srcRow * stride + x * 3;
+      const dst = (y * width + x) * 4;
+      rgba[dst] = bytes[base + 2];
+      rgba[dst + 1] = bytes[base + 1];
+      rgba[dst + 2] = bytes[base];
+      rgba[dst + 3] = 255;
+    }
+  }
+  return { data: rgba, width, height: rows };
+};
+
+const decodePngRgba = bytes => {
+  assert.deepEqual([...bytes.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], '真题应为 PNG');
+  let pos = 8;
+  let width = 0;
+  let height = 0;
+  let colorType = 0;
+  const idat = [];
+  let palette = null;
+  while (pos + 8 <= bytes.length) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const length = view.getUint32(pos);
+    const type = String.fromCharCode(bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]);
+    const data = bytes.subarray(pos + 8, pos + 8 + length);
+    if (type === 'IHDR') {
+      width = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+      height = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+      colorType = data[9];
+    } else if (type === 'IDAT') idat.push(data);
+    else if (type === 'PLTE') palette = data;
+    else if (type === 'IEND') break;
+    pos += 12 + length;
+  }
+  const channels = { 2: 3, 6: 4, 3: 1 }[colorType];
+  const raw = zlib.inflateSync(Buffer.concat(idat.map(d => Buffer.from(d))));
+  const stride = width * channels;
+  const out = new Uint8Array(stride * height);
+  const prev = new Uint8Array(stride);
+  let p = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[p];
+    p += 1;
+    const cur = new Uint8Array(stride);
+    for (let x = 0; x < stride; x += 1) cur[x] = raw[p + x];
+    p += stride;
+    for (let x = 0; x < stride; x += 1) {
+      const a = x >= channels ? cur[x - channels] : 0;
+      const b = prev[x];
+      const c = x >= channels ? prev[x - channels] : 0;
+      let value = cur[x];
+      if (filter === 1) value = (value + a) & 0xff;
+      else if (filter === 2) value = (value + b) & 0xff;
+      else if (filter === 3) value = (value + ((a + b) >> 1)) & 0xff;
+      else if (filter === 4) {
+        const pa = Math.abs(b - c);
+        const pb = Math.abs(a - c);
+        const pc = Math.abs(a + b - 2 * c);
+        value = (value + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c)) & 0xff;
+      }
+      cur[x] = value;
+    }
+    out.set(cur, y * stride);
+    prev.set(cur);
+  }
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    if (colorType === 6) rgba.set(out.subarray(i * 4, i * 4 + 4), i * 4);
+    else if (colorType === 2) {
+      rgba[i * 4] = out[i * 3];
+      rgba[i * 4 + 1] = out[i * 3 + 1];
+      rgba[i * 4 + 2] = out[i * 3 + 2];
+      rgba[i * 4 + 3] = 255;
+    } else if (colorType === 3) {
+      const base = out[i] * 3;
+      rgba[i * 4] = palette[base];
+      rgba[i * 4 + 1] = palette[base + 1];
+      rgba[i * 4 + 2] = palette[base + 2];
+      rgba[i * 4 + 3] = 255;
+    }
+  }
+  return { data: rgba, width, height };
+};
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel, title, fn) => (fs.existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel.split('/'))) ? test : test.skip)(title, fn);
+
+realTest('xctf-misc/21-打野/瞅啥.bmp', '真题 打野/瞅啥.bmp：rowOrder=bottomup 维命中 zsteg 式载荷', () => {
+  const bmp = decodeBmp24Rgba(Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', 'xctf-misc', '21-打野', '瞅啥.bmp')),
+  ));
+  const hits = scanBitPlanes(bmp.data, bmp.width, bmp.height, { maxHits: 30 });
+  const flagHit = hits.find(hit => hit.preview.includes('qwxf{you_say_chick_beautiful?}'));
+  assert.ok(flagHit, `bottomup 应命中打野载荷，实际 ${JSON.stringify(hits.slice(0, 3).map(h => `${h.channel}/${h.bit}/${h.rowOrder}`))}`);
+  assert.equal(flagHit.rowOrder, 'bottomup');
+  assert.equal(flagHit.pixelOrder, 'row');
+  assert.equal(flagHit.bitsPerSample, 1);
+  assert.ok(flagHit.preview.startsWith('\\x1e\\x00\\x00\\x00'), '载荷前缀 \\x1e\\x00\\x00\\x00 长度头');
+});
+
+realTest('10_lsb_png/challenge_infinity_image_final.png', '真题 10_lsb_png：bitsPerSample=2 组合命中 writeup 载荷', () => {
+  const png = decodePngRgba(Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', '10_lsb_png', 'challenge_infinity_image_final.png')),
+  ));
+  const hits = scanBitPlanes(png.data, png.width, png.height, { maxHits: 30 });
+  const pageHit = hits.find(hit => hit.bitsPerSample === 2 && hit.preview.includes('Page 383 of Volume 22'));
+  assert.ok(pageHit, `2-LSB 组合应命中 "Page 383…" 载荷，实际 ${JSON.stringify(hits.map(h => `${h.channel}/bps${h.bitsPerSample}`))}`);
+  assert.equal(pageHit.channel, 'rgba');
+  assert.equal(pageHit.lsbFirst, false, 'writeup 口径为 MSB-first');
+  assert.equal(pageHit.rowOrder, 'topdown');
 });

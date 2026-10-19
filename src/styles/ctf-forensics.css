@@ -11,7 +11,7 @@
     gap: 10px;
     padding: 46px 20px;
     border: 1px dashed var(--border-color);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--bg-card);
     text-align: center;
   }
@@ -44,9 +44,9 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    border: 1px solid rgba(0, 240, 255, 0.35);
-    border-radius: 8px;
-    background: rgba(0, 240, 255, 0.045);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
     padding: 10px 12px;
   }
 
@@ -65,7 +65,7 @@
   }
 
   .ff-recommend-hit {
-    border-color: rgba(0, 240, 255, 0.45);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
     color: var(--neon-cyan);
   }
 
@@ -85,7 +85,7 @@
 
   .ff-card {
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--bg-card);
     padding: 13px;
     display: grid;
@@ -153,7 +153,7 @@
     padding: 2px 8px;
     border: 1px solid var(--border-color);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.035);
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
     color: var(--text-secondary);
     font-size: 11px;
     font-weight: 700;
@@ -161,13 +161,13 @@
   }
 
   .ff-badge-ok {
-    border-color: rgba(60, 220, 150, 0.55);
-    color: rgb(80, 235, 170);
+    border-color: color-mix(in srgb, var(--state-success) 55%, transparent);
+    color: var(--state-success);
   }
 
   .ff-badge-warn {
-    border-color: rgba(255, 190, 70, 0.55);
-    color: rgb(255, 205, 100);
+    border-color: color-mix(in srgb, var(--sev-medium) 55%, transparent);
+    color: var(--sev-medium);
   }
 
   .ff-badge-flag {
@@ -194,7 +194,7 @@
     padding: 5px 11px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.035);
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 700;
@@ -213,7 +213,7 @@
   }
 
   .ff-button-primary {
-    border-color: rgba(0, 240, 255, 0.45);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
     color: var(--neon-cyan);
   }
 
@@ -372,9 +372,9 @@
   }
 
   .ff-byte-hit {
-    border-color: rgba(255, 61, 61, 0.6);
-    background: rgba(255, 61, 61, 0.2);
-    color: #ff8f8f;
+    border-color: color-mix(in srgb, var(--sev-critical) 60%, transparent);
+    background: color-mix(in srgb, var(--sev-critical) 20%, transparent);
+    color: var(--sev-critical);
     font-weight: 800;
   }
 
@@ -384,9 +384,9 @@
   }
 
   .ff-dump-hit {
-    background: rgba(255, 61, 61, 0.24);
-    box-shadow: 0 0 0 1px rgba(255, 61, 61, 0.5);
-    border-radius: 2px;
+    background: color-mix(in srgb, var(--sev-critical) 24%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-critical) 50%, transparent);
+    border-radius: 4px;
   }
 
   /* 位平面网格：通道分组横向滚动（手机端不挤压缩略图） */
@@ -426,7 +426,7 @@
     padding: 4px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.02);
+    background: color-mix(in srgb, var(--text-primary) 2%, transparent);
     cursor: zoom-in;
     transition: border-color var(--transition-fast);
   }
@@ -447,7 +447,7 @@
     height: 76px;
     object-fit: contain;
     background:
-      repeating-conic-gradient(rgba(255, 255, 255, 0.06) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
+      repeating-conic-gradient(color-mix(in srgb, var(--text-primary) 6%, transparent) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
     image-rendering: pixelated;
   }
 
@@ -480,20 +480,20 @@
     background: transparent;
     color: inherit;
     padding: 0;
-    border-radius: 2px;
+    border-radius: 4px;
     font-weight: 700;
   }
 
   .file-forensics .flag-auto-format {
-    background: rgba(255, 61, 61, 0.24);
-    color: #ff7b7b;
-    box-shadow: 0 0 0 1px rgba(255, 61, 61, 0.5);
+    background: color-mix(in srgb, var(--sev-critical) 24%, transparent);
+    color: var(--sev-critical);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-critical) 50%, transparent);
   }
 
   .file-forensics .flag-auto-keyword {
-    background: rgba(255, 61, 61, 0.13);
-    color: #ff9b9b;
-    box-shadow: 0 0 0 1px rgba(255, 61, 61, 0.28);
+    background: color-mix(in srgb, var(--sev-critical) 13%, transparent);
+    color: var(--sev-critical);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-critical) 28%, transparent);
   }
 
   @media (max-width: 680px) {
@@ -590,7 +590,7 @@
   gap: 12px;
   padding: 10px 8px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-card);
   max-height: calc(100vh - 24px);
   overflow-y: auto;
@@ -609,10 +609,14 @@
   padding: 2px 6px 4px;
 }
 
+/* F-14 三态区分：hover 只做底色微变（无边框变化）；选中 = 左侧 2px accent 竖条 + 加粗 +
+   --bg-secondary 底；focus-visible 用外圈 outline，与选中态视觉分离。
+   基态 border-left 固定 2px 宽，选中只换色，避免布局位移。 */
 .ctf-toolnav-item {
   text-align: left;
   padding: 7px 10px;
   border: 1px solid transparent;
+  border-left-width: 2px;
   border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
@@ -628,9 +632,9 @@
 }
 
 .ctf-toolnav-item.active {
-  border-color: var(--neon-cyan);
+  border-left-color: var(--accent);
   background: var(--bg-secondary);
-  color: var(--neon-cyan);
+  color: var(--text-primary);
   font-weight: 700;
 }
 
@@ -670,7 +674,7 @@
 
 .ff-details {
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-secondary);
   padding: 8px 10px;
 }
@@ -713,7 +717,7 @@
   flex: none;
   padding: 5px 10px;
   font-size: 12px;
-  border-radius: 999px;
+  border-radius: 6px;
 }
 
 .ff-chip-active {
@@ -727,7 +731,7 @@
   gap: 6px;
   padding: 8px 10px;
   border: 1px dashed var(--border-color);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 /* 按题型选工具：紧凑折叠形态（批次 FF-UX）——默认一行，展开才见题型与工具行 */

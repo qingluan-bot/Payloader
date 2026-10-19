@@ -10261,3 +10261,387 @@ const scanAll = (matrix: BitMatrix, hits: ScanHit[], budget: { left: number }): 
     });
   }
 };
+
+// ============================================================================
+// 残缺二维码自动修复解码（G-1"给你看旗"级自动链的引擎件）：
+// 定位疑似 QR 子区 → 模块网格重建（含遮挡剔除）→ 模块级直解。适用：QR 与卡通/
+// 线条叠加（遮挡格呈彩色或中间灰）、定位角被抹掉的残码、非整数像素/模块缩放
+// （网格原点与模块宽按假设扫描求解）。这类输入 decodeQrCodes 直接失败（自适应
+// 二值化被污染 + 定位三角缺失），本函数在其上游补齐前置链路：重建出的精确模块
+// 网格绕过二值化/定位/透视提取，直接走 decodeMatrix（格式信息 + 去掩码 + RS 纠错
+// ——定位角模块不是数据位，被抹掉不影响直解）。
+// ============================================================================
+
+// 网格灰度判定容差：|r-g| 与 |g-b| ≤ tol 视为"灰"（QR 模块像素），否则按遮挡剔除。
+// JPEG 压缩会引入色度噪声，故不能取 1；取 12 可容纳有损压缩同时挡住高饱和卡通色。
+const GRAY_TOLERANCE = 12;
+// 参与扫描的 QR 维度档位（21+4(v-1)，version 1..6 覆盖 CTF 常见载荷量）。
+const AUTO_QR_DIMS = [21, 25, 29, 33, 37, 41];
+// version 2..6 的对齐图案中心（(c,c)；v1 无对齐图案）。
+const AUTO_QR_ALIGN_CENTER: Record<number, number> = { 25: 18, 29: 22, 33: 26, 37: 30, 41: 34 };
+
+export interface AutoQrHit {
+  text: string;
+  version: number;
+  // QR 维度（模块数/边）、解得的单模块像素宽、网格原点（输入图像坐标）。
+  moduleCount: number;
+  moduleSize: number;
+  origin: QrPoint;
+  // 重建时因遮挡无法判读的模块格数（遮挡程度指标）。
+  unknownCells: number;
+  // 结构代价（定时图案失配 + 对齐图案偏差），越小越可信。
+  cost: number;
+}
+
+export interface AutoQrOptions {
+  // 粗扫步长：模块宽 / 网格原点（像素）。默认 0.05 / 0.5。
+  coarseMsStep?: number;
+  coarseOriginStep?: number;
+  // 模块级直解尝试总预算（单次 ~2ms，防长尾失控）。默认 4000。
+  maxDecodeAttempts?: number;
+}
+
+interface AutoQrCandidate {
+  dim: number;
+  ms: number;
+  x0: number;
+  y0: number;
+  matrix: Int8Array;
+  knownRatio: number;
+  blackRatio: number;
+  cost: number;
+}
+
+interface AutoQrFastDecode {
+  text: string;
+  version: number;
+  mask: number;
+  bytes: number;
+  ecLevel: string;
+}
+
+// 三值置信图：1=黑模块 0=白模块 -1=遮挡/歧义（彩色或中间灰）。
+// 黑像素包围盒取 5%/95% 分位（ minX/maxX 级联全量极值易被画面里零星灰噪点拽飞，
+// 分位框在保留 QR 主体范围的同时剪掉这些离群点）。
+const buildQrConfidence = (rgba: ArrayLike<number>, width: number, height: number) => {
+  const map = new Int8Array(width * height);
+  const blackPixels: number[] = [];
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const base = pixel * 4;
+    const r = rgba[base];
+    const g = rgba[base + 1];
+    const b = rgba[base + 2];
+    if (Math.abs(r - g) > GRAY_TOLERANCE || Math.abs(g - b) > GRAY_TOLERANCE) {
+      map[pixel] = -1;
+      continue;
+    }
+    if ((r + g + b) / 3 < 128) {
+      map[pixel] = 1;
+      blackPixels.push(pixel);
+    } else {
+      map[pixel] = 0;
+    }
+  }
+  let quantileBox: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
+  if (blackPixels.length >= 100) {
+    const xs = blackPixels.map(pixel => pixel % width).sort((left, right) => left - right);
+    const ys = blackPixels.map(pixel => (pixel - (pixel % width)) / width).sort((left, right) => left - right);
+    const low = Math.floor((blackPixels.length - 1) * 0.05);
+    const high = Math.ceil((blackPixels.length - 1) * 0.95);
+    quantileBox = { minX: xs[low], maxX: xs[high], minY: ys[low], maxY: ys[high] };
+  }
+  return { map, blackCount: blackPixels.length, quantileBox };
+};
+
+// 按网格假设采样模块矩阵：格内 subsamples² 子采样，置信像素多数决，无置信像素记 -1。
+// 子采样格点表按 (dim, ms, side) 缓存（ms 在同维度候选间大量复用），内层只剩一次加法 + round。
+const QR_LATTICE_CACHE = new Map<string, Int32Array>();
+const qrLattice = (dim: number, ms: number, side: number): Int32Array => {
+  const key = `${dim}|${ms.toFixed(4)}|${side}`;
+  const cached = QR_LATTICE_CACHE.get(key);
+  if (cached) return cached;
+  const table = new Int32Array(dim * side);
+  for (let gx = 0; gx < dim; gx += 1) {
+    for (let s = 0; s < side; s += 1) {
+      table[gx * side + s] = Math.round(gx * ms + (ms * (s + 0.5)) / side);
+    }
+  }
+  QR_LATTICE_CACHE.set(key, table);
+  if (QR_LATTICE_CACHE.size > 4096) QR_LATTICE_CACHE.clear();
+  return table;
+};
+const buildQrGridMatrix = (
+  confidence: Int8Array,
+  width: number,
+  height: number,
+  x0: number,
+  y0: number,
+  ms: number,
+  dim: number,
+  subsamples: 4 | 16,
+): { matrix: Int8Array; knownRatio: number; blackRatio: number } => {
+  const matrix = new Int8Array(dim * dim).fill(-1);
+  const side = subsamples === 16 ? 4 : 2;
+  const latticeX = qrLattice(dim, ms, side);
+  const latticeY = qrLattice(dim, ms, side);
+  let known = 0;
+  let black = 0;
+  for (let gy = 0; gy < dim; gy += 1) {
+    for (let gx = 0; gx < dim; gx += 1) {
+      let blackVotes = 0;
+      let whiteVotes = 0;
+      for (let sy = 0; sy < side; sy += 1) {
+        const py = Math.round(y0) + latticeY[gy * side + sy];
+        if (py < 0 || py >= height) continue;
+        const rowBase = py * width;
+        for (let sx = 0; sx < side; sx += 1) {
+          const px = Math.round(x0) + latticeX[gx * side + sx];
+          if (px < 0 || px >= width) continue;
+          const v = confidence[rowBase + px];
+          if (v === 1) blackVotes += 1;
+          else if (v === 0) whiteVotes += 1;
+        }
+      }
+      if (blackVotes + whiteVotes > 0) {
+        matrix[gy * dim + gx] = blackVotes >= whiteVotes ? 1 : 0;
+        known += 1;
+        if (matrix[gy * dim + gx] === 1) black += 1;
+      }
+    }
+  }
+  return { matrix, knownRatio: known / (dim * dim), blackRatio: black / (dim * dim) };
+};
+
+// 未知格迭代填充：取 8 邻域多数（polarity 决定平票偏向），最多 4 轮扩散。
+const fillUnknownQrCells = (matrix: Int8Array, dim: number, polarity: 'black' | 'white'): Int8Array => {
+  const out = Int8Array.from(matrix);
+  for (let pass = 0; pass < 4; pass += 1) {
+    let changed = 0;
+    for (let gy = 0; gy < dim; gy += 1) {
+      for (let gx = 0; gx < dim; gx += 1) {
+        if (out[gy * dim + gx] >= 0) continue;
+        let blackVotes = 0;
+        let whiteVotes = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = gx + dx;
+            const ny = gy + dy;
+            if (nx < 0 || ny < 0 || nx >= dim || ny >= dim) continue;
+            const v = out[ny * dim + nx];
+            if (v === 1) blackVotes += 1;
+            else if (v === 0) whiteVotes += 1;
+          }
+        }
+        if (blackVotes + whiteVotes > 0) {
+          const toBlack = polarity === 'black' ? blackVotes >= whiteVotes : blackVotes > whiteVotes;
+          out[gy * dim + gx] = toBlack ? 1 : 0;
+          changed += 1;
+        }
+      }
+    }
+    if (changed === 0) break;
+  }
+  return out;
+};
+
+// 定时图案失配数：第 6 行/列（模块 8..dim-9）应黑白交替，偶数位黑。
+const qrTimingMismatch = (matrix: Int8Array, dim: number): number => {
+  let mismatch = 0;
+  for (let i = 8; i <= dim - 9; i += 1) {
+    const expect = i % 2 === 0 ? 1 : 0;
+    if (matrix[6 * dim + i] !== expect) mismatch += 1;
+    if (matrix[i * dim + 6] !== expect) mismatch += 1;
+  }
+  return mismatch;
+};
+
+// 对齐图案符合率：5×5（边框黑/环白/心黑）；v1 无对齐图案返回 null。
+const qrAlignmentScore = (matrix: Int8Array, dim: number): number | null => {
+  const center = AUTO_QR_ALIGN_CENTER[dim];
+  if (center === undefined) return null;
+  let match = 0;
+  let total = 0;
+  for (let dy = -2; dy <= 2; dy += 1) {
+    for (let dx = -2; dx <= 2; dx += 1) {
+      const ring = Math.max(Math.abs(dx), Math.abs(dy));
+      const expect = ring === 1 ? 0 : 1;
+      const v = matrix[(center + dy) * dim + (center + dx)];
+      if (v >= 0) {
+        total += 1;
+        if (v === expect) match += 1;
+      }
+    }
+  }
+  return total > 0 ? match / total : null;
+};
+
+const qrCandidateCost = (matrix: Int8Array, dim: number): number => {
+  // 定时失配按维度归一（v1 只有 16 格、v5 有 40 格，绝对数不可比）；对齐图案偏差
+  // 恒 8 分量级。归一后跨维度代价同量级，簇排序不被小维度垃圾网格刷屏。
+  const timingSlots = 2 * (dim - 17);
+  const align = qrAlignmentScore(matrix, dim);
+  return (qrTimingMismatch(matrix, dim) / timingSlots) * 10 + (align === null ? 2 : (1 - align) * 8);
+};
+
+// 模块矩阵 → BitMatrix → decodeQrMatrix 直解（跳过二值化/定位/透视提取全套视觉管线，
+// 重建矩阵本就是精确模块网格，单次 ~2ms）。decodeQrMatrix 内部含镜像重试且会原地改写
+// 入参，故每次传新 BitMatrix。只留非空文本。
+const decodeRepairedQrMatrix = (matrix: Int8Array, dim: number): AutoQrFastDecode[] => {
+  const data = new Uint8ClampedArray(dim * dim);
+  for (let index = 0; index < dim * dim; index += 1) data[index] = matrix[index] === 1 ? 1 : 0;
+  const decoded = decodeQrMatrix(new BitMatrix(data, dim));
+  if (!decoded || decoded.text.length === 0) return [];
+  return [{
+    text: decoded.text,
+    version: decoded.version,
+    mask: decoded.mask,
+    bytes: decoded.bytes.length,
+    ecLevel: EC_LEVEL_NAMES[decoded.ecLevelIndex] ?? '?',
+  }];
+};
+
+// 残缺二维码自动修复解码主入口。返回按可信度排序的解码结果（同文本去重，至多 8 条），
+// 解不出返回 []。耗时在网格假设扫描（数千次结构评分，每次 ~0.1-0.3ms）+ 预算约束的
+// 模块级直解（每次 ~2ms），典型几百像素级的遮挡图数秒内完成。
+export const autoRepairQr = (
+  rgba: ArrayLike<number>,
+  width: number,
+  height: number,
+  options?: AutoQrOptions,
+): AutoQrHit[] => {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 21 || height < 21) return [];
+  if (rgba.length < width * height * 4) return [];
+  const coarseMsStep = options?.coarseMsStep ?? 0.05;
+  const coarseOriginStep = options?.coarseOriginStep ?? 0.75;
+  const decodeBudget = options?.maxDecodeAttempts ?? 4000;
+  const { map, blackCount, quantileBox } = buildQrConfidence(rgba, width, height);
+  // 黑像素太少或范围不构成 QR 尺寸量级：无深扫价值。
+  if (blackCount < 100 || !quantileBox) return [];
+  const bboxW = quantileBox.maxX - quantileBox.minX + 1;
+  const bboxH = quantileBox.maxY - quantileBox.minY + 1;
+  if (bboxW < 20 || bboxH < 20) return [];
+
+  // —— 粗扫：维度 × 模块宽 × 网格原点，全部做结构评分后排序 ——
+  // 网格须"环抱"分位框：原点可越入框前最多 16% 跨度、右/下边缘可越过框后最多 16%
+  // （QR 边缘连续几行/列模块可能全白，分位框天然窄于真实模块区，松弛必须给足）。
+  const candidates: AutoQrCandidate[] = [];
+  for (const dim of AUTO_QR_DIMS) {
+    const msBase = Math.max(bboxW, bboxH) / dim;
+    const msLow = Math.max(1.2, msBase * 0.85);
+    const msHigh = Math.min(Math.min(width, height) / dim, msBase * 1.2);
+    if (msLow > msHigh) continue;
+    for (let ms = msLow; ms <= msHigh; ms += coarseMsStep) {
+      const span = dim * ms;
+      const xEndLow = quantileBox.maxX + 1 - span * 0.16;
+      const xEndHigh = quantileBox.maxX + 2 + span * 0.16;
+      const yEndLow = quantileBox.maxY + 1 - span * 0.16;
+      const yEndHigh = quantileBox.maxY + 2 + span * 0.16;
+      const x0Low = Math.max(0, quantileBox.minX - span * 0.16 - 1);
+      const x0High = Math.min(width - 1, quantileBox.minX + span * 0.16);
+      const y0Low = Math.max(0, quantileBox.minY - span * 0.16 - 1);
+      const y0High = Math.min(height - 1, quantileBox.minY + span * 0.16);
+      if (x0Low > x0High || y0Low > y0High) continue;
+      for (let x0 = x0Low; x0 <= x0High; x0 += coarseOriginStep) {
+        for (let y0 = y0Low; y0 <= y0High; y0 += coarseOriginStep) {
+          const xEnd = x0 + span;
+          const yEnd = y0 + span;
+          if (xEnd < xEndLow || xEnd > xEndHigh || yEnd < yEndLow || yEnd > yEndHigh) continue;
+          const { matrix, knownRatio, blackRatio } = buildQrGridMatrix(map, width, height, x0, y0, ms, dim, 4);
+          if (knownRatio < 0.75) continue;
+          if (blackRatio < 0.28 || blackRatio > 0.72) continue;
+          candidates.push({ dim, ms, x0, y0, matrix, knownRatio, blackRatio, cost: qrCandidateCost(matrix, dim) });
+        }
+      }
+    }
+  }
+  if (candidates.length === 0) return [];
+  candidates.sort((left, right) => left.cost - right.cost);
+
+  // —— 精化：每维度取至多 2 个互不相邻的最优簇，围绕簇中心距离序直解。按维度配额
+  // 是防"小维度内部垃圾网格低分刷屏"——真实 QR 的网格代价受遮挡/错位噪声抬升，
+  // 绝对排序常被垃圾挤掉。 ——
+  const clusters: AutoQrCandidate[] = [];
+  const perDimCount = new Map<number, number>();
+  for (const candidate of candidates) {
+    if (clusters.length >= AUTO_QR_DIMS.length * 2) break;
+    const used = perDimCount.get(candidate.dim) ?? 0;
+    if (used >= 2) continue;
+    const duplicated = clusters.some(existing =>
+      existing.dim === candidate.dim
+      && Math.abs(existing.ms - candidate.ms) < 0.04
+      && Math.abs(existing.x0 - candidate.x0) < 0.75
+      && Math.abs(existing.y0 - candidate.y0) < 0.75);
+    if (duplicated) continue;
+    perDimCount.set(candidate.dim, used + 1);
+    clusters.push(candidate);
+  }
+  const budgetLeft = { left: decodeBudget };
+  const hits: AutoQrHit[] = [];
+  const seenTexts = new Set<string>();
+  const tryDecode = (candidate: AutoQrCandidate, polarity: 'black' | 'white'): boolean => {
+    if (budgetLeft.left <= 0) return false;
+    budgetLeft.left -= 1;
+    const filled = fillUnknownQrCells(candidate.matrix, candidate.dim, polarity);
+    const results = decodeRepairedQrMatrix(filled, candidate.dim);
+    if (results.length === 0) return false;
+    let unknownCells = 0;
+    for (let index = 0; index < candidate.matrix.length; index += 1) {
+      if (candidate.matrix[index] < 0) unknownCells += 1;
+    }
+    for (const result of results) {
+      if (seenTexts.has(result.text)) continue;
+      seenTexts.add(result.text);
+      hits.push({
+        text: result.text,
+        version: result.version,
+        moduleCount: candidate.dim,
+        moduleSize: candidate.ms,
+        origin: { x: candidate.x0, y: candidate.y0 },
+        unknownCells,
+        cost: candidate.cost,
+      });
+    }
+    return true;
+  };
+  // 精化网格（簇中心 ±）：ms ±0.045 步 0.005（19 档）× 原点 ±0.5 步 0.125（9×9），
+  // 共 ~1539 假设；按"到簇中心的步数和"距离序【惰性】构建 + 直解（先近后远，命中即
+  // 止）——簇中心是粗扫最优，真解大概率贴着中心，全量 4×4 重评分比直解更贵，省掉。
+  const refinedOffsets: Array<{ msIdx: number; xIdx: number; yIdx: number; distance: number }> = [];
+  for (let msIdx = -9; msIdx <= 9; msIdx += 1) {
+    for (let xIdx = -4; xIdx <= 4; xIdx += 1) {
+      for (let yIdx = -4; yIdx <= 4; yIdx += 1) {
+        refinedOffsets.push({ msIdx, xIdx, yIdx, distance: Math.abs(msIdx) + Math.abs(xIdx) + Math.abs(yIdx) });
+      }
+    }
+  }
+  refinedOffsets.sort((left, right) => left.distance - right.distance);
+  const decodeSpiral = (cluster: AutoQrCandidate, polarity: 'black' | 'white'): boolean => {
+    for (const { msIdx, xIdx, yIdx } of refinedOffsets) {
+      if (budgetLeft.left <= 0) return false;
+      const ms = cluster.ms + msIdx * 0.005;
+      const x0 = cluster.x0 + xIdx * 0.125;
+      const y0 = cluster.y0 + yIdx * 0.125;
+      if (x0 < 0 || y0 < 0 || x0 + cluster.dim * ms > width || y0 + cluster.dim * ms > height) continue;
+      const { matrix, knownRatio, blackRatio } = buildQrGridMatrix(map, width, height, x0, y0, ms, cluster.dim, 16);
+      if (knownRatio < 0.75) continue;
+      if (blackRatio < 0.28 || blackRatio > 0.72) continue;
+      const candidate: AutoQrCandidate = { dim: cluster.dim, ms, x0, y0, matrix, knownRatio, blackRatio, cost: 0 };
+      if (tryDecode(candidate, polarity)) return true;
+    }
+    return false;
+  };
+  for (const cluster of clusters) {
+    if (budgetLeft.left <= 0 || hits.length > 0) break;
+    decodeSpiral(cluster, 'black');
+  }
+  if (hits.length === 0) {
+    // 第二轮：白填充重赌一次（遮挡格黑填充全错、RS 纠错被拖垮的情形）。
+    for (const cluster of clusters) {
+      if (budgetLeft.left <= 0) break;
+      decodeSpiral(cluster, 'white');
+    }
+  }
+  hits.sort((left, right) => left.cost - right.cost);
+  return hits.slice(0, 8);
+};
+

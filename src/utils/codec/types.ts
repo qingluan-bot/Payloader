@@ -153,6 +153,29 @@ export type OperationId =
   | 'mt19937-helper'
   | 'lcg-helper'
   | 'lfsr-helper'
+  | 'xorshift-helper'
+  | 'truncated-lcg-helper'
+  | 'lfsr-predict-helper'
+  | 'lattice-reduce'
+  | 'knapsack-lowdensity'
+  | 'babai-cvp'
+  | 'crypto-tryall'
+  | 'twodes-mitm'
+  | 'solitaire'
+  | 'spiral-matrix'
+  | 'vic'
+  | 'geohash'
+  | 'zodiac-408'
+  | 'wabun'
+  | 'babylonian'
+  | 'mayan'
+  | 'egyptian-numerals'
+  | 'astro-symbols'
+  | 'dice'
+  | 'dominoes'
+  | 'trilitere'
+  | 'monome-binome'
+  | 'hieroglyph-single'
   | 'hash-length-extension-helper'
   | 'crypto-attack-helper'
   | 'frequency-analysis'
@@ -247,6 +270,7 @@ export type OperationId =
   | 'spoon'
   | 'manchester'
   | 'emoji-encoder'
+  | 'homophone-contrast'
   // ---- 批次 O：带key/多key 类 ----
   | 'otp'
   | 'multiplicative'
@@ -273,7 +297,7 @@ export type OperationId =
   | 'ascii-control'
   | 'quwei';
 
-export type ParamKey = 'variant' | 'hashAlgorithm' | 'secret' | 'iv' | 'keyword2' | 'associatedData' | 'hrp' | 'versionHex' | 'digits' | 'counter' | 'timeStep' | 'otpTimestamp' | 'period' | 'iterations' | 'shift' | 'separator' | 'mimeType' | 'blockLabel' | 'affineA' | 'affineB' | 'rails' | 'knownPlaintext' | 'dropBytes' | 'keyBits' | 'maxDepth';
+export type ParamKey = 'variant' | 'hashAlgorithm' | 'secret' | 'iv' | 'keyword2' | 'associatedData' | 'hrp' | 'versionHex' | 'digits' | 'counter' | 'timeStep' | 'otpTimestamp' | 'period' | 'iterations' | 'shift' | 'separator' | 'mimeType' | 'blockLabel' | 'affineA' | 'affineB' | 'rails' | 'knownPlaintext' | 'dropBytes' | 'keyBits' | 'maxDepth' | 'zeroWidthScheme' | 'referencePlain' | 'referenceCipher' | 'cribs' | 'deck' | 'columns' | 'personalNumber' | 'keyGroup';
 
 export interface Operation {
   id: OperationId;

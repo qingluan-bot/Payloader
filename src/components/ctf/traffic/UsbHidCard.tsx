@@ -1,18 +1,28 @@
-import { useMemo, useRef, useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlagAutoText } from '../../codec/FlagAutoText';
 import { extractUsbHid } from '../../../utils/ctf/usbHid';
 import type { ParsedCapture } from '../../../utils/ctf/pcap/parser';
 
-// USB HID 恢复卡（流量域，linkType 220 usbmon 抓包）：击键序列（Shift 符号分支/小键盘）+ 鼠标轨迹
-// 还原 canvas（按键按住段粗线——"鼠标画 flag"题的还原面）。引擎纯函数，本卡只渲染；换文件父层 key remount。
+// USB HID 恢复卡（流量域，usbmon 220 / USBPcap 249 抓包）：击键序列（Shift 符号分支/小键盘/
+// Ctrl·Alt·GUI 组合权威还原/CapsLock/长按去重）+ 退格删尾（可切换字面保留）+ flag 候选
+//（假 flag 防护）+ 鼠标轨迹还原 canvas（按键按住段粗线——"鼠标画 flag"题的还原面）。
+// 引擎纯函数，本卡只渲染；换文件父层 key remount。
 interface UsbHidCardProps {
   capture: ParsedCapture;
   language: 'zh' | 'en';
 }
 
+// 组合键还原行展示上限（长按/组合洪泛抓包不撑爆 DOM，超出部分折叠计数）。
+const MAX_COMBO_ROWS = 60;
+
 function UsbHidCard({ capture, language }: UsbHidCardProps) {
   const zh = language === 'zh';
-  const result = useMemo(() => extractUsbHid(capture), [capture]);
+  const [literalBackspace, setLiteralBackspace] = useState(false);
+  const result = useMemo(
+    () => extractUsbHid(capture, { backspace: literalBackspace ? 'literal' : 'delete' }),
+    [capture, literalBackspace],
+  );
+  const combos = useMemo(() => result.keyboard.filter(event => event.combo !== ''), [result]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showTrack, setShowTrack] = useState(false);
 
@@ -56,11 +66,41 @@ function UsbHidCard({ capture, language }: UsbHidCardProps) {
       ))}
       {result.keyboard.length > 0 ? (
         <div className="pw-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <span className="pw-label">{zh ? `击键序列（${result.keyboard.length} 键）` : `Keystrokes (${result.keyboard.length})`}</span>
+          <div className="pw-row">
+            <span className="pw-label">{zh ? `击键序列（${result.keyboard.length} 键）` : `Keystrokes (${result.keyboard.length})`}</span>
+            <button
+              type="button"
+              className="pw-button"
+              onClick={() => { setLiteralBackspace(value => !value); }}
+            >
+              {literalBackspace
+                ? (zh ? '退格：字面保留 \\b' : 'Backspace: literal')
+                : (zh ? '退格：删除前一字符' : 'Backspace: delete')}
+            </button>
+          </div>
           <code className="pw-code"><FlagAutoText text={result.text} /></code>
         </div>
       ) : (
         <p className="pw-note">{zh ? '未识别到键盘报文。' : 'No keyboard reports detected.'}</p>
+      )}
+      {result.flags.length > 0 && (
+        <div className="pw-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+          <span className="pw-label">{zh ? `Flag 候选（${result.flags.length}，假 flag 防护已启用）` : `Flag candidates (${result.flags.length}, fake-flag guarded)`}</span>
+          {result.flags.map(flag => (
+            <code key={flag} className="pw-code"><FlagAutoText text={flag} /></code>
+          ))}
+        </div>
+      )}
+      {combos.length > 0 && (
+        <div className="pw-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+          <span className="pw-label">{zh ? `组合键还原（${combos.length} 行）` : `Combo restorations (${combos.length})`}</span>
+          {combos.slice(0, MAX_COMBO_ROWS).map((event, index) => (
+            <code key={`${event.packetIndex}-${event.usage}-${index}`} className="pw-code">{event.combo}</code>
+          ))}
+          {combos.length > MAX_COMBO_ROWS && (
+            <p className="pw-note">{zh ? `其余 ${combos.length - MAX_COMBO_ROWS} 行已折叠` : `${combos.length - MAX_COMBO_ROWS} more rows collapsed`}</p>
+          )}
+        </div>
       )}
       {result.mouse.length > 0 && (
         <div className="pw-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>

@@ -390,7 +390,7 @@ test('refreshSeedFromRuntime backs up the old seed and atomically publishes the 
 
   assert.deepEqual(payloadIds, [...ordinaryIds, 'runtime-payload'].sort());
   assert.deepEqual(metadataRows.map(row => row.key), ['content_kind', 'generated_at', 'seed_schema_version', 'source']);
-  assert.deepEqual(tables, ['metadata', 'navigation_nodes', 'payloads', 'tools']);
+  assert.deepEqual(tables, ['exploit_nodes', 'exploits', 'metadata', 'navigation_nodes', 'payloads', 'tools']);
   assert.equal(readPayload(join(backupDir, result.backup.fileName), 'old-seed').id, 'old-seed');
   const backupDatabase = new DatabaseSync(join(backupDir, result.backup.fileName), { readOnly: true });
   assert.equal(backupDatabase.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');

@@ -444,6 +444,144 @@ export const zeroWidthDecode = (value: string) => {
   return utf8Decoder.decode(new Uint8Array(bytes));
 };
 
+// 多进制零宽隐写（对齐 330k misc_tools unicode_steganography.js，MIT）：digit i 映射字母表第 i 个符号，
+// text 模式按 UTF-16 code unit 展开 ceil(log(65536)/log(radix)) 位，binary 模式按 UTF-8 字节展开
+// ceil(log(256)/log(radix)) 位，与该工具的 codelengthText/codelengthBinary 完全一致。
+export type ZeroWidthScheme = 'ternary' | 'quaternary';
+export type ZeroWidthMode = 'text' | 'binary';
+// 制式字母表用 330k 默认序：200C→0、200D→1、202C→2、FEFF→3。
+export const zeroWidthTernaryAlphabet = ['\u200c', '\u200d', '\u202c'];
+export const zeroWidthQuaternaryAlphabet = ['\u200c', '\u200d', '\u202c', '\ufeff'];
+
+const zeroWidthSchemeAlphabet = (scheme: ZeroWidthScheme) =>
+  scheme === 'ternary' ? zeroWidthTernaryAlphabet : zeroWidthQuaternaryAlphabet;
+
+const zeroWidthRadixEncode = (value: string, chars: string[], mode: ZeroWidthMode) => {
+  const radix = chars.length;
+  const codelength = Math.ceil(Math.log(mode === 'text' ? 65536 : 256) / Math.log(radix));
+  const units = mode === 'text'
+    ? Array.from({ length: value.length }, (_, index) => value.charCodeAt(index))
+    : Array.from(utf8Encoder.encode(value));
+  let output = '';
+  for (const unit of units) {
+    let code = unit;
+    const digits: number[] = [];
+    for (let index = 0; index < codelength; index += 1) {
+      digits.unshift(code % radix);
+      code = Math.floor(code / radix);
+    }
+    output += digits.map(digit => chars[digit]).join('');
+  }
+  return output;
+};
+
+const zeroWidthRadixDecode = (value: string, chars: string[], mode: ZeroWidthMode) => {
+  const radix = chars.length;
+  const codelength = Math.ceil(Math.log(mode === 'text' ? 65536 : 256) / Math.log(radix));
+  const digitByChar = new Map(chars.map((char, index) => [char, index]));
+  let digits = '';
+  for (const char of Array.from(value)) {
+    const digit = digitByChar.get(char);
+    if (digit != null) digits += String(digit);
+  }
+  if (!digits || digits.length % codelength !== 0) {
+    throw new Error(`零宽多进制解码需要 ${codelength} 符号一组的完整序列`);
+  }
+  const units: number[] = [];
+  for (let index = 0; index < digits.length; index += codelength) {
+    units.push(Number.parseInt(digits.slice(index, index + codelength), radix));
+  }
+  if (mode === 'text') return units.map(unit => String.fromCharCode(unit)).join('');
+  return utf8Decoder.decode(new Uint8Array(units));
+};
+
+export const zeroWidthSchemeEncode = (value: string, scheme: ZeroWidthScheme, mode: ZeroWidthMode = 'text') =>
+  zeroWidthRadixEncode(value, zeroWidthSchemeAlphabet(scheme), mode);
+
+export const zeroWidthSchemeDecode = (value: string, scheme: ZeroWidthScheme, mode: ZeroWidthMode = 'text') =>
+  zeroWidthRadixDecode(value, zeroWidthSchemeAlphabet(scheme), mode);
+
+export interface ZeroWidthSchemeDetection {
+  scheme: 'binary' | 'ternary' | 'quaternary' | 'mixed' | 'unknown';
+  // mode 为 null 表示制式已定但 text/binary 模式未知（交由 zeroWidthDecodeAuto 逐模式尝试）。
+  mode: ZeroWidthMode | null;
+}
+
+// 按输入中出现的隐藏符号集合判定制式：先认恰好 {200C,200D,202C} 的三元，再认含 202C/FEFF 的四元
+// （key.txt 这类混排三种以上符号的主形态），含 200B 落回存量二元，仅 {200C,200D} 为混合形态
+// （二元 8bit 与 radix2-text 16 符号/codeUnit 都可能）。
+export const detectZeroWidthScheme = (text: string): ZeroWidthSchemeDetection => {
+  const hidden = ['\u200b', '\u200c', '\u200d', '\u202c', '\ufeff'];
+  const present = new Set(Array.from(text).filter(char => hidden.includes(char)));
+  if (!present.size) return { scheme: 'unknown', mode: null };
+  if (present.size === 3 && present.has('\u200c') && present.has('\u200d') && present.has('\u202c')) {
+    return { scheme: 'ternary', mode: null };
+  }
+  if (present.has('\u202c') || present.has('\ufeff')) return { scheme: 'quaternary', mode: null };
+  if (present.has('\u200b')) return { scheme: 'binary', mode: 'binary' };
+  if (present.size === 2 && present.has('\u200c') && present.has('\u200d')) return { scheme: 'mixed', mode: null };
+  return { scheme: 'unknown', mode: null };
+};
+
+export interface ZeroWidthAutoDecode {
+  payload: string;
+  scheme: 'binary' | 'ternary' | 'quaternary' | 'mixed';
+  mode: ZeroWidthMode;
+}
+
+const printableAsciiRatio = (value: string) => {
+  if (!value.length) return 0;
+  let printable = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0x20 && code <= 0x7e) printable += 1;
+  }
+  return printable / value.length;
+};
+
+// 判定制式后逐候选解出（quaternary/ternary 各试 text+binary；mixed 先按存量 binary 8bit、
+// 失败再按 radix2 200C→0/200D→1 的 text 模式 16 符号/codeUnit），按可打印 ASCII 比率最高且
+// 长度≥1 选优，比率并列取先尝试者；无任何候选成功时返回 null。
+export const zeroWidthDecodeAuto = (text: string): ZeroWidthAutoDecode | null => {
+  const { scheme } = detectZeroWidthScheme(text);
+  const candidates: Array<{ scheme: ZeroWidthAutoDecode['scheme']; mode: ZeroWidthMode; run: () => string }> = [];
+  if (scheme === 'binary' || scheme === 'unknown') {
+    candidates.push({ scheme: 'binary', mode: 'binary', run: () => zeroWidthDecode(text) });
+  }
+  if (scheme === 'mixed' || scheme === 'unknown') {
+    candidates.push({ scheme: 'binary', mode: 'binary', run: () => zeroWidthDecode(text) });
+    candidates.push({ scheme: 'mixed', mode: 'text', run: () => zeroWidthRadixDecode(text, ['\u200c', '\u200d'], 'text') });
+  }
+  if (scheme === 'ternary' || scheme === 'unknown') {
+    candidates.push({ scheme: 'ternary', mode: 'text', run: () => zeroWidthSchemeDecode(text, 'ternary', 'text') });
+    candidates.push({ scheme: 'ternary', mode: 'binary', run: () => zeroWidthSchemeDecode(text, 'ternary', 'binary') });
+  }
+  if (scheme === 'quaternary' || scheme === 'unknown') {
+    candidates.push({ scheme: 'quaternary', mode: 'text', run: () => zeroWidthSchemeDecode(text, 'quaternary', 'text') });
+    candidates.push({ scheme: 'quaternary', mode: 'binary', run: () => zeroWidthSchemeDecode(text, 'quaternary', 'binary') });
+  }
+  let best: ZeroWidthAutoDecode | null = null;
+  let bestScore = -1;
+  for (const candidate of candidates) {
+    let payload: string;
+    try {
+      payload = candidate.run();
+    } catch {
+      continue;
+    }
+    if (!payload.length) continue;
+    const score = printableAsciiRatio(payload);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { payload, scheme: candidate.scheme, mode: candidate.mode };
+    }
+  }
+  // 全候选可打印率均为 0（纯控制符/替换符形态）时判为未识别而非返回垃圾——review P1：
+  // 纯 200C 流被 legacy 解出单个 U+FFFD 会以 0 分当选。CJK 纯载荷同样 0 分，属已知取舍
+  // （auto 面向 CTF 可打印 flag/密码场景；中文载荷请指定制式走 zeroWidthSchemeDecode）。
+  return bestScore > 0 ? best : null;
+};
+
 export const packGsm7Septets = (septets: number[]) => {
   const output: number[] = [];
   let accumulator = 0;

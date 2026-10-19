@@ -2,6 +2,8 @@
 // 全部向量程序化构造（独立逐位 CRC 参考实现 + 手工拼最小 ZIP 字节流）；
 // 沙箱导出的数组/对象先经 Array.from / JSON 往返转主 realm 再 deepStrictEqual（node:vm 跨 realm 原型差异）。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import path from 'node:path';
 import test from 'node:test';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
@@ -325,4 +327,58 @@ test('crc32AttackReport：非法输入抛中文错误', () => {
   assert.throws(() => crc32AttackReport('crc=0x1a2b3c4d length=7'), /仅支持长度 2-5/);
   assert.throws(() => crc32AttackReport('crc=0x1a2b3c4d charset='), /字符集为空/);
   assert.throws(() => crc32AttackReport('crc=0x1a2b3c4d length=abc'), /length 值非法/);
+});
+
+// ---- BUG-04：central-only 伪加密 + localOffset 错位的兜底扫描 ----
+
+test('BUG-04 localOffset 错位（central-only 伪加密）：向文件头方向扫描 PK\\x03\\x04 兜底修复', () => {
+  // 程序化构造：正常 zip 后把 central 目录声明的 localOffset 篡改成错位值（+42，指向内容区）
+  const readLe32 = (bytes, offset) => (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+  const zipped = buildZip([{ name: 'a.txt', data: 'hello', localFlag: 1, centralFlag: 1 }]);
+  const corrupted = Uint8Array.from(zipped);
+  // 布局：local(30+名5+数据5=40) + central(46+名5=51) + eocd(22) → central 条目起点 = len-22-51
+  const centralOffset = zipped.length - 22 - 51;
+  const declaredLocalOffset = readLe32(corrupted, centralOffset + 42);
+  const wrongOffset = declaredLocalOffset + 42;
+  corrupted[centralOffset + 42] = wrongOffset & 0xff;
+  corrupted[centralOffset + 43] = (wrongOffset >>> 8) & 0xff;
+  // 前置确认：错位偏移上没有 local 签名，修复前按旧逻辑会整体放弃
+  assert.notEqual(readLe32(corrupted, wrongOffset), 0x04034b50);
+  const result = fixZipPseudoEncryption(corrupted);
+  assert.notEqual(result.fixed, null, 'localOffset 错位应通过兜底扫描修复而非整体放弃');
+  const changes = JSON.parse(JSON.stringify(result.changes));
+  assert.equal(changes.length, 2);
+  // 修复产物：仅两处 bit0 清零；localOffset 声明字段本身不在修复范围（保持错位原样）
+  const expected = Uint8Array.from(corrupted);
+  expected[48] = 0;
+  expected[49] = 0;
+  expected[6] = 0;
+  expected[7] = 0;
+  assert.deepEqual(result.fixed, expected);
+  // local header 实际签名位置（0）上的 flag 已清零
+  assert.equal(result.fixed[6], 0);
+  assert.equal(result.fixed[7], 0);
+});
+
+test('BUG-04 M03 真题 fixture（tests/fixtures/pseudo.zip）：fixed 非 null', () => {
+  const fixture = new Uint8Array(readFileSync(join(projectRoot, 'tests', 'fixtures', 'pseudo.zip')));
+  const result = fixZipPseudoEncryption(fixture);
+  assert.notEqual(result.fixed, null, `pseudo.zip 应修出结果，changes=${JSON.stringify(result.changes)}`);
+  assert.ok(result.changes.length >= 1, '真题 fixture 至少含一处 bit0 置位');
+});
+
+test('BUG-04 全文件无 PK\\x03\\x04 的垃圾仍拒绝（兜底不放松结构校验）', () => {
+  const bytes = new Uint8Array(130);
+  const put16 = (offset, value) => { bytes[offset] = value & 0xff; bytes[offset + 1] = (value >>> 8) & 0xff; };
+  const put32 = (offset, value) => { bytes[offset] = value & 0xff; bytes[offset + 1] = (value >>> 8) & 0xff; bytes[offset + 2] = (value >>> 16) & 0xff; bytes[offset + 3] = (value >>> 24) & 0xff; };
+  put32(70, 0x02014b50);            // central 签名（无 local header）
+  put16(70 + 8, 1);                 // central flag bit0 置位
+  put16(70 + 28, 4);                // nameLength
+  bytes.set([0x61, 0x2e, 0x74, 0x78, 0x74], 70 + 46); // "a.txt"（多 1 字节无妨）
+  put32(70 + 46 + 5, 0x06054b50);   // eocd
+  put16(70 + 46 + 5 + 10, 1);       // entryCount
+  put32(70 + 46 + 5 + 16, 70);      // central offset
+  put32(70 + 42, 4);                // localOffset 声明为 4（该处无签名，全文件无 PK\x03\x04）
+  const result = fixZipPseudoEncryption(bytes);
+  assert.equal(result.fixed, null);
 });

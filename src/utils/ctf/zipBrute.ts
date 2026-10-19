@@ -3,6 +3,8 @@
 // - ZipCrypto：APPNOTE.txt XIII 经典 PKZIP 流密码。keys 初值 0x12345678/0x23456789/0x34567890，
 //   update_keys 查 crc32Table，stream byte = ((keys[2]|2) * ((keys[2]|2)^1)) >>> 8；数据区前置 12 字节
 //   加密头，快速校验字节取 header[10..11] 对 CRC32 高 16 位（flag bit3 置位时 header[11] 对 DOS 时间高字节）。
+//   CRC 双源：中央目录 CRC 为主，本地头 CRC 为独立回退源（非 0 且与中央不同才启用）——
+//   快筛校验字节两源任一完整配对放行、stored 终验两源任一命中即接受，命中结果标注 crcSource。
 // - WinZip AES（AE-1/AE-2）：extra field 0x9901（data = version(2)+'AE'(2)+strength(1)+真实压缩方法(2)）。
 //   数据区 = salt(8/12/16) || 2 字节口令验证值 || AES-CTR 密文 || 10 字节 HMAC-SHA1 截断认证码；
 //   PBKDF2-HMAC-SHA1×1000 派生 2*keyLen+2 字节（AES key || HMAC key || 验证值），CTR 计数器为全零 128 位大端，
@@ -28,6 +30,8 @@ export interface BruteProgress {
   total: number;
   password: string | null;
   previewText: string | null;
+  // 命中时标注哪路 CRC 通过（进度回报/未命中为 undefined）：central=中央目录，local=本地头 CRC 回退
+  crcSource?: 'central' | 'local';
 }
 
 const EOCD_SIGNATURE = 0x06054b50;
@@ -231,6 +235,8 @@ const getSubtle = (): SubtleCrypto | undefined => {
 interface CandidateOutcome {
   hit: boolean;
   content: Uint8Array | null;
+  // 命中时标注哪路 CRC 通过：central=中央目录 CRC，local=本地头 CRC（中央 CRC 被 CTF 篡改时的救援路径）
+  crcSource?: 'central' | 'local';
 }
 
 interface ZipCryptoContext {
@@ -238,9 +244,14 @@ interface ZipCryptoContext {
   dataOffset: number;
   compressedSize: number;
   crc32: number;
+  // 本地头 CRC 回退源（非 0 且与中央不同才有意义；bit3 流式写的本地 CRC=0 不采信）
+  alternateCrc32: number | null;
   useTimeCheck: boolean;
   expectedByte10: number;
   expectedByte11: number;
+  // 回退源的校验字节（alternateCrc32=null 时不用）
+  expectedByte10Alt: number;
+  expectedByte11Alt: number;
   realMethod: number;
 }
 
@@ -282,14 +293,21 @@ const prepareEntryContext = (bytes: Uint8Array, entry: ZipEncryptedEntry): Entry
   if (entry.method === 'zipcrypto') {
     if (compressedSize < ZIPCRYPTO_HEADER_SIZE) throw new Error('ZipCrypto 条目数据不足 12 字节加密头：结构异常');
     const useTimeCheck = (localFlag & 0x0008) !== 0;
+    const crc32 = entry.crc32 >>> 0;
+    // 本地头 CRC@14（中央 CRC 被 CTF 题目篡改时的独立核对源；bit3 流式写产物本地 CRC 常为 0，不采信）
+    const localCrc32 = readLe32(bytes, offset + 14) >>> 0;
+    const alternateCrc32 = localCrc32 !== 0 && localCrc32 !== crc32 ? localCrc32 : null;
     return {
       kind: 'zipcrypto',
       dataOffset,
       compressedSize,
-      crc32: entry.crc32 >>> 0,
+      crc32,
+      alternateCrc32,
       useTimeCheck,
-      expectedByte10: useTimeCheck ? -1 : (entry.crc32 >>> 16) & 0xff,
-      expectedByte11: useTimeCheck ? (readLe16(bytes, offset + 10) >>> 8) & 0xff : (entry.crc32 >>> 24) & 0xff,
+      expectedByte10: useTimeCheck ? -1 : (crc32 >>> 16) & 0xff,
+      expectedByte11: useTimeCheck ? (readLe16(bytes, offset + 10) >>> 8) & 0xff : (crc32 >>> 24) & 0xff,
+      expectedByte10Alt: useTimeCheck ? -1 : alternateCrc32 === null ? -1 : (alternateCrc32 >>> 16) & 0xff,
+      expectedByte11Alt: useTimeCheck ? -1 : alternateCrc32 === null ? -1 : (alternateCrc32 >>> 24) & 0xff,
       realMethod,
     };
   }
@@ -309,17 +327,34 @@ const prepareEntryContext = (bytes: Uint8Array, entry: ZipEncryptedEntry): Entry
 };
 
 const tryZipCryptoCandidate = (bytes: Uint8Array, context: ZipCryptoContext, password: string): CandidateOutcome => {
-  // 快速校验：只解 12 字节头比对校验字节（bit3 → 仅 header[11] 对 DOS 时间高字节，其余 2 字节对 CRC32 高 16 位）
+  // 快速校验：只解 12 字节头比对校验字节（bit3 → 仅 header[11] 对 DOS 时间高字节，其余 2 字节对 CRC32 高 16 位）。
+  // 中央与本地头两路校验字节任一完整配对命中即放行：中央 CRC 被题目篡改（如 02_zip_crc_byuctf 把
+  // flag 值写进中央 CRC）时由完好的本地头 CRC 救回；配对判定保持单源成对，避免交叉配对抬高误报。
   const header = decryptEncryptionHeader(bytes, context.dataOffset, password);
-  if (header[11] !== context.expectedByte11) return NO_HIT;
-  if (!context.useTimeCheck && header[10] !== context.expectedByte10) return NO_HIT;
+  let crcSource: 'central' | 'local' = 'central';
+  if (context.useTimeCheck) {
+    if (header[11] !== context.expectedByte11) return NO_HIT;
+  } else {
+    const centralPair = header[11] === context.expectedByte11 && header[10] === context.expectedByte10;
+    const localPair =
+      context.alternateCrc32 !== null &&
+      header[11] === context.expectedByte11Alt &&
+      header[10] === context.expectedByte10Alt;
+    if (!centralPair && !localPair) return NO_HIT;
+    if (!centralPair && localPair) crcSource = 'local';
+  }
   if (context.realMethod !== 0) {
     // deflate 等压缩条目：无 inflate 无法做 CRC 终验，2 字节校验即判命中（误报率 ≤ 1/65536）
-    return { hit: true, content: null };
+    return { hit: true, content: null, crcSource };
   }
   const payload = decryptZipCryptoPayload(bytes, context.dataOffset, context.compressedSize, password);
-  if (crc32BytesOf(payload) !== context.crc32) return NO_HIT; // 校验字节碰撞被 CRC 终验拦截
-  return { hit: true, content: payload };
+  // CRC 终验双源任一命中即接受（校验字节碰撞由本终验拦截）
+  const payloadCrc = crc32BytesOf(payload);
+  if (payloadCrc === context.crc32) return { hit: true, content: payload, crcSource: 'central' };
+  if (context.alternateCrc32 !== null && payloadCrc === context.alternateCrc32) {
+    return { hit: true, content: payload, crcSource: 'local' };
+  }
+  return NO_HIT;
 };
 
 const tryWinZipAesCandidate = async (
@@ -532,6 +567,7 @@ export const bruteZipPassword = async (
           total,
           password: candidate,
           previewText: buildPrintablePreview(outcome.content ?? new Uint8Array(0)),
+          crcSource: outcome.crcSource,
         };
       } else {
         const compressed =
@@ -540,9 +576,9 @@ export const bruteZipPassword = async (
           null;
         const inflated = compressed === null ? null : await inflateRawPreview(compressed);
         if (inflated !== null) {
-          final = { tried, total, password: candidate, previewText: buildPrintablePreview(inflated) };
+          final = { tried, total, password: candidate, previewText: buildPrintablePreview(inflated), crcSource: outcome.crcSource };
         } else if (context.kind === 'aes' || !supportsDeflateRaw()) {
-          final = { tried, total, password: candidate, previewText: COMPRESSED_HIT_HINT };
+          final = { tried, total, password: candidate, previewText: COMPRESSED_HIT_HINT, crcSource: outcome.crcSource };
         }
       }
       if (final !== null) {

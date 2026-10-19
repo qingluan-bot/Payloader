@@ -7,7 +7,7 @@
           scrollbar-width: thin;
           -webkit-overflow-scrolling: touch;
           border: 1px solid var(--border-color);
-          border-radius: 8px;
+          border-radius: 6px;
           background: var(--bg-card);
         }
         .pw-table {
@@ -39,11 +39,11 @@
           cursor: pointer;
         }
         .pw-table tbody tr:hover {
-          background: rgba(0, 240, 255, 0.05);
+          background: color-mix(in srgb, var(--accent) 5%, transparent);
         }
         .pw-row-http-req td { color: var(--neon-cyan); }
-        .pw-row-http-res td { color: rgb(80, 235, 170); }
-        .pw-row-selected td { background: rgba(0, 240, 255, 0.08); }
+        .pw-row-http-res td { color: var(--state-success); }
+        .pw-row-selected td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
         .pw-pager {
           display: flex;
           flex-wrap: wrap;
@@ -52,7 +52,7 @@
         }
         .pw-detail {
           border: 1px solid var(--border-color);
-          border-radius: 8px;
+          border-radius: 6px;
           background: var(--bg-card);
           padding: 11px;
           display: grid;
@@ -94,7 +94,7 @@
           padding: 5px 11px;
           border: 1px solid var(--border-color);
           border-radius: 6px;
-          background: rgba(255, 255, 255, 0.035);
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
           color: var(--text-secondary);
           font-size: 12px;
           font-weight: 700;

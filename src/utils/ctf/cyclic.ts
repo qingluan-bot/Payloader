@@ -74,6 +74,12 @@ export interface CyclicLookupResult {
   width: 16 | 32 | 64 | null;
   // 高位全零字节被裁掉的数量。
   trimmedZeroBytes: number;
+  // 命中窗口是否越过用户 pattern（withinBytes）边界：越过时该 offset 物理上不可能来自
+  // 用户生成的 pattern（crash 值可能来自更长序列/别的字母表生成），UI 必须以警告口径
+  // 展示 offset，不得当确定答案。
+  beyondPattern: boolean;
+  // beyondPattern 时的警告文案（含默认 62 字符表与 pwnlib 26 小写表的差异提示）。
+  patternNote: string | null;
 }
 
 export type CyclicLookupFailure = {
@@ -119,6 +125,39 @@ interface OffsetSearch {
   truncated: boolean;
 }
 
+// 命中窗口越过用户 pattern 边界时的统一警告口径：该 offset 物理上不可能来自用户生成的
+// pattern；最常见原因是 crash 值来自 pwnlib 默认 26 小写表（本工具默认 62 字符表），或
+// pattern 实际比报的长度长。UI 必须按警告展示，不得当确定答案。
+const beyondPatternNote = (offset: number, needleLength: number, withinBytes: number): string =>
+  `该 offset ${offset} 超出你生成的 pattern 长度 ${withinBytes}（窗口 ${needleLength} 字节落在边界之外）——crash 值可能不来自本 pattern。`
+  + '注意：本工具默认字母表是 62 字符（小写+大写+数字），pwnlib cyclic 默认只有 26 个小写字母——两者序列不同；'
+  + '若 pattern 是用 pwnlib 生成的，请按 pwnlib cyclic -l 反查，或用本工具生成器重新对齐字母表。';
+
+// 命中结果装配：统一挂 beyondPattern/patternNote（窗口 [offset, offset+needle) 完整落在
+// withinBytes 内才算"来自本 pattern"）。
+const assembleResult = (
+  search: OffsetSearch,
+  raw: string,
+  endian: CyclicEndian,
+  width: 16 | 32 | 64 | null,
+  trimmedZeroBytes: number,
+  withinBytes: number,
+): CyclicLookupResult => {
+  const beyond = search.hits.some(hit => hit + raw.length > withinBytes);
+  return {
+    offsets: search.hits,
+    offset: search.hits[0],
+    ambiguous: search.hits.length > 1,
+    truncated: search.truncated,
+    raw,
+    endian,
+    width,
+    trimmedZeroBytes,
+    beyondPattern: beyond,
+    patternNote: beyond ? beyondPatternNote(search.hits[0], raw.length, withinBytes) : null,
+  };
+};
+
 const lookupByHex = (
   hex: string,
   width: 16 | 32 | 64,
@@ -140,7 +179,7 @@ const lookupByHex = (
   for (const candidate of candidates) {
     const search = findCyclicOffsets(candidate.raw, period, withinBytes);
     if (search.hits.length) {
-      return { offsets: search.hits, offset: search.hits[0], ambiguous: search.hits.length > 1, truncated: search.truncated, raw: candidate.raw, endian: candidate.endian, width, trimmedZeroBytes: candidate.trimmedZeroBytes };
+      return assembleResult(search, candidate.raw, candidate.endian, width, candidate.trimmedZeroBytes, withinBytes);
     }
   }
   if (!candidates.length) return { error: 'not-found', detail: '该十六进制值解出的字节不在 pattern 字母表内（含不可打印字符）。' };
@@ -204,7 +243,7 @@ export const findCyclicOffset = (
   if (input.length >= 2 && isPrintableAscii(input)) {
     const search = findCyclicOffsets(input, period, withinBytes);
     if (search.hits.length) {
-      return { offsets: search.hits, offset: search.hits[0], ambiguous: search.hits.length > 1, truncated: search.truncated, raw: input, endian: null, width: null, trimmedZeroBytes: 0 };
+      return assembleResult(search, input, null, null, 0, withinBytes);
     }
     return { error: 'not-found' };
   }

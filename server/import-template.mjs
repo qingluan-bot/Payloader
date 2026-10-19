@@ -8,6 +8,8 @@ const importArrayLimits = {
   tools: 10_000,
   navigation: 2_000,
   toolNavigation: 2_000,
+  exploits: 10_000,
+  exploitNavigation: 2_000,
 };
 const maxImportNavigationNodes = 20_000;
 const maxImportNavigationDepth = 12;
@@ -17,6 +19,8 @@ const importSummary = normalized => ([
   { key: 'tools', label: '工具命令', included: normalized.included.tools, count: normalized.tools.length },
   { key: 'navigation', label: 'Payload 导航', included: normalized.included.navigation, count: normalized.navigation.length },
   { key: 'toolNavigation', label: '工具导航', included: normalized.included.toolNavigation, count: normalized.toolNavigation.length },
+  { key: 'exploits', label: 'EXP', included: normalized.included.exploits, count: normalized.exploits.length },
+  { key: 'exploitNavigation', label: 'EXP 导航', included: normalized.included.exploitNavigation, count: normalized.exploitNavigation.length },
 ]);
 
 export const createImportTemplate = () => ({
@@ -24,13 +28,14 @@ export const createImportTemplate = () => ({
   generatedAt: now(),
   guide: {
     title: 'Payloader 导入模板填写说明',
-    summary: '导入文件必须是一个 JSON 对象。真正会导入的只有 payloads、tools、navigation、toolNavigation 四个数组；guide、fieldReference、limits、instructions 这些说明字段会被后台忽略，可以保留也可以删除。',
+    summary: '导入文件必须是一个 JSON 对象。真正会导入的只有 payloads、tools、navigation、toolNavigation、exploits、exploitNavigation 六个数组；guide、fieldReference、limits、instructions 这些说明字段会被后台忽略，可以保留也可以删除。',
     steps: [
       '1. 保留 format 为 payloader.import.v1。',
       '2. 在 payloads 数组里写 Payload 数据；在 tools 数组里写工具命令数据。',
-      '3. 如果想让左侧导航出现这些数据，需要同时在 navigation 或 toolNavigation 里添加节点，并用 payloadId/toolId 指向对应 id。',
-      '4. 一个文件可以一次写很多条数据；数组里每个对象就是一条记录。',
-      '5. 上传前先点“预览文件”，确认数量和提醒没有问题后再执行导入。',
+      '3. 在 exploits 数组里写漏洞利用（EXP）数据；可选 treePath 挂到 EXP 分类树叶子。',
+      '4. 如果想让左侧导航出现这些数据，需要同时在 navigation 或 toolNavigation 里添加节点，并用 payloadId/toolId 指向对应 id。',
+      '5. 一个文件可以一次写很多条数据；数组里每个对象就是一条记录。',
+      '6. 上传前先点“预览文件”，确认数量和提醒没有问题后再执行导入。',
     ],
     importModes: {
       merge: '合并更新：id 已存在就更新这条数据，id 不存在就新增。',
@@ -101,6 +106,26 @@ export const createImportTemplate = () => ({
       children: '子节点数组。',
       payloadId: 'Payload 导航叶子节点使用，必须等于 payloads 中某条 id。',
       toolId: '工具导航叶子节点使用，必须等于 tools 中某条 id。',
+    },
+    exploit: {
+      required: ['name', 'description', 'vulnType', 'severity', 'publishedAt', 'vulnerabilityIds', 'exploitCode', 'prerequisites', 'references'],
+      optional: ['id', 'affected', 'tags', 'treePath', 'attribution', 'source', 'sourceRef'],
+      id: '可选；不写由系统生成 EXP-<ULID> 稳定标识。写 id 时按 id 判断新增或更新（幂等导入）。',
+      name: 'EXP 标题，建议「产品 + 漏洞类型 + 后果」句式，纯字符串。',
+      description: '漏洞描述：机理 + 危害 + 触发路径，纯字符串。',
+      vulnType: '漏洞类型小写串，如 rce、sqli、deserialization、file-upload、path-traversal、auth-bypass、access-control、info-disclosure、ssrf、lpe、memory-corruption、xss、xxe、csrf、dos。',
+      severity: 'critical、high、medium、low 之一。',
+      publishedAt: '公开日期，YYYY、YYYY-MM 或 YYYY-MM-DD。',
+      affected: '影响产品/组件与版本范围。',
+      vulnerabilityIds: '漏洞编号数组，每项 {type, value}；type 如 CVE、CNVD、EDB-ID、GHSA，可多编号并存。',
+      exploitCode: '利用代码数组，每段 {title, language, code}，code 内换行写 \\n；可多段（验证请求 + 利用脚本）。',
+      prerequisites: '利用条件与前置说明，纯字符串。',
+      references: '参考链接数组，只收 http(s) 链接，建议 ≥2 条。',
+      tags: '标签数组，4-8 个为宜。',
+      treePath: '可选；分类挂载路径（EXP 分类树叶子 id 以 / 连接），挂上后出现在对应分类树位置。',
+      attribution: '可选 {source, author, license}；来源/原作者/许可证允许留空。',
+      source: '聚合来源标记（exploit-db / nuclei / gh-poc），手工导入不要写，留空即精选层。',
+      sourceRef: '上游主键，配合 source 用于聚合管线幂等；手工导入不需要。',
     },
   },
   limits: {
@@ -185,6 +210,25 @@ export const createImportTemplate = () => ({
         mitigation: { zh: '使用参数化查询、最小权限数据库账号、输入类型约束和统一错误处理。', en: 'Use parameterized queries, least-privilege database accounts, strict input types, and consistent error handling.' },
         difficulty: 'beginner',
       },
+    },
+  ],
+  exploits: [
+    {
+      name: { zh: '示例产品未授权远程代码执行', en: 'Example product unauthenticated RCE' },
+      description: { zh: '用于演示 EXP 导入格式：描述漏洞机理、触发路径与影响面，导入后前台与公开 API 立即可检索。', en: 'Demonstrates the EXP import shape: mechanism, trigger path, and impact. Searchable via UI and public API right after import.' },
+      vulnType: 'rce',
+      affected: '示例产品 1.0 ~ 2.3.1（2.4.0 修复）',
+      severity: 'critical',
+      publishedAt: '2024-06-01',
+      vulnerabilityIds: [{ type: 'CVE', value: 'CVE-2099-00001' }],
+      exploitCode: [
+        { title: '存在性验证', language: 'bash', code: 'curl -sk "http://{TARGET}/vulnerable" --max-time 5', description: { zh: '验证目标是否暴露受影响接口。', en: 'Check whether the target exposes the affected endpoint.' } },
+      ],
+      prerequisites: '目标网络可达且版本在受影响范围内；仅需只读验证时使用 DNS 回连而非直接利用。',
+      references: ['https://nvd.nist.gov/vuln/detail/CVE-2099-00001'],
+      tags: ['example', 'rce'],
+      attribution: { source: '示例来源', author: '', license: '' },
+      treePath: 'web-app/rce/web-app-rce-log4j2',
     },
   ],
   tools: [

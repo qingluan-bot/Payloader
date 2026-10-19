@@ -9,7 +9,9 @@ function SimpleTextDetail({ payloadId }: { payloadId: string }) {
   const payload = useMemo(() => allPayloads.find(p => p.id === payloadId), [allPayloads, payloadId]);
   const { copiedKey, copy } = useCopyFeedback();
 
-  const content = useMemo(() => payload?.execution[0]?.command ?? '', [payload]);
+  // 列表投影（P1-2）不再携带 execution：自定义载荷详情走可选链兜底，
+  // execution 未到达（列表态/旧离线包）时回落空文本
+  const content = useMemo(() => payload?.execution?.[0]?.command ?? '', [payload]);
   const name = useMemo(() => payload ? getText(payload.name, language) : '', [payload, language]);
 
   if (!payload) return null;

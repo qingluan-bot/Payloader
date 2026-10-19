@@ -3,13 +3,46 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getPublicData } from './data-store.mjs';
 import {
-  CLIENT_BUILD_CONTRACT_VERSION,
-  writeClientDeploymentPackage,
-} from './client-deployment-package.mjs';
+  artifactFileName,
+  artifactScore,
+  clientBuildContractVersion,
+  clientDistribution,
+  clientMetadataVersion,
+  clientRuntime,
+  downloadMimeTypes,
+  evaluateFreshness,
+  failureAfterLatestSuccess,
+  freshnessMetadataKey,
+  metadataMatchesCurrentContract,
+  normalizeArtifact,
+  normalizeFailureMetadata,
+  normalizeMetadata,
+  normalizeSuccessfulMetadata,
+  now,
+  portableArtifactFileName,
+  protectedXeyeUrl,
+  referencedLogoUrl,
+  sanitizeClientPayload,
+  sanitizeClientPublicData,
+  sanitizeFileName,
+  staleMetadataSummary,
+} from './client-artifacts.mjs';
+import {
+  clientTargetMatrix,
+  crossPlatformOverride,
+  electronRuntimeConfig,
+  normalizeRequestedTargets,
+  normalizeTargetAvailability,
+  pathSeparator,
+  shellTarget,
+  windowsNsisOptions,
+} from './client-pack.mjs';
+import { artifactNotes, codeSigningSettings, signingEnvironmentAllowlist } from './client-sign.mjs';
+import { getPublicData, getPayloadSearchCorpus, listPublicPayloadDetails } from './data-store.mjs';
+import { writeClientDeploymentPackage } from './client-deployment-package.mjs';
 import {
   acquireClientShellArchive,
   assembleClientShell,
@@ -17,11 +50,15 @@ import {
   pruneClientShellCache,
   validateClientShellManifest,
 } from './client-shells.mjs';
-import { clientProjectRoute, officialProjectUrl, publicProjectRoute } from './project-attribution.mjs';
+import { clientProjectRoute, officialProjectUrl } from './project-attribution.mjs';
 
 const rootDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const serverDir = join(rootDir, 'server');
 const distDir = join(rootDir, 'dist');
+// dist 卫生上限（防陈旧残留回归）：正常构建约 40 文件 / 5MB 内（含 wasm），
+// 超限几乎必然是 emptyOutDir 失效后旧 hash 产物跨构建堆积，会把垃圾带进安装包
+const distMaxFiles = 400;
+const distMaxTotalBytes = 32 * 1024 * 1024;
 const dataDir = resolve(process.env.PAYLOADER_DATA_DIR || join(rootDir, 'data'));
 const uploadDir = join(dataDir, 'uploads');
 const buildRoot = process.env.PAYLOADER_CLIENT_BUILD_ROOT
@@ -47,27 +84,15 @@ const viteCli = join(rootDir, 'node_modules', 'vite', 'bin', 'vite.js');
 const electronBuilderCli = join(rootDir, 'node_modules', 'electron-builder', 'cli.js');
 const electronPackageJson = join(rootDir, 'node_modules', 'electron', 'package.json');
 const electronRuntimeDir = join(rootDir, 'node_modules', 'electron', 'dist');
-const electronRuntimeConfig = (runtimeDir, enabled = true) => {
-  if (!enabled) return {};
-  const stats = statSync(runtimeDir, { throwIfNoEntry: false });
-  return stats?.isDirectory() ? { electronDist: runtimeDir } : {};
-};
 const immutableProductionRuntime = process.env.NODE_ENV === 'production';
 const productName = 'Payloader';
 const copyright = 'Copyright (c) Payloader';
-const pathSeparator = sep;
-const protectedXeyeUrl = 'https://xss.icu/';
-const protectedXssToolId = 'xss-platform';
 const configuredElectronMirror = String(process.env.PAYLOADER_ELECTRON_MIRROR || process.env.ELECTRON_MIRROR || '').trim();
 const configuredBuilderBinariesMirror = String(process.env.PAYLOADER_ELECTRON_BUILDER_BINARIES_MIRROR
   || process.env.ELECTRON_BUILDER_BINARIES_MIRROR
   || '').trim();
 const configuredClientShellDirectory = String(process.env.PAYLOADER_CLIENT_SHELL_DIR || '').trim();
 const remoteClientShellsDisabled = process.env.PAYLOADER_CLIENT_SHELLS_REMOTE_DISABLED === 'true';
-const clientRuntime = 'electron-offline-client';
-const clientDistribution = 'multi-platform-desktop-client';
-const clientBuildContractVersion = CLIENT_BUILD_CONTRACT_VERSION;
-const clientMetadataVersion = 3;
 const configuredFreshnessCacheTtlMs = Number(process.env.PAYLOADER_CLIENT_FRESHNESS_CACHE_MS);
 const freshnessCacheTtlMs = Number.isFinite(configuredFreshnessCacheTtlMs)
   ? Math.min(15_000, Math.max(5_000, configuredFreshnessCacheTtlMs))
@@ -131,289 +156,6 @@ const clientSecurityPolicy = Object.freeze({
   integrityHashes: true,
   note: 'False-positive reduction is handled through code signing, stable metadata, transparent artifact hashes, least privilege, and a locked offline network policy. Project attribution uses a narrow authenticated-encryption module; executable packing, security-software evasion, injection, and stealth behavior are not added.',
 });
-const windowsNsisOptions = Object.freeze({
-  oneClick: false,
-  // 向导提供「为所有用户 / 仅为当前用户」选择页（默认所有用户），
-  // 选所有用户时经 UAC 提权安装到 Program Files；per-user 装到用户目录。
-  perMachine: true,
-  allowElevation: true,
-  allowToChangeInstallationDirectory: true,
-  packElevateHelper: true,
-  differentialPackage: false,
-  useZip: false,
-  include: 'installer.nsh',
-  createDesktopShortcut: true,
-  createStartMenuShortcut: true,
-  runAfterFinish: false,
-  deleteAppDataOnUninstall: false,
-  artifactName: 'Payloader-Client-Setup-${version}-${arch}.${ext}',
-});
-const crossPlatformOverride = process.env.PAYLOADER_CLIENT_FORCE_CROSS_PLATFORM === 'true';
-const clientTargetMatrix = Object.freeze([
-  {
-    id: 'win-x64-nsis',
-    platform: 'windows',
-    platformLabel: 'Windows',
-    arch: 'x64',
-    archLabel: 'Intel / AMD 64-bit',
-    format: 'Windows Installer',
-    extension: '.exe',
-    builderPlatform: 'win',
-    builderTargets: ['nsis'],
-    builderArch: 'x64',
-    mimeType: 'application/vnd.microsoft.portable-executable',
-    hostPlatforms: ['win32'],
-    recommended: true,
-    cpuFamily: 'x86_64',
-    minOsVersion: 'Windows 10/11 64-bit',
-    installType: 'Assisted NSIS installer with user scope and directory choice',
-  },
-  {
-    id: 'win-arm64-nsis',
-    platform: 'windows',
-    platformLabel: 'Windows',
-    arch: 'arm64',
-    archLabel: 'ARM64',
-    format: 'Windows Installer',
-    extension: '.exe',
-    builderPlatform: 'win',
-    builderTargets: ['nsis'],
-    builderArch: 'arm64',
-    mimeType: 'application/vnd.microsoft.portable-executable',
-    hostPlatforms: ['win32'],
-    recommended: true,
-    cpuFamily: 'ARM64',
-    minOsVersion: 'Windows 11 ARM64',
-    installType: 'Assisted NSIS installer with user scope and directory choice',
-  },
-  {
-    id: 'win-ia32-nsis',
-    platform: 'windows',
-    platformLabel: 'Windows',
-    arch: 'ia32',
-    archLabel: '32-bit x86',
-    format: 'Windows Installer',
-    extension: '.exe',
-    builderPlatform: 'win',
-    builderTargets: ['nsis'],
-    builderArch: 'ia32',
-    mimeType: 'application/vnd.microsoft.portable-executable',
-    hostPlatforms: ['win32'],
-    recommended: false,
-    cpuFamily: 'x86 32-bit',
-    minOsVersion: 'Windows 10 32-bit',
-    installType: 'Assisted NSIS installer with user scope and directory choice',
-  },
-  {
-    id: 'linux-x64-appimage',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'x64',
-    archLabel: 'Intel / AMD 64-bit',
-    format: 'AppImage',
-    extension: '.AppImage',
-    builderPlatform: 'linux',
-    builderTargets: ['AppImage'],
-    builderArch: 'x64',
-    mimeType: 'application/octet-stream',
-    hostPlatforms: ['linux'],
-    recommended: true,
-    cpuFamily: 'x86_64',
-    minOsVersion: 'glibc-based Linux x64',
-    installType: 'Portable AppImage',
-  },
-  {
-    id: 'linux-arm64-appimage',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'arm64',
-    archLabel: 'ARM64',
-    format: 'AppImage',
-    extension: '.AppImage',
-    builderPlatform: 'linux',
-    builderTargets: ['AppImage'],
-    builderArch: 'arm64',
-    mimeType: 'application/octet-stream',
-    hostPlatforms: ['linux'],
-    recommended: true,
-    cpuFamily: 'ARM64 / aarch64',
-    minOsVersion: 'glibc-based Linux ARM64',
-    installType: 'Portable AppImage',
-  },
-  {
-    id: 'linux-armv7l-appimage',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'armv7l',
-    archLabel: 'ARMv7 / armhf',
-    format: 'AppImage',
-    extension: '.AppImage',
-    builderPlatform: 'linux',
-    builderTargets: ['AppImage'],
-    builderArch: 'armv7l',
-    mimeType: 'application/octet-stream',
-    hostPlatforms: ['linux'],
-    recommended: false,
-    cpuFamily: 'ARMv7 / armhf',
-    minOsVersion: 'glibc-based Linux ARMv7',
-    installType: 'Portable AppImage',
-  },
-  {
-    id: 'linux-x64-deb',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'x64',
-    archLabel: 'Intel / AMD 64-bit',
-    format: 'DEB',
-    extension: '.deb',
-    builderPlatform: 'linux',
-    builderTargets: ['deb'],
-    builderArch: 'x64',
-    mimeType: 'application/vnd.debian.binary-package',
-    hostPlatforms: ['linux'],
-    recommended: true,
-    cpuFamily: 'x86_64',
-    minOsVersion: 'Debian/Ubuntu x64',
-    installType: 'dpkg/apt package',
-    packageManager: 'dpkg / apt',
-  },
-  {
-    id: 'linux-arm64-deb',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'arm64',
-    archLabel: 'ARM64',
-    format: 'DEB',
-    extension: '.deb',
-    builderPlatform: 'linux',
-    builderTargets: ['deb'],
-    builderArch: 'arm64',
-    mimeType: 'application/vnd.debian.binary-package',
-    hostPlatforms: ['linux'],
-    recommended: true,
-    cpuFamily: 'ARM64 / aarch64',
-    minOsVersion: 'Debian/Ubuntu ARM64',
-    installType: 'dpkg/apt package',
-    packageManager: 'dpkg / apt',
-  },
-  {
-    id: 'linux-armv7l-deb',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'armv7l',
-    archLabel: 'ARMv7 / armhf',
-    format: 'DEB',
-    extension: '.deb',
-    builderPlatform: 'linux',
-    builderTargets: ['deb'],
-    builderArch: 'armv7l',
-    mimeType: 'application/vnd.debian.binary-package',
-    hostPlatforms: ['linux'],
-    recommended: false,
-    cpuFamily: 'ARMv7 / armhf',
-    minOsVersion: 'Debian/Ubuntu armhf',
-    installType: 'dpkg/apt package',
-    packageManager: 'dpkg / apt',
-  },
-  {
-    id: 'linux-x64-rpm',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'x64',
-    archLabel: 'Intel / AMD 64-bit',
-    format: 'RPM',
-    extension: '.rpm',
-    builderPlatform: 'linux',
-    builderTargets: ['rpm'],
-    builderArch: 'x64',
-    mimeType: 'application/x-rpm',
-    hostPlatforms: ['linux'],
-    recommended: true,
-    cpuFamily: 'x86_64',
-    minOsVersion: 'Fedora/RHEL x64',
-    installType: 'rpm/dnf package',
-    packageManager: 'rpm / dnf',
-  },
-  {
-    id: 'linux-arm64-rpm',
-    platform: 'linux',
-    platformLabel: 'Linux',
-    arch: 'arm64',
-    archLabel: 'ARM64',
-    format: 'RPM',
-    extension: '.rpm',
-    builderPlatform: 'linux',
-    builderTargets: ['rpm'],
-    builderArch: 'arm64',
-    mimeType: 'application/x-rpm',
-    hostPlatforms: ['linux'],
-    recommended: true,
-    cpuFamily: 'ARM64 / aarch64',
-    minOsVersion: 'Fedora/RHEL ARM64',
-    installType: 'rpm/dnf package',
-    packageManager: 'rpm / dnf',
-  },
-  {
-    id: 'mac-x64-dmg',
-    platform: 'macos',
-    platformLabel: 'macOS',
-    arch: 'x64',
-    archLabel: 'Intel 64-bit',
-    format: 'DMG',
-    extension: '.dmg',
-    builderPlatform: 'mac',
-    builderTargets: ['dmg'],
-    builderArch: 'x64',
-    mimeType: 'application/x-apple-diskimage',
-    hostPlatforms: ['darwin'],
-    recommended: true,
-    requiresSigningNote: 'macOS distribution should be signed and notarized on a macOS host.',
-    cpuFamily: 'x86_64',
-    minOsVersion: 'macOS Intel',
-    installType: 'DMG disk image',
-  },
-  {
-    id: 'mac-arm64-dmg',
-    platform: 'macos',
-    platformLabel: 'macOS',
-    arch: 'arm64',
-    archLabel: 'Apple Silicon',
-    format: 'DMG',
-    extension: '.dmg',
-    builderPlatform: 'mac',
-    builderTargets: ['dmg'],
-    builderArch: 'arm64',
-    mimeType: 'application/x-apple-diskimage',
-    hostPlatforms: ['darwin'],
-    recommended: true,
-    requiresSigningNote: 'macOS distribution should be signed and notarized on a macOS host.',
-    cpuFamily: 'Apple Silicon ARM64',
-    minOsVersion: 'macOS Apple Silicon',
-    installType: 'DMG disk image',
-  },
-  {
-    id: 'mac-universal-dmg',
-    platform: 'macos',
-    platformLabel: 'macOS',
-    arch: 'universal',
-    archLabel: 'Universal',
-    format: 'DMG',
-    extension: '.dmg',
-    builderPlatform: 'mac',
-    builderTargets: ['dmg'],
-    builderArch: 'universal',
-    mimeType: 'application/x-apple-diskimage',
-    hostPlatforms: ['darwin'],
-    recommended: true,
-    requiresSigningNote: 'macOS universal DMG should be signed and notarized on a macOS host after x64 and arm64 validation.',
-    cpuFamily: 'Intel + Apple Silicon',
-    minOsVersion: 'macOS Universal',
-    installType: 'Universal DMG disk image',
-  },
-]);
-const clientTargetById = new Map(clientTargetMatrix.map(target => [target.id, target]));
-const clientTargetOrder = new Map(clientTargetMatrix.map((target, index) => [target.id, index]));
-
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -431,16 +173,6 @@ const mimeTypes = {
   '.ttf': 'font/ttf',
   '.map': 'application/json; charset=utf-8',
 };
-const downloadMimeTypes = {
-  '.exe': 'application/vnd.microsoft.portable-executable',
-  '.AppImage': 'application/octet-stream',
-  '.appimage': 'application/octet-stream',
-  '.dmg': 'application/x-apple-diskimage',
-  '.zip': 'application/zip',
-  '.gz': 'application/gzip',
-  '.deb': 'application/vnd.debian.binary-package',
-  '.rpm': 'application/x-rpm',
-};
 
 let currentJob = null;
 let freshnessCache = null;
@@ -449,7 +181,6 @@ let shellCatalogCache = null;
 let shellCatalogProvider = null;
 let initialArtifactPrunePromise = null;
 
-const now = () => new Date().toISOString();
 const hashValue = value => createHash('sha256').update(value).digest('hex');
 const hashFile = filePath => new Promise((resolveHash, rejectHash) => {
   const hash = createHash('sha256');
@@ -470,84 +201,6 @@ const toPublicUrl = filePath => `/${filePath.split(/[\\/]+/).map(encodeURICompon
 const isInside = (baseDir, target) => {
   const fromBase = relative(baseDir, target);
   return fromBase && fromBase !== '..' && !fromBase.startsWith(`..${pathSeparator}`) && !isAbsolute(fromBase);
-};
-
-const shellTarget = (catalog, target) => catalog?.targets?.[target.id] || null;
-
-const normalizeTargetAvailability = (target, catalog = null) => {
-  const shell = shellTarget(catalog, target);
-  const nativeSupported = crossPlatformOverride || target.hostPlatforms.includes(process.platform);
-  const supported = Boolean(shell) || nativeSupported;
-  let reason = '';
-  if (!supported) {
-    reason = catalog?.error ? '官方壳不可用' : '缺少兼容壳或本机工具链';
-  }
-  const portable = shell
-    ? shell.outputFormat === 'zip'
-      ? { format: 'Portable ZIP', extension: '.zip', installType: 'Portable directory', mimeType: 'application/zip' }
-      : { format: 'Portable TAR.GZ', extension: '.tar.gz', installType: 'Portable directory', mimeType: 'application/gzip' }
-    : null;
-  return {
-    id: target.id,
-    platform: target.platform,
-    platformLabel: target.platformLabel,
-    arch: target.arch,
-    archLabel: target.archLabel,
-    format: portable?.format || target.format,
-    extension: portable?.extension || target.extension,
-    recommended: target.recommended,
-    supported,
-    selectedByDefault: supported && target.recommended !== false,
-    reason,
-    source: shell ? 'official-shell' : nativeSupported ? 'native-host' : 'unavailable',
-    shellVersion: shell ? String(catalog?.manifest?.appVersion || '') : '',
-    shellSigned: shell ? Boolean(shell.signed) : false,
-    cpuFamily: target.cpuFamily || target.archLabel,
-    minOsVersion: target.minOsVersion || '',
-    installType: portable?.installType || target.installType || target.format,
-    packageManager: portable ? '' : target.packageManager || '',
-    mimeType: portable?.mimeType || target.mimeType,
-    requiresSigningNote: target.requiresSigningNote || '',
-  };
-};
-
-const defaultTargetIds = catalog => clientTargetMatrix
-  .filter(target => normalizeTargetAvailability(target, catalog).supported && target.recommended !== false)
-  .map(target => target.id);
-
-const normalizeRequestedTargets = (value, catalog = null) => {
-  const requested = Array.isArray(value) ? value.map(item => String(item || '').trim()) : [];
-  const ids = requested.length ? requested : defaultTargetIds(catalog);
-  const seen = new Set();
-  const selected = [];
-  const skipped = [];
-  for (const id of ids) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const target = clientTargetById.get(id);
-    if (!target) {
-      skipped.push({ id, status: 'unsupported', reason: 'Unknown client target.' });
-      continue;
-    }
-    if (!normalizeTargetAvailability(target, catalog).supported) {
-      skipped.push({
-        id,
-        status: 'unsupported',
-        reason: normalizeTargetAvailability(target, catalog).reason,
-      });
-      continue;
-    }
-    selected.push(target);
-  }
-  return { selected, skipped };
-};
-
-const sanitizeFileName = value => {
-  const fileName = basename(String(value || ''));
-  return /^Payloader-Client-\d{8}-\d{6}-[a-f0-9]{8}-(win|linux|mac)-[a-z0-9]+-[a-z0-9-]+(?:\.[A-Za-z0-9]+)+$/i.test(fileName)
-    || /^Payloader-Client-\d{8}-\d{6}-[a-f0-9]{8}\.exe$/i.test(fileName)
-    ? fileName
-    : '';
 };
 
 const readJsonFile = async (filePath, fallback) => {
@@ -630,189 +283,6 @@ const loadShellCatalog = async (options = {}) => {
   return promise;
 };
 
-const artifactPlatformPrefix = target => target.platform === 'macos' ? 'mac' : target.platform === 'windows' ? 'win' : target.platform;
-
-const artifactFileName = (target, stamp, buildId) => (
-  `Payloader-Client-${stamp}-${buildId.slice(0, 8)}-${artifactPlatformPrefix(target)}-${target.arch}-${target.builderTargets[0].toLowerCase()}${target.extension}`
-);
-
-const portableArtifactFileName = (target, shell, stamp, buildId) => (
-  `Payloader-Client-${stamp}-${buildId.slice(0, 8)}-${artifactPlatformPrefix(target)}-${target.arch}-portable${shell.outputFormat === 'zip' ? '.zip' : '.tar.gz'}`
-);
-
-const artifactScore = item => {
-  const platform = String(item?.platform || '');
-  const arch = String(item?.arch || '');
-  const targetRank = clientTargetOrder.get(String(item?.targetId || ''));
-  if (typeof targetRank === 'number') return targetRank;
-  if (platform === 'windows' && arch === 'x64') return 0;
-  if (platform === 'windows' && arch === 'arm64') return 1;
-  if (platform === 'windows' && arch === 'ia32') return 2;
-  if (platform === 'macos' && arch === 'universal') return 3;
-  if (platform === 'macos' && arch === 'arm64') return 4;
-  if (platform === 'macos' && arch === 'x64') return 5;
-  if (platform === 'linux' && arch === 'x64') return 6;
-  if (platform === 'linux' && arch === 'arm64') return 7;
-  if (platform === 'linux' && arch === 'armv7l') return 8;
-  return 999;
-};
-
-const displayArtifactFormat = (value, fallback) => {
-  const format = String(value || fallback || '').trim();
-  return format === 'NSIS EXE' ? 'Windows Installer' : format;
-};
-
-const normalizeArtifact = item => {
-  if (!item || typeof item !== 'object' || !item.fileName) return null;
-  if (item.status && item.status !== 'success') return null;
-  const target = clientTargetById.get(item.targetId) || {};
-  const fileName = sanitizeFileName(item.fileName);
-  if (!fileName) return null;
-  const extension = extname(fileName);
-  return {
-    targetId: item.targetId || '',
-    platform: item.platform || target.platform || 'windows',
-    platformLabel: item.platformLabel || target.platformLabel || 'Windows',
-    arch: item.arch || target.arch || 'x64',
-    archLabel: item.archLabel || target.archLabel || 'Intel / AMD 64-bit',
-    format: displayArtifactFormat(item.format, target.format || 'Windows Installer'),
-    fileName,
-    size: Number(item.size || 0),
-    sha256: typeof item.sha256 === 'string' ? item.sha256 : '',
-    generatedAt: item.generatedAt || item.finishedAt || item.startedAt || '',
-    runtime: item.runtime || clientRuntime,
-    distribution: item.distribution || clientDistribution,
-    buildContractVersion: Number(item.buildContractVersion || 0),
-    codeSigningConfigured: Boolean(item.codeSigningConfigured),
-    signingStatus: item.signingStatus || (item.codeSigningConfigured ? 'configured' : 'unsigned'),
-    mimeType: item.mimeType || downloadMimeTypes[extension] || 'application/octet-stream',
-    downloadUrl: item.downloadUrl || `/api/client-build/download/${encodeURIComponent(fileName)}`,
-    cpuFamily: item.cpuFamily || target.cpuFamily || target.archLabel || '',
-    minOsVersion: item.minOsVersion || target.minOsVersion || '',
-    installType: item.installType || target.installType || item.format || '',
-    packageManager: item.packageManager || target.packageManager || '',
-    buildSource: item.buildSource || 'native-host',
-    shellVersion: item.shellVersion || '',
-    shellSha256: item.shellSha256 || '',
-    performanceNotes: Array.isArray(item.performanceNotes) ? item.performanceNotes : [],
-    securityNotes: Array.isArray(item.securityNotes) ? item.securityNotes : [],
-    notes: Array.isArray(item.notes) ? item.notes : [],
-  };
-};
-
-const normalizeMetadata = metadata => {
-  if (!metadata || typeof metadata !== 'object') return null;
-  const rawItems = Array.isArray(metadata.items)
-    ? metadata.items.length
-      ? metadata.items
-      : Array.isArray(metadata.targetResults)
-        ? metadata.targetResults
-            .filter(item => item && item.status === 'success' && item.fileName)
-            .map(item => {
-              const target = clientTargetById.get(item.id) || {};
-              return {
-                targetId: item.id || '',
-                platform: target.platform || 'windows',
-                platformLabel: target.platformLabel || 'Windows',
-                arch: target.arch || 'x64',
-                archLabel: target.archLabel || 'Intel / AMD 64-bit',
-                format: target.format || 'Windows Installer',
-                fileName: item.fileName,
-                size: item.size || 0,
-                sha256: item.sha256 || '',
-                generatedAt: metadata.finishedAt || metadata.startedAt || '',
-                runtime: metadata.runtime,
-                distribution: metadata.distribution,
-                buildContractVersion: metadata.buildContractVersion,
-                codeSigningConfigured: metadata.codeSigningConfigured,
-                signingStatus: metadata.codeSigningConfigured ? 'configured' : 'unsigned',
-                cpuFamily: target.cpuFamily || '',
-                minOsVersion: target.minOsVersion || '',
-                installType: target.installType || target.format || '',
-                packageManager: target.packageManager || '',
-              };
-            })
-        : metadata.items
-    : metadata.status === 'success' && metadata.fileName
-      ? [{
-          targetId: 'win-x64-nsis',
-          platform: 'windows',
-          platformLabel: 'Windows',
-          arch: 'x64',
-          archLabel: 'Intel / AMD 64-bit',
-          format: 'Windows Installer',
-          fileName: metadata.fileName,
-          size: metadata.size,
-          sha256: metadata.sha256,
-          generatedAt: metadata.finishedAt || metadata.startedAt,
-          runtime: metadata.runtime,
-          distribution: metadata.distribution,
-          buildContractVersion: metadata.buildContractVersion,
-          codeSigningConfigured: metadata.codeSigningConfigured,
-          signingStatus: metadata.codeSigningConfigured ? 'configured' : 'unsigned',
-        }]
-      : [];
-  const items = rawItems.map(normalizeArtifact).filter(Boolean).sort((a, b) => artifactScore(a) - artifactScore(b));
-  const latest = normalizeArtifact(metadata.latest) || items[0] || null;
-  const defaultSuccessMessage = items.length
-    ? `Ready to download ${items.length} client build${items.length === 1 ? '' : 's'}`
-    : 'Build completed without recognized artifacts';
-  return {
-    ...metadata,
-    metadataVersion: metadata.metadataVersion || (items.length ? clientMetadataVersion : 1),
-    status: metadata.status || (items.length ? 'success' : 'idle'),
-    message: metadata.status === 'success'
-      ? (items.length
-          ? (/Ready to download 0 client builds/i.test(String(metadata.message || ''))
-              ? defaultSuccessMessage
-              : String(metadata.message || defaultSuccessMessage))
-          : String(metadata.message || defaultSuccessMessage))
-      : metadata.message,
-    latest,
-    items,
-  };
-};
-
-const metadataMatchesCurrentContract = metadata => (
-  Boolean(metadata) &&
-  metadata.status === 'success' &&
-  metadata.buildContractVersion === clientBuildContractVersion &&
-  metadata.runtime === clientRuntime &&
-  metadata.distribution === clientDistribution
-);
-
-const normalizeSuccessfulMetadata = metadata => {
-  const normalized = normalizeMetadata(metadata);
-  return normalized?.status === 'success' ? normalized : null;
-};
-
-const normalizeFailureMetadata = metadata => {
-  if (!metadata || typeof metadata !== 'object' || metadata.status !== 'failed') return null;
-  return {
-    ...metadata,
-    status: 'failed',
-    message: String(metadata.message || 'Build failed'),
-    selectedTargets: Array.isArray(metadata.selectedTargets) ? metadata.selectedTargets : [],
-    skippedTargets: Array.isArray(metadata.skippedTargets) ? metadata.skippedTargets : [],
-    logs: Array.isArray(metadata.logs) ? metadata.logs.filter(Boolean).slice(-12) : [],
-  };
-};
-
-const metadataTimestamp = metadata => {
-  const timestamp = Date.parse(metadata?.reusedAt || metadata?.finishedAt || metadata?.startedAt || '');
-  return Number.isFinite(timestamp) ? timestamp : null;
-};
-
-const failureAfterLatestSuccess = (failure, latest) => {
-  if (!failure || !latest) return failure;
-  const failureTimestamp = metadataTimestamp(failure);
-  const successTimestamp = metadataTimestamp(latest);
-  if (failureTimestamp !== null && successTimestamp !== null && failureTimestamp <= successTimestamp) {
-    return null;
-  }
-  return failure;
-};
-
 const readStoredBuildState = async () => {
   const [latestRaw, lastFailureRaw] = await Promise.all([
     readJsonFile(latestFile, null),
@@ -832,47 +302,6 @@ const readStoredBuildState = async () => {
 
 const invalidateFreshnessCache = () => {
   freshnessCache = null;
-};
-
-const evaluateFreshness = (metadata, currentHashes, checkedAt = now()) => {
-  const latest = normalizeSuccessfulMetadata(metadata);
-  const currentSourceHash = String(currentHashes?.sourceHash || '');
-  const currentPublicDataHash = String(currentHashes?.publicDataHash || '');
-  const sourceCurrent = Boolean(latest?.sourceHash)
-    && Boolean(currentSourceHash)
-    && latest.sourceHash === currentSourceHash;
-  const publicDataCurrent = Boolean(latest?.publicDataHash)
-    && Boolean(currentPublicDataHash)
-    && latest.publicDataHash === currentPublicDataHash;
-  const reasons = [];
-  if (!latest) {
-    reasons.push('no-successful-build');
-  } else {
-    if (!metadataMatchesCurrentContract(latest)) reasons.push('build-contract-changed');
-    if (!sourceCurrent) reasons.push('frontend-source-changed');
-    if (!publicDataCurrent) reasons.push('public-data-changed');
-  }
-  return {
-    isCurrent: Boolean(latest) && metadataMatchesCurrentContract(latest) && sourceCurrent && publicDataCurrent,
-    sourceCurrent,
-    publicDataCurrent,
-    reasons,
-    checkedAt,
-    currentSourceHash,
-    currentPublicDataHash,
-  };
-};
-
-const freshnessMetadataKey = metadata => {
-  const latest = normalizeSuccessfulMetadata(metadata);
-  return JSON.stringify(latest ? [
-    latest.id || '',
-    latest.buildContractVersion || 0,
-    latest.runtime || '',
-    latest.distribution || '',
-    latest.sourceHash || '',
-    latest.publicDataHash || '',
-  ] : ['no-successful-build']);
 };
 
 const managedArtifactName = name => {
@@ -929,13 +358,6 @@ const persistFailureMetadata = async metadata => {
   await pruneObsoleteClientArtifactsBestEffort(latest);
 };
 
-const staleMetadataSummary = metadata => (metadata?.status === 'success' ? {
-  buildContractVersion: metadata.buildContractVersion || 0,
-  runtime: metadata.runtime || '',
-  distribution: metadata.distribution || '',
-  generatedAt: metadata.finishedAt || metadata.startedAt || metadata.latest?.generatedAt || '',
-} : null);
-
 const artifactExists = async item => {
   const fileName = sanitizeFileName(item?.fileName);
   if (!fileName) return false;
@@ -957,30 +379,6 @@ const metadataHasRequestedArtifacts = async (metadata, targets, catalog = null) 
   return true;
 };
 
-const codeSigningSettings = (sourceEnv = process.env) => {
-  const cscLink = sourceEnv.PAYLOADER_WINDOWS_CSC_LINK || sourceEnv.PAYLOADER_CSC_LINK || sourceEnv.WIN_CSC_LINK || sourceEnv.CSC_LINK || '';
-  const cscKeyPassword = sourceEnv.PAYLOADER_WINDOWS_CSC_KEY_PASSWORD
-    || sourceEnv.PAYLOADER_CSC_KEY_PASSWORD
-    || sourceEnv.WIN_CSC_KEY_PASSWORD
-    || sourceEnv.CSC_KEY_PASSWORD
-    || '';
-  const certificateSubjectName = sourceEnv.PAYLOADER_WINDOWS_CERT_SUBJECT || sourceEnv.WIN_CSC_NAME || sourceEnv.CSC_NAME || '';
-  const certificateSha1 = sourceEnv.PAYLOADER_WINDOWS_CERT_SHA1 || sourceEnv.WIN_CSC_SHA1 || '';
-  const configured = Boolean(cscLink || certificateSubjectName || certificateSha1);
-  const signtoolOptions = {
-    ...(certificateSubjectName ? { certificateSubjectName } : {}),
-    ...(certificateSha1 ? { certificateSha1 } : {}),
-  };
-  return {
-    configured,
-    env: {
-      ...(cscLink ? { CSC_LINK: cscLink } : {}),
-      ...(cscKeyPassword ? { CSC_KEY_PASSWORD: cscKeyPassword } : {}),
-    },
-    winConfig: Object.keys(signtoolOptions).length ? { signtoolOptions } : {},
-  };
-};
-
 const buildEnvironmentAllowlist = Object.freeze([
   'PATH', 'Path',
   'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
@@ -993,12 +391,6 @@ const buildEnvironmentAllowlist = Object.freeze([
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
   'http_proxy', 'https_proxy', 'no_proxy',
   'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
-]);
-const signingEnvironmentAllowlist = Object.freeze([
-  'APPLE_ID',
-  'APPLE_APP_SPECIFIC_PASSWORD',
-  'APPLE_TEAM_ID',
-  'CSC_NAME',
 ]);
 
 const createBuildEnvironment = (sourceEnv = process.env, options = {}) => {
@@ -1107,78 +499,6 @@ const existingFile = async filePath => {
 
 const distReady = () => existingFile(join(distDir, 'index.html'));
 
-const normalizeAllowedExternalUrl = value => {
-  const source = String(value || '').trim();
-  if (source === officialProjectUrl || source === publicProjectRoute || source === clientProjectRoute) {
-    return clientProjectRoute;
-  }
-  try {
-    const url = new URL(source);
-    if (url.protocol !== 'https:' || url.username || url.password || url.search) return '';
-    const pathname = url.pathname.replace(/\/+$/, '') || '/';
-    if (url.hostname === 'xss.icu' && pathname === '/' && !url.hash) {
-      return protectedXeyeUrl;
-    }
-    return '';
-  } catch {
-    return '';
-  }
-};
-
-const sanitizedReferences = value => {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(normalizeAllowedExternalUrl).filter(Boolean))];
-};
-
-const sanitizeClientPayload = payload => {
-  const next = { ...payload };
-  const references = sanitizedReferences(next.references);
-  if (references.length) {
-    next.references = references;
-  } else {
-    delete next.references;
-  }
-  return next;
-};
-
-const sanitizeClientTool = tool => {
-  const next = { ...tool };
-  if (String(next.id || '') === protectedXssToolId) {
-    next.externalUrl = protectedXeyeUrl;
-    next.references = [protectedXeyeUrl];
-    return next;
-  }
-
-  delete next.externalUrl;
-  const references = sanitizedReferences(next.references);
-  if (references.length) {
-    next.references = references;
-  } else {
-    delete next.references;
-  }
-  return next;
-};
-
-const sanitizeClientPublicData = data => {
-  const snapshot = data && typeof data === 'object' ? data : {};
-  const settings = snapshot.settings && typeof snapshot.settings === 'object' ? snapshot.settings : {};
-  return {
-    ...snapshot,
-    settings: {
-      ...settings,
-      // 离线客户端默认带 CTF 解题能力：客户端 CTF 工具全部纯前端本地运行，
-      // 不含题目代理/端口扫描端点，服务端部署的管理员开关只约束在线实例。
-      ctfEnabled: true,
-      projectUrl: clientProjectRoute,
-      logoUrl: referencedLogoUrl(snapshot),
-    },
-    payloads: Array.isArray(snapshot.payloads) ? snapshot.payloads.map(sanitizeClientPayload) : [],
-    tools: Array.isArray(snapshot.tools) ? snapshot.tools.map(sanitizeClientTool) : [],
-    navigation: Array.isArray(snapshot.navigation) ? snapshot.navigation : [],
-    toolNavigation: Array.isArray(snapshot.toolNavigation) ? snapshot.toolNavigation : [],
-  };
-};
-
 const hashFiles = async files => {
   const hash = createHash('sha256');
   const safeFiles = files.filter(Boolean).sort();
@@ -1237,15 +557,30 @@ const buildPublicDataSnapshot = async () => {
   return snapshot;
 };
 
+// P1-2 快照拆分：public-data.json 只含列表投影；payload 全量详情与搜索语料随包独立成文件。
+// 详情与列表同源（同一 sanitize 管线），复用 sanitizeClientPayload 清洗 references。
+const buildClientSnapshotExtras = async () => {
+  const [payloadDetails, payloadSearchCorpus] = await Promise.all([
+    listPublicPayloadDetails(),
+    getPayloadSearchCorpus(),
+  ]);
+  return {
+    payloadDetails: payloadDetails.map(sanitizeClientPayload),
+    payloadSearchCorpus,
+  };
+};
+
 const computeCurrentBuildHashes = async () => {
   if (freshnessHashProvider) return freshnessHashProvider();
-  const [sourceHash, publicData] = await Promise.all([
+  const [sourceHash, publicData, snapshotExtras] = await Promise.all([
     frontendSourceFingerprint(),
     buildPublicDataSnapshot(),
+    buildClientSnapshotExtras(),
   ]);
   return {
     sourceHash,
-    publicDataHash: hashValue(JSON.stringify(publicData)),
+    // 详情/语料并入 publicDataHash：仅改详情级字段（如教程/WAF 变体）时旧构建也判定过期
+    publicDataHash: hashValue(JSON.stringify([publicData, snapshotExtras.payloadDetails, snapshotExtras.payloadSearchCorpus])),
   };
 };
 
@@ -1302,11 +637,6 @@ const getBuildFreshness = metadata => {
   return entry.promise;
 };
 
-const referencedLogoUrl = data => {
-  const logoUrl = String(data?.settings?.logoUrl || '').trim();
-  return /^\/uploads\/logo\/logo-[a-zA-Z0-9.-]+\.(png|jpe?g|webp)$/.test(logoUrl) ? logoUrl : '';
-};
-
 const referencedLogoFile = logoUrl => {
   if (!logoUrl) return null;
   const fileName = basename(logoUrl);
@@ -1326,6 +656,13 @@ const prepareElectronApp = async (workDir, publicData, options = {}) => {
   const distFiles = await collectFiles(distDir);
   if (!distFiles.some(file => basename(file) === 'index.html')) {
     throw new Error('dist/index.html not found. Frontend build did not produce an index file.');
+  }
+  const distFileStats = await Promise.all(distFiles.map(async file => (await stat(file)).size));
+  const distTotalBytes = distFileStats.reduce((sum, size) => sum + size, 0);
+  if (distFiles.length > distMaxFiles || distTotalBytes > distMaxTotalBytes) {
+    throw new Error(`dist looks polluted with stale build artifacts: ${distFiles.length} files / ${(distTotalBytes / 1024 / 1024).toFixed(1)}MB `
+      + `(limits: ${distMaxFiles} files / ${distMaxTotalBytes / 1024 / 1024}MB). `
+      + 'Re-run the frontend build with emptyOutDir enabled before packaging the client.');
   }
 
   await mkdir(bundledDistDir, { recursive: true });
@@ -1396,6 +733,25 @@ const prepareElectronApp = async (workDir, publicData, options = {}) => {
   await writeFile(join(bundledAppDir, 'custom-tools.json'), customToolsJson, 'utf8');
   fingerprint.update(customToolsJson);
 
+  // P1-2 快照拆分：详情与语料独立成文件（内置 app/ 目录与部署包两路同步）
+  const { payloadDetails, payloadSearchCorpus } = options.snapshotExtras || {};
+  let payloadDetailsJson = '';
+  let searchCorpusJson = '';
+  if (Array.isArray(payloadDetails)) {
+    payloadDetailsJson = JSON.stringify(payloadDetails);
+    await writeFile(join(bundledAppDir, 'payload-details.json'), payloadDetailsJson, 'utf8');
+    fingerprint.update(payloadDetailsJson);
+  }
+  if (payloadSearchCorpus && typeof payloadSearchCorpus === 'object') {
+    searchCorpusJson = JSON.stringify(payloadSearchCorpus);
+    await writeFile(join(bundledAppDir, 'payload-search-corpus.json'), searchCorpusJson, 'utf8');
+    fingerprint.update(searchCorpusJson);
+  }
+  const deploymentSnapshotExtras = {
+    ...(payloadDetailsJson ? { payloadDetails } : {}),
+    ...(searchCorpusJson ? { payloadSearchCorpus } : {}),
+  };
+
   const generatedAt = now();
   const deploymentPackage = await writeClientDeploymentPackage({
     destination: deploymentPackageDir,
@@ -1403,6 +759,7 @@ const prepareElectronApp = async (workDir, publicData, options = {}) => {
     logoFile: referencedLogoFile(referencedLogoUrl(publicData)),
     generatedAt,
     buildContractVersion: clientBuildContractVersion,
+    ...deploymentSnapshotExtras,
   });
   fingerprint.update(JSON.stringify(deploymentPackage.manifest));
 
@@ -1418,6 +775,8 @@ const prepareElectronApp = async (workDir, publicData, options = {}) => {
     securityPolicy: clientSecurityPolicy,
     publicDataSha256: hashValue(publicDataJson),
     customToolsSha256: hashValue(customToolsJson),
+    ...(payloadDetailsJson ? { payloadDetailsSha256: hashValue(payloadDetailsJson) } : {}),
+    ...(searchCorpusJson ? { searchCorpusSha256: hashValue(searchCorpusJson) } : {}),
     routes,
     stats: publicDataStats(publicData),
     excludes: [
@@ -1576,14 +935,6 @@ const statSyncSafe = filePath => {
   }
 };
 
-const artifactNotes = (target, signing) => [
-  ...(target.requiresSigningNote ? [target.requiresSigningNote] : []),
-  ...(target.platform === 'windows' && !signing.configured ? ['Unsigned Windows builds are more likely to receive reputation warnings until signed and distributed from a stable download page.'] : []),
-  ...(target.id.includes('appimage') ? ['Linux AppImage may need executable permission after download: chmod +x Payloader-Client-*.AppImage.'] : []),
-  ...(target.format === 'DEB' ? ['Install with dpkg or apt on Debian/Ubuntu-family systems after verifying SHA256.'] : []),
-  ...(target.format === 'RPM' ? ['Install with rpm or dnf on Fedora/RHEL-family systems after verifying SHA256.'] : []),
-];
-
 const runElectronBuilderWithRetry = async (target, appDir, buildEnv) => {
   const maxAttempts = process.platform === 'win32' ? 3 : 1;
   let lastError = null;
@@ -1634,11 +985,12 @@ const runBuild = async started => {
     }
     const selectedTargetIds = selectedTargets.map(target => target.id);
     currentJob = { ...started, status: 'building', message: 'Checking public data and frontend fingerprint', logs: [] };
-    const [sourceHash, publicData] = await Promise.all([
+    const [sourceHash, publicData, snapshotExtras] = await Promise.all([
       frontendSourceFingerprint(),
       buildPublicDataSnapshot(),
+      buildClientSnapshotExtras(),
     ]);
-    const publicDataHash = hashValue(JSON.stringify(publicData));
+    const publicDataHash = hashValue(JSON.stringify([publicData, snapshotExtras.payloadDetails, snapshotExtras.payloadSearchCorpus]));
     const cached = normalizeSuccessfulMetadata(await readJsonFile(latestFile, null));
     if (
       metadataMatchesCurrentContract(cached) &&
@@ -1678,7 +1030,7 @@ const runBuild = async started => {
       deploymentPackageDir,
       manifest,
       fingerprint,
-    } = await prepareElectronApp(workDir, publicData, { useBundledElectronRuntime: false });
+    } = await prepareElectronApp(workDir, publicData, { useBundledElectronRuntime: false, snapshotExtras });
 
     currentJob = { ...currentJob, message: 'Packaging desktop clients', selectedTargets: selectedTargetIds, skippedTargets };
     const signing = codeSigningSettings();

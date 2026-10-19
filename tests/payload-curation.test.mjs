@@ -11,7 +11,7 @@ import {
   validatePayloadOverrideDocument,
 } from '../scripts/curate-payload-library.mjs';
 import { payloadContentHash } from '../scripts/payload-editorial-review.mjs';
-import { auditCurationCoverage } from '../scripts/apply-payload-curation.mjs';
+import { auditCurationCoverage, prepareCurationOptions } from '../scripts/apply-payload-curation.mjs';
 
 const i18n = (zh, en = '') => ({ zh, en });
 const text = value => typeof value === 'string' ? value : String(value?.zh || value?.en || '');
@@ -284,6 +284,96 @@ test('payload command overrides are stale-safe and keep attack-chain references 
     validatePayloadCommandOverrideDocument(stale, [source]).some(error => error.code === 'STALE_COMMAND'),
     true,
   );
+});
+
+test('payload command overrides carry classification fields and reject invalid values', () => {
+  const source = payload('classification-fixture', {
+    wafBypass: [{
+      title: i18n('大小写混淆', 'Case obfuscation'),
+      command: "' UnIoN SeLeCt 1,database(),3--",
+      description: i18n(
+        '以大小写混合提交相同语句，验证过滤层是否区分大小写并记录响应差异。',
+        'Resubmit the statement with mixed case to learn whether the filter is case-sensitive.',
+      ),
+      platform: 'all',
+    }],
+  });
+  const metadataOnly = {
+    schemaVersion: 1,
+    entries: [{
+      id: source.id,
+      patches: [{
+        area: 'wafBypass',
+        index: 0,
+        expectedCommand: source.wafBypass[0].command,
+        description: i18n(
+          '现代 WAF 请求归一后大小写混淆普遍失效，仅对自研大小写敏感正则成立。',
+          'Modern WAFs normalize case, so mixed-case obfuscation only works against custom case-sensitive regex filters.',
+        ),
+        kind: 'control',
+        effectiveness: 'C',
+      }],
+    }],
+  };
+
+  assert.deepEqual(validatePayloadCommandOverrideDocument(metadataOnly, [source]), []);
+  const [curated] = applyPayloadCommandOverrides([source], metadataOnly);
+  assert.equal(curated.wafBypass[0].command, source.wafBypass[0].command);
+  assert.equal(curated.wafBypass[0].kind, 'control');
+  assert.equal(curated.wafBypass[0].effectiveness, 'C');
+
+  const invalid = structuredClone(metadataOnly);
+  invalid.entries[0].patches[0].kind = 'fixture';
+  invalid.entries[0].patches[0].effectiveness = 'D';
+  const codes = validatePayloadCommandOverrideDocument(invalid, [source]).map(error => error.code);
+  assert.ok(codes.includes('INVALID_PATCH_KIND'));
+  assert.ok(codes.includes('INVALID_PATCH_EFFECTIVENESS'));
+
+  // command 与现值相同且仅带分类字段的 patch 合法：不得误判 NOOP_COMMAND。
+  const noopGuard = {
+    schemaVersion: 1,
+    entries: [{
+      id: source.id,
+      patches: [{
+        area: 'wafBypass',
+        index: 0,
+        expectedCommand: source.wafBypass[0].command,
+        command: source.wafBypass[0].command,
+        effectiveness: 'B',
+      }],
+    }],
+  };
+  assert.deepEqual(validatePayloadCommandOverrideDocument(noopGuard, [source]), []);
+
+  // 已应用过滤对分类字段敏感：字段齐同的补丁被过滤（防回灌），仅分类字段差异的补丁保持待应用。
+  const appliedEntry = {
+    id: source.id,
+    patches: [{
+      area: 'wafBypass',
+      index: 0,
+      expectedCommand: source.wafBypass[0].command,
+      command: source.wafBypass[0].command,
+      kind: 'control',
+      effectiveness: 'C',
+    }],
+  };
+  const appliedSource = applyPayloadCommandOverrides([source], { schemaVersion: 1, entries: [appliedEntry] })[0];
+  const converged = prepareCurationOptions(
+    { payloadCommandOverrides: { schemaVersion: 1, entries: [appliedEntry] } },
+    [appliedSource],
+    [],
+  );
+  assert.equal(converged.payloadCommandOverrides.entries.length, 0);
+
+  const pendingEntry = structuredClone(appliedEntry);
+  pendingEntry.patches[0].effectiveness = 'B';
+  const pending = prepareCurationOptions(
+    { payloadCommandOverrides: { schemaVersion: 1, entries: [pendingEntry] } },
+    [appliedSource],
+    [],
+  );
+  assert.equal(pending.payloadCommandOverrides.entries.length, 1);
+  assert.equal(pending.payloadCommandOverrides.entries[0].patches[0].effectiveness, 'B');
 });
 
 test('multi-target migration and split decisions route only the reviewed command indexes', () => {

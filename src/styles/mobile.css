@@ -1,0 +1,783 @@
+/*
+ * 移动端布局唯一样式落点（≤768px）。
+ * 纪律：
+ *  - 断点唯一权威 = (max-width: 768px)，与 src/components/useMediaQuery.ts 的 MOBILE_BREAKPOINT 对齐。
+ *  - import 位置必须在 App.tsx 全部组件 import 之后（bundle 级联压过存量断点规则，见 c699589 教训）。
+ *  - 颜色一律走 global.css 语义 token，禁止字面色。唯一豁免：BottomSheet 全屏遮罩
+ *    rgba(0,0,0,.55) 纯黑 alpha 阴影/遮罩系（tokens.md audit 豁免同口径，与 sidebar-backdrop 同先例）。
+ *  - 对存量类的移动覆盖，隐藏类用 display:none !important 保底（lazy chunk CSS 运行时后插不反超）。
+ */
+
+/* ===== M5 基础款：触屏基线 ===== */
+
+/* 禁双击缩放歧义（触摸设备交互区） */
+@media (hover: none) and (pointer: coarse) {
+  button,
+  [role='button'],
+  a,
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+  }
+}
+
+/* ===== 底部导航（桌面由 JS 不渲染 + 此处兜底双保险） ===== */
+
+.mobile-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* ===== M1 顶栏精简：桌面控件全退役（入口已收进底部导航/更多页） ===== */
+  .menu-toggle,
+  .tab-switcher,
+  .mode-switcher,
+  .encoding-toggle,
+  .client-download-link,
+  .theme-toggle,
+  .mobile-utilities-toggle,
+  .mobile-utilities-menu,
+  .variables-dropdown,
+  .logo-subtitle,
+  .github-link,
+  .xeye-link {
+    display: none !important;
+  }
+
+  /* 存量断点（global.css ≤900 段）把 header 高度定为 108px 双行布局；移动模式收单行 52px */
+  :root {
+    --app-header-height: 52px;
+  }
+
+  .header {
+    display: flex;
+    flex-wrap: nowrap;
+    grid-template-columns: none;
+    grid-template-rows: none;
+    padding: 0 12px;
+    height: var(--app-header-height);
+    flex: 0 0 var(--app-header-height);
+    align-items: center;
+    gap: 8px;
+  }
+
+  .header > * {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
+  /* 存量窄屏断点（header.css 520/420/360 段）把三段改成 grid 多行堆叠；
+     移动模式顶栏重做后归零为单行 flex：Logo 左、搜索右。 */
+  .header-left,
+  .header-center,
+  .header-right {
+    display: flex;
+    flex-wrap: nowrap;
+    grid-column: auto;
+    grid-row: auto;
+    grid-template-columns: none;
+    grid-template-rows: none;
+  }
+
+  .header-center {
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .header-left,
+  .header-center,
+  .header-right {
+    gap: 8px;
+  }
+
+  .logo-text {
+    font-size: 16px;
+  }
+
+  /* 搜索图标态（HeaderSearch 移动收起）：44px 拇指目标；flex 钉死防存量断点的 .search-box{flex:1} 拉伸 */
+  .search-box.search-collapsed {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    box-shadow: none;
+    cursor: pointer;
+  }
+
+  .search-box.search-collapsed .search-icon {
+    font-size: 20px;
+    color: var(--text-secondary);
+  }
+
+  /* 展开态搜索条占满中栏（收起态图标按钮不吃 flex 拉伸） */
+  .header-center {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .header-center .search-box:not(.search-collapsed) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 移动模式主区内边距：桌面 padding 在部分断点为 0 */
+  .main-content {
+    padding: 12px 14px 16px;
+    /* E-22：底部让开 iOS home indicator（safe-area）+ 余量，长页内容不再贴底导航 */
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+
+  /* iOS 聚焦防自动放大：输入字号 ≥16px */
+  .search-input,
+  .variables-search,
+  .variable-input,
+  input[type='search'],
+  input[type='text'] {
+    font-size: 16px;
+  }
+
+  /* ===== 底部固定导航 ===== */
+  .mobile-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 220;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    /* iPhone home indicator 适配 */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-height: 56px;
+    padding: 8px 4px 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .mobile-nav-icon {
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .mobile-nav-label {
+    line-height: 1.2;
+  }
+
+  .mobile-nav-item.active {
+    color: var(--accent);
+  }
+
+  .mobile-nav-item.active .mobile-nav-icon {
+    color: var(--accent);
+  }
+
+  /* 主区底部为导航留位 */
+  .app-container {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* ===== M1 当前分类横条 ===== */
+  .mobile-category-bar {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 14px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .mobile-category-current {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .mobile-category-caption {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .mobile-category-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  .mobile-category-chevron {
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  /* ===== BottomSheet ===== */
+  .bottom-sheet-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    align-items: flex-end;
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  .bottom-sheet {
+    width: 100%;
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-card);
+    border-radius: 6px 6px 0 0;
+    border-top: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+    animation: bottom-sheet-in 0.22s ease-out;
+  }
+
+  @keyframes bottom-sheet-in {
+    from {
+      transform: translateY(24%);
+      opacity: 0.4;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .bottom-sheet-grabber {
+    align-self: center;
+    width: 36px;
+    height: 4px;
+    margin-top: 8px;
+    border-radius: 4px;
+    background: var(--border-strong);
+  }
+
+  .bottom-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px 8px;
+  }
+
+  .bottom-sheet-head h2 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .bottom-sheet-close {
+    width: 44px;
+    height: 44px;
+    margin-right: -10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 22px;
+    cursor: pointer;
+  }
+
+  .bottom-sheet-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 0 calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* sheet 内嵌分类树：吃满宽度（NavTree 自带 .sidebar-content 样式，去掉侧栏的定宽假设）。
+     只藏标题文字避免与 sheet 标题双标题；tree-clear-type（清除 EXP 类型锁定）与搜索计数
+     必须保留——否则类型锁定后无「回到全部条目」逃逸入口（reviewer P1） */
+  .mobile-category-sheet-tree .sidebar-header h2 {
+    display: none;
+  }
+
+  .mobile-category-sheet-tree .sidebar-content {
+    width: 100%;
+    max-width: none;
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+
+  /* ===== M2 列表页（EXP 库）移动模式 ===== */
+
+  /* 粘性搜索+筛选行：滚动时仍可达 */
+  .exp-library .exp-filters {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-primary);
+    padding: 8px 0;
+    margin: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .exp-library .exp-filter-search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+
+  .exp-library .exp-filter-search span {
+    display: none;
+  }
+
+  .exp-library .exp-filter-search input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    border-radius: 6px;
+  }
+
+  .exp-library .exp-filters-toggle {
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 6px;
+    position: relative;
+  }
+
+
+  /* 已选筛选 chips 横滚 */
+  .exp-filter-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+    padding: 8px 0 2px;
+  }
+
+  .exp-filter-chip {
+    flex-shrink: 0;
+  }
+
+  .exp-filter-chip-remove {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+  }
+
+  .exp-filter-clear {
+    flex-shrink: 0;
+    min-height: 36px;
+  }
+
+  /* 卡片单列紧凑：描述两行截断 */
+  .exp-list {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .exp-card {
+    padding: 10px 12px;
+  }
+
+  .exp-card .exp-card-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin: 4px 0 0;
+  }
+
+  .exp-card .exp-card-meta {
+    margin-top: 4px;
+  }
+
+  /* 加载更多（替代页码） */
+  .exp-load-more {
+    width: 100%;
+    min-height: 48px;
+    margin-top: 12px;
+    border: 1px solid var(--accent-border);
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .exp-load-more:disabled {
+    opacity: 0.6;
+  }
+
+  /* 筛选 sheet 底部双按钮 */
+  .exp-sheet-actions {
+    display: flex;
+    gap: 10px;
+    padding: 14px 16px 4px;
+  }
+
+  .exp-sheet-actions button {
+    flex: 1;
+    min-height: 46px;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .exp-sheet-reset {
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-secondary);
+  }
+
+  .exp-sheet-apply {
+    border: none;
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+
+  .exp-filters-advanced {
+    display: grid;
+    gap: 12px;
+    padding: 4px 16px 8px;
+  }
+
+  .exp-filters-advanced label {
+    display: grid;
+    gap: 6px;
+  }
+
+  .exp-filters-advanced label span {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .exp-filters-advanced select,
+  .exp-filters-advanced input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* ===== M2 分类条目列表（payload/工具） ===== */
+  .mobile-category-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mobile-category-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    width: 100%;
+    min-height: 56px;
+    padding: 10px 14px;
+    text-align: left;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .mobile-category-item-title {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .mobile-category-item-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /* ===== M3 详情页移动模式 ===== */
+
+  /* 移动视图栈：列表与详情并存挂载，grid 同格叠放；visibility 保滚动位置（display:none 会归零），
+     inert 挡焦点与触控 */
+  .mobile-panes {
+    display: grid;
+  }
+
+  .mobile-pane {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  .mobile-pane.pane-hidden {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  /* 详情全屏：视图栈内详情 pane 盖住列表（同格后者胜） */
+  .mobile-pane-detail {
+    background: var(--bg-primary);
+    min-height: 100%;
+  }
+
+  /* 移动端详情返回按钮：44px 拇指目标 */
+  .mobile-detail-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 8px 12px 8px 8px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  /* EXP 详情字段单列（桌面两列 grid） */
+  .exp-detail-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  /* 复制按钮拇指化 */
+  .exp-copy-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .exp-code-section-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* 复制成功 toast：底部导航上方浮层 */
+  .copy-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 260;
+    padding: 10px 18px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--state-success) 18%, var(--bg-card));
+    border: 1px solid color-mix(in srgb, var(--state-success) 45%, transparent);
+    color: var(--text-primary);
+    font-size: 14px;
+    pointer-events: none;
+    animation: copy-toast-in 0.18s ease-out;
+  }
+
+  @keyframes copy-toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  /* ===== M4 CTF 工具箱：工作台三 tab 底部分段控件 ===== */
+  .mobile-workbench-tabs {
+    position: sticky;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    z-index: 40;
+    padding: 6px;
+    margin-top: 10px;
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* ===== M5 触控目标补齐：更多页变量面板 ===== */
+  .variable-group-toggle {
+    min-height: 44px;
+  }
+
+  .variable-input {
+    min-height: 44px;
+  }
+
+  .variable-item {
+    align-items: center;
+  }
+
+  /* ===== M1 更多页 ===== */
+  .mobile-more {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 4px 0 16px;
+  }
+
+  .mobile-more-title {
+    margin: 0;
+    font-size: 20px;
+  }
+
+  .mobile-more-group {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 14px;
+  }
+
+  .mobile-more-group h3 {
+    margin: 10px 0 8px;
+    font-size: 15px;
+    color: var(--text-primary);
+  }
+
+  .mobile-more-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    padding: 8px 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-align: left;
+  }
+
+  .mobile-more-group .mobile-more-row:last-child {
+    border-bottom: none;
+  }
+
+  button.mobile-more-entry {
+    cursor: pointer;
+  }
+
+  .mobile-more-row-label {
+    font-size: 15px;
+  }
+
+  .mobile-more-row-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .mobile-more-chevron {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .mobile-more-mode {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .mobile-more-mode button {
+    min-width: 72px;
+    min-height: 40px;
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .mobile-more-mode button.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .mobile-more-mode button.warning.active {
+    background: color-mix(in srgb, var(--state-warning) 14%, transparent);
+    color: var(--state-warning);
+  }
+
+  /* 站点信息 */
+  .mobile-more-site .mobile-site-line {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 8px 0;
+    font-size: 14px;
+  }
+
+  .mobile-site-sub {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .mobile-site-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-right: 16px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  /* ===== E-19：更多页编解码工作台按钮网格 ===== */
+  /* 行高对齐：网格行内按钮等高（stretch），文字单行省略不换行 */
+  .mobile-more .action-grid {
+    align-items: stretch;
+  }
+
+  .mobile-more .action-btn {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+  }
+}
+
+  /* 底部导航图标（A8 emoji 清零）：SVG 在 flex-column 项内去除行内基线缝隙。 */
+  .mobile-nav-icon .icon {
+    display: block;
+  }
+
+  /* 「更多」页入口行图标（A8 emoji 清零）：行标签转 flex 让 SVG 与文字对齐。 */
+  .mobile-more-row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }

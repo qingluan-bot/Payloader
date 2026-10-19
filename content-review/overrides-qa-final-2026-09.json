@@ -129,7 +129,7 @@
      "en": "Submit a random marker and record the final DOM, then load this hook in an isolated browser and correlate the hook.js request, console errors, and BeEF test session. Compare an encoded value, a CSP that blocks external scripts, and a text-only sink to exclude preloading, browser extensions, or network reachability without execution. Close the test session and remove the record afterward."
     },
     "mitigation": {
-     "zh": "按 HTML 文本、属性、URL 和 JavaScript 上下文分别编码；确需富文本时使用维护中的消毒器；避免 innerHTML 等危险 DOM API，对所有 Sink 做同值回归测试。\n    // Java 输出编码（ OWASP Encoder ）\n    String safe = Encoder.forHtml(untrusted);\n    // Nginx 严格 CSP（ nonce 模式）\n    add_header Content-Security-Policy \"default-src 'self'; script-src 'nonce-$RANDOM'; connect-src 'self'\";\n    修复后重放 BeEF hook 载荷：脚本不被执行、CSP 违规报告触发即确认防护生效。",
+     "zh": "按 HTML 文本、属性、URL 和 JavaScript 上下文分别编码；确需富文本时使用维护中的消毒器；部署基于 nonce/hash 的严格 CSP 并限制 connect-src；避免 innerHTML 等危险 DOM API，同时对后台、导出和通知等所有 Sink 做同值回归测试。",
      "en": "Encode separately for HTML text, attributes, URLs, and JavaScript contexts; use a maintained sanitizer for required rich text; deploy a strict nonce- or hash-based CSP with constrained connect-src; avoid dangerous DOM APIs such as innerHTML; and replay the same regression value in administrative, export, and notification sinks."
     },
     "difficulty": "advanced"

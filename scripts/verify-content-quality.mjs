@@ -28,6 +28,21 @@ const intentionalOrphanIds = new Set([
   'jwt-jku-spoofing',
 ]);
 const payloadRefAliases = new Map([
+  ['sqli2-', 'sqli2-quick-reference'],
+  ['sqli2--ext', 'sqli2-error-based-ext'],
+  ['xss2-', 'xss2-basic-script-element'],
+  ['xss2--ext', 'xss2-event-handler-ext'],
+  ['cmdi2--ext', 'cmdi2-quote-tokenization-ext'],
+  ['auth2-', 'auth2-username-enumeration'],
+  ['auth2--ext', 'auth2-cors-subdomain-ext'],
+  ['nosql2-', 'nosql2-type-confusion'],
+  ['nosql2--ext', 'nosql2-ldap-filter-ext'],
+  ['inject2-', 'inject2-graphql-introspection'],
+  ['inject2--ext', 'inject2-parser-differential-ext'],
+  ['bizlogic-', 'bizlogic-coupon-enumeration'],
+  ['httpbypass-', 'httpbypass-admin-path-normalization'],
+  ['api2-', 'api2-inline-fragment-authz'],
+  ['ssrf2-', 'ssrf2-build-file-exposure'],
   ['biz-price-tamper', 'biz-payment-tamper'],
   ['jwt-none-alg', 'jwt-none-attack'],
   ['jwt-none-algo', 'jwt-none-attack'],
@@ -268,6 +283,67 @@ const expectedBranch = payload => {
 
 const branchFromPath = path => (path[0] === 'web' || path[0] === 'intranet') && path.length > 1 ? path[1] : (path[0] || '');
 
+// ---- 治理 M3 防复发规则（2026-09-28 三库审计落位）----
+
+// payload 英文描述三族模板句（迁移流水账），回归即阻断
+const EN_TEMPLATE_PATTERNS = [
+  /preserves the original reproducible technique commands while restricting execution to a written, reversible, isolated lab authorization/,
+  /^Routes every source line belonging to .* into one focused card with explicit/,
+  /^Isolates commands from the mixed source into a .* validation card using synthetic principals, a read-only marker, and server-side evidence\.$/,
+];
+
+// payload id 主键形态：小写字母数字连字符，禁尾部/双连字符（sqli2-、cmdi2--ext 类残缺 id 曾直通）
+const VALID_PAYLOAD_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// installation 损坏四正则 + 已知坏串黑名单（驼峰断裂/flag 拆散/排版残留/pip 模块拆散）
+const INSTALLATION_BAD_PATTERNS = [
+  /github\.com\/[A-Za-z0-9._~:/?#%@$&*+=-]* [A-Za-z]/,           // URL 内空格（驼峰断裂主形态：Ghost Pack/Sec Lists…）
+  /(?:^|\s)(?:curl|wget)\s+-[a-z]\s+[A-Z][a-z]?[A-Z]/, // flag 拆散（curl -s SfL…）
+  /(?:^|\s)#\s/,                                // markdown 注释残留
+  /pip3?\s+install\s+[A-Z][a-z]+\s+[A-Z][a-z]+/,   // pip 模块名拆散（pip install Git Hacker）
+];
+const INSTALLATION_BAD_EXACT = ['Downloadbinary', 'Built-in on mac OS', 'ROA Dtools', 'Graph Q Lmap', 'the Harvester'];
+
+// 已知非法命令参数（照抄即错黑名单，按工具 id 前缀匹配）
+const ILLEGAL_FLAG_RULES = [
+  { match: toolId => toolId.startsWith('gobuster'), pattern: /(^|\s)-do\s/ },
+];
+
+const collectGovernanceIssues = snapshot => {
+  const enTemplateDescription = [];
+  const malformedPayloadId = [];
+  const suspiciousInstallation = [];
+  const illegalCommandFlag = [];
+  for (const item of asList(snapshot?.payloads)) {
+    const en = String(item?.description?.en ?? '');
+    if (EN_TEMPLATE_PATTERNS.some(pattern => pattern.test(en))) {
+      enTemplateDescription.push({ id: item.id, sample: en.slice(0, 80) });
+    }
+    if (typeof item?.id === 'string' && !VALID_PAYLOAD_ID.test(item.id)) {
+      malformedPayloadId.push({ id: item.id });
+    }
+  }
+  for (const item of asList(snapshot?.tools)) {
+    for (const lang of ['en', 'zh']) {
+      const text = String(item?.installation?.[lang] ?? '');
+      if (!text) continue;
+      const bad = INSTALLATION_BAD_PATTERNS.some(pattern => pattern.test(text)) || INSTALLATION_BAD_EXACT.some(marker => text.includes(marker));
+      if (bad) {
+        suspiciousInstallation.push({ id: item.id, lang, sample: text.slice(0, 80) });
+        break;
+      }
+    }
+    for (const command of asList(item?.commands)) {
+      const text = String(command?.command ?? '');
+      const rule = ILLEGAL_FLAG_RULES.find(candidate => candidate.match(item.id));
+      if (rule && rule.pattern.test(text)) {
+        illegalCommandFlag.push({ id: item.id, sample: text.slice(0, 80) });
+      }
+    }
+  }
+  return { enTemplateDescription, malformedPayloadId, suspiciousInstallation, illegalCommandFlag };
+};
+
 export const auditSnapshot = (input, options = {}) => {
   const snapshot = {
     payloads: asList(input?.payloads),
@@ -281,6 +357,7 @@ export const auditSnapshot = (input, options = {}) => {
   const emptyCommand = [];
   const invalidPlatform = [];
   collectCommandIssues(snapshot, replacementCharacter, sourceFragment, emptyCommand, invalidPlatform);
+  const governance = collectGovernanceIssues(snapshot);
 
   const payloadIds = new Set(snapshot.payloads.map(item => item?.id).filter(Boolean));
   const toolIds = new Set(snapshot.tools.map(item => item?.id).filter(Boolean));
@@ -368,6 +445,10 @@ export const auditSnapshot = (input, options = {}) => {
     emptyCommand: issueGroup(emptyCommand),
     invalidPlatform: issueGroup(invalidPlatform),
     danglingNavigation: issueGroup(danglingNavigation),
+    enTemplateDescription: issueGroup(governance.enTemplateDescription),
+    malformedPayloadId: issueGroup(governance.malformedPayloadId),
+    suspiciousInstallation: issueGroup(governance.suspiciousInstallation),
+    illegalCommandFlag: issueGroup(governance.illegalCommandFlag),
   };
   const reporting = {
     englishContainsHan: issueGroup(englishContainsHan, { affectedResources: englishAffectedResources }),

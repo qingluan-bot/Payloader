@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useLanguage, useNav } from '../appContext';
 import type { PublicClientBuildInfo, PublicClientBuildItem, PublicClientTargetInfo } from '../types';
+import { Icon } from './Icon';
 import '../styles/client-downloads.css';
 
 interface ClientDownloadsProps {
@@ -134,7 +135,11 @@ function ClientDownloads({ clientBuildInfo }: ClientDownloadsProps) {
   const renderTargetMatrix = () => (
     targetGroups.length ? (
       <details className="client-targets-disclosure">
-        <summary>{language === 'zh' ? `查看全平台目标矩阵（${targets.length}）` : `View target matrix (${targets.length})`}</summary>
+        {/* B-6③：折叠标题加 chevron，展开随 [open] 旋转 */}
+        <summary>
+          <Icon name="chevron-down" size={14} className="client-targets-caret" />
+          {language === 'zh' ? `查看全平台目标矩阵（${targets.length}）` : `View target matrix (${targets.length})`}
+        </summary>
         <section className="client-targets-section">
           <div className="client-section-head">
             <h3>{language === 'zh' ? '全平台客户端矩阵' : 'Client Target Matrix'}</h3>
@@ -168,27 +173,21 @@ function ClientDownloads({ clientBuildInfo }: ClientDownloadsProps) {
   );
 
   if (!clientBuildInfo?.available || !items.length) {
+    // B-6②：空态四块（头部标题/状态横幅/空面板/引导）合并为一块：标题 + 一句说明 + 一个引导按钮
+    const emptyDetail = clientBuildInfo?.staleLatest
+      ? (language === 'zh'
+        ? `旧产物版本（contract ${clientBuildInfo.staleLatest.buildContractVersion || '-'}）不再推荐下载，重建后这里会提供新版本。`
+        : `Old artifact contract ${clientBuildInfo.staleLatest.buildContractVersion || '-'} is no longer recommended; rebuild to publish a new version here.`)
+      : releaseStatus.detail;
     return (
       <div className="client-downloads-view">
-        <div className="client-downloads-head">
-          <div>
-            <span>{language === 'zh' ? '客户端分发' : 'Client Distribution'}</span>
-            <h2>{releaseStatus.title}</h2>
-            <p>{releaseStatus.detail}</p>
-          </div>
-          <button type="button" onClick={() => setActiveView('workspace')}>{language === 'zh' ? '返回内容' : 'Back'}</button>
-        </div>
-        <div className={`client-release-status ${releaseState}`} role="status" aria-live="polite">
+        <section className="client-empty-panel" role="status" aria-live="polite">
           <strong>{releaseStatus.title}</strong>
-          <span>{releaseStatus.detail}</span>
-        </div>
-        <div className="client-empty-panel">
-          <strong>{clientBuildInfo?.staleLatest ? (language === 'zh' ? '需要重建客户端' : 'Regeneration required') : (language === 'zh' ? '还没有客户端制品' : 'No artifacts available')}</strong>
-          <span>{clientBuildInfo?.staleLatest
-            ? (language === 'zh' ? `旧产物版本：contract ${clientBuildInfo.staleLatest.buildContractVersion || '-'}，当前页面不会继续推荐下载。` : `Old artifact contract: ${clientBuildInfo.staleLatest.buildContractVersion || '-'}; this page will not keep recommending it.`)
-            : (language === 'zh' ? '请先在后台“客户端生成”模块生成可分发版本。' : 'Generate distributable builds from the admin Client Generation module first.')}
-          </span>
-        </div>
+          <span>{emptyDetail}</span>
+          <button type="button" className="client-empty-action" onClick={() => setActiveView('workspace')}>
+            {language === 'zh' ? '返回内容' : 'Back to content'}
+          </button>
+        </section>
         {renderTargetMatrix()}
       </div>
     );
@@ -256,7 +255,7 @@ function ClientDownloads({ clientBuildInfo }: ClientDownloadsProps) {
                     </a>
                   ) : (
                     <button className="client-download-action" type="button" disabled>
-                      {language === 'zh' ? '下载不可用' : 'Unavailable'}
+                      {language === 'zh' ? '官方套件暂不可用' : 'Official kit unavailable'}
                     </button>
                   )}
                   <details className="client-card-details">

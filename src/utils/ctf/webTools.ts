@@ -2,7 +2,7 @@
 // ① SSTI 引擎判定 + payload 矩阵（PayloadsAllTheThings 语义）
 // ② 命令注入绕过生成（空格/关键字/无回显三族变换）
 // ③ SQLi 四型 × 四库 payload 矩阵（联合/报错/布尔/时间）
-// ④ Flask Session 解码（时间戳/JSON/zlib 标志）
+// ④ Flask Session 全链：解码（压缩段在线解压）+ 签发 + 签名校验（itsdangerous 2.x 规范）
 // ⑤ JWT 弱口令离线爆破（HS256 重签验证，内置 CTF 高频弱密钥）
 // ⑥ PHP 弱类型 == 判定 + 0e 碰撞速查
 // ⑦ HTTP 原始报文 / cURL 命令解析
@@ -209,7 +209,30 @@ export const buildSqliMatrix = (target: string): SqliRow[] => {
   return rows;
 };
 
-// ---- ④ Flask Session 解码 ----
+// ---- ④ Flask Session 解码 / 签名 / 校验 ----
+// 口径出处：pallets/itsdangerous 2.2.0 官方源码——
+//   signer.py derive_key 四种 key_derivation 精确公式：
+//     concat        = H(salt + secret)
+//     django-concat = H(salt + b"signer" + secret)   （itsdangerous Signer 默认）
+//     hmac          = HMAC(key=secret, msg=salt)     （Flask SecureCookieSessionInterface 默认）
+//     none          = secret
+//   timed.py TimestampSigner.sign：value = payload_b64 + "." + b64(>Q 大端时间戳去前导零)，
+//   签名 = b64(HMAC_derived_key(整个 value))；时间戳为 Unix 秒（2.x 起）。
+//   url_safe.py URLSafeSerializerMixin.dump_payload：zlib 压缩后 len(compressed) < len(json)-1 才采用，
+//   采用时 base64 段加前导 "."（zlib.compress = RFC1950，对应 CompressionStream('deflate')）。
+//   _json.py _CompactJSON：separators=(",", ":")、ensure_ascii=False（中文原样 UTF-8）。
+// Flask SecureCookieSessionInterface 默认：salt="cookie-session"、key_derivation="hmac"、digest=sha1。
+
+export type FlaskKeyDerivation = 'hmac' | 'django-concat' | 'concat' | 'none';
+export type FlaskDigestAlgorithm = 'sha1' | 'sha256';
+export type FlaskCompression = 'auto' | 'never' | 'always';
+
+export const FLASK_KEY_DERIVATIONS: ReadonlyArray<{ id: FlaskKeyDerivation; zh: string; formula: string }> = [
+  { id: 'hmac', zh: 'HMAC（Flask 默认）', formula: 'HMAC(secret, salt)' },
+  { id: 'django-concat', zh: 'django-concat（itsdangerous 默认）', formula: 'SHA(salt + "signer" + secret)' },
+  { id: 'concat', zh: 'concat', formula: 'SHA(salt + secret)' },
+  { id: 'none', zh: 'none（裸密钥）', formula: 'secret' },
+];
 
 export type FlaskSessionInfo =
   | {
@@ -221,45 +244,416 @@ export type FlaskSessionInfo =
   }
   | { ok: false; error: string };
 
-export const decodeFlaskSession = (token: string): FlaskSessionInfo => {
-  const trimmed = token.trim();
-  const dotParts = trimmed.split('.');
-  if (dotParts.length !== 3) return { ok: false, error: 'Flask session 应为 点分三段（payload.timestamp.signature）格式。' };
-  const [payloadB64, tsB64, sig] = dotParts;
-  // Flask 用 URL-safe base64 无填充
-  const b64decode = (value: string): Uint8Array | null => {
-    try {
-      const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-      const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-      const binary = atob(padded);
-      return Uint8Array.from(binary, ch => ch.charCodeAt(0));
-    } catch {
-      return null;
-    }
-  };
-  const payloadBytes = b64decode(payloadB64);
-  if (!payloadBytes) return { ok: false, error: 'payload 段不是合法 Base64。' };
-  const tsBytes = b64decode(tsB64);
+// URL-safe base64 ↔ bytes（itsdangerous encoding.py：无填充；显式校验字母表——
+// Node 沙箱的 atob 对非法字符宽松静默跳过，浏览器 atob 抛异常，两边行为必须一致）
+const flaskB64Decode = (value: string): Uint8Array | null => {
+  if (!/^[A-Za-z0-9_-]*$/.test(value)) return null;
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const binary = atob(padded);
+    return Uint8Array.from(binary, ch => ch.charCodeAt(0));
+  } catch {
+    return null;
+  }
+};
 
-  // 首字节 '.' (0x2e) = zlib 压缩标志（flask 用 '.' 前缀标记）
-  const compressed = payloadBytes[0] === 0x2e;
+const flaskB64Encode = (bytes: Uint8Array): string => {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const utf8Bytes = (value: string): Uint8Array => new TextEncoder().encode(value);
+
+// subtle 系 API 要求 ArrayBuffer-backed BufferSource（TS 5.7 泛型口径），统一走拷贝断言
+const toBufferSource = (bytes: Uint8Array): ArrayBuffer =>
+  bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+
+const hmacFlaskBytes = async (key: Uint8Array, value: Uint8Array, digest: FlaskDigestAlgorithm): Promise<Uint8Array> => {
+  const cryptoKey = await crypto.subtle.importKey('raw', toBufferSource(key), { name: 'HMAC', hash: digest === 'sha256' ? 'SHA-256' : 'SHA-1' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, toBufferSource(value)));
+};
+
+const hashFlaskBytes = async (value: Uint8Array, digest: FlaskDigestAlgorithm): Promise<Uint8Array> =>
+  new Uint8Array(await crypto.subtle.digest(digest === 'sha256' ? 'SHA-256' : 'SHA-1', toBufferSource(value)));
+
+const concatBytes = (...chunks: Uint8Array[]): Uint8Array => {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+};
+
+// itsdangerous int_to_bytes：struct.pack('>Q', n).lstrip(b'\x00')——大端去前导零，0 → 空字节串
+const uint64BigEndianMinimal = (value: number): Uint8Array => {
+  let rest = BigInt(Math.floor(Math.max(0, value)));
+  const bytes: number[] = [];
+  while (rest > 0n) {
+    bytes.unshift(Number(rest & 0xffn));
+    rest >>= 8n;
+  }
+  return Uint8Array.from(bytes);
+};
+
+// 流 → bytes（手动 reader 消费，不依赖 Response 全局——测试沙箱只注入 Blob/流构造器）
+const readStreamBytes = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> => {
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  return concatBytes(...chunks);
+};
+
+const zlibInflate = async (bytes: Uint8Array): Promise<Uint8Array> =>
+  readStreamBytes(new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate')));
+
+const zlibDeflate = async (bytes: Uint8Array): Promise<Uint8Array> =>
+  readStreamBytes(new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('deflate')));
+
+// derive_key：四种派生公式的唯一实现（sign/verify 共用，保证双向一致）
+export const deriveFlaskSigningKey = async (
+  secret: string,
+  salt: string,
+  derivation: FlaskKeyDerivation,
+  digest: FlaskDigestAlgorithm,
+): Promise<Uint8Array> => {
+  const secretBytes = utf8Bytes(secret);
+  const saltBytes = utf8Bytes(salt);
+  if (derivation === 'none') return secretBytes;
+  if (derivation === 'hmac') return hmacFlaskBytes(secretBytes, saltBytes, digest);
+  if (derivation === 'django-concat') return hashFlaskBytes(concatBytes(saltBytes, utf8Bytes('signer'), secretBytes), digest);
+  return hashFlaskBytes(concatBytes(saltBytes, secretBytes), digest);
+};
+
+const bytesToHex = (bytes: Uint8Array): string => Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+const formatTimestampInfo = (value: number): { value: number; iso: string; age: string } => {
+  const iso = new Date(value * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const deltaSeconds = Date.now() / 1000 - value;
+  const ageDays = (deltaSeconds / 86400).toFixed(1);
+  const age = deltaSeconds >= 0 ? `${ageDays} 天前签发` : `${(-deltaSeconds / 86400).toFixed(1)} 天后签发（未来时间）`;
+  return { value, iso, age };
+};
+
+// 从右拆段：signature=末段、timestamp=倒数第二段（可为空段）、payload=其余全部（含 zlib 压缩前导 "."）。
+// 这与 itsdangerous Signer.unsign 的 rsplit(sep, 1) 语义一致：payload 段自身允许含 "."。
+export const parseFlaskSessionParts = (token: string): {
+  payloadSegment: string;
+  payloadB64: string;
+  timestampB64: string | null;
+  signatureB64: string;
+  compressed: boolean;
+  withTimestamp: boolean;
+} | { error: string } => {
+  const trimmed = token.trim();
+  if (!trimmed) return { error: '输入为空。' };
+  const parts = trimmed.split('.');
+  if (parts.length < 2) return { error: 'Flask session 至少需要 payload.signature 两段（带时间戳为三段）。' };
+  const signatureB64 = parts[parts.length - 1];
+  const withTimestamp = parts.length >= 3;
+  const timestampB64 = withTimestamp ? parts[parts.length - 2] : null;
+  const payloadSegment = withTimestamp ? parts.slice(0, -2).join('.') : parts[0];
+  // 前导 "."（0x2e）是 itsdangerous 的 zlib 压缩标记（url_safe.py dump_payload）
+  const compressed = payloadSegment.startsWith('.');
+  return { payloadSegment, payloadB64: compressed ? payloadSegment.slice(1) : payloadSegment, timestampB64, signatureB64, compressed, withTimestamp };
+};
+
+// 同步快速解码（保留原导出面）：明文 JSON 直接出文本；压缩段同步流解不开，给 HEX 提示，
+// 完整解压走 decodeFlaskSessionFull。
+export const decodeFlaskSession = (token: string): FlaskSessionInfo => {
+  const parts = parseFlaskSessionParts(token);
+  if ('error' in parts) return { ok: false, error: parts.error };
+  if (!parts.withTimestamp) return { ok: false, error: '该 token 只有两段（无时间戳的无时效 cookie）——请用完整解码（支持签名校验）查看。' };
+  const payloadBytes = flaskB64Decode(parts.payloadB64);
+  if (!payloadBytes) return { ok: false, error: 'payload 段不是合法 Base64。' };
+
   let decoded: string;
-  if (compressed) {
-    decoded = '（zlib 压缩段——首字节 "." 标记。请在本地解压：python -c "import zlib;print(zlib.decompress(...)）" 或把下段 HEX 交 zlib 工具）\nHEX: ' + Array.from(payloadBytes.subarray(1)).map(b => b.toString(16).padStart(2, '0')).join('');
+  if (parts.compressed) {
+    decoded = '（zlib 压缩段——下方"完整解码"可在线解压）\nHEX: ' + bytesToHex(payloadBytes);
   } else {
     decoded = new TextDecoder().decode(payloadBytes);
   }
 
   let timestamp: { value: number; iso: string; age: string } | undefined;
+  const tsBytes = flaskB64Decode(parts.timestampB64 ?? '');
   if (tsBytes) {
-    // 时间戳是 big-endian int（flask itsdangerous）：前导零剥除后按大端读
+    // 时间戳 uint64 大端：逐字节累加天然剥除前导零（itsdangerous int_to_bytes 对齐）
     let value = 0;
     for (const byte of tsBytes) value = value * 256 + byte;
-    const iso = new Date(value * 1000).toISOString().replace('T', ' ').slice(0, 19);
-    const ageDays = ((Date.now() / 1000 - value) / 86400).toFixed(1);
-    timestamp = { value, iso, age: `${ageDays} 天前签发` };
+    timestamp = formatTimestampInfo(value);
   }
-  return { ok: true, parts: { header: payloadB64, payload: tsB64, signature: sig }, decoded, timestamp, compressed };
+  return { ok: true, parts: { header: parts.payloadSegment, payload: parts.timestampB64 ?? '', signature: parts.signatureB64 }, decoded, timestamp, compressed: parts.compressed };
+};
+
+export interface FlaskSessionFullInfo {
+  ok: true;
+  withTimestamp: boolean;
+  compressed: boolean;
+  parts: { payload: string; timestamp: string | null; signature: string };
+  payloadText: string;
+  isJson: boolean;
+  prettyJson: string | null;
+  timestamp?: { value: number; iso: string; age: string };
+}
+
+// 完整解码：zlib 解压（RFC1950）+ JSON 美化 + 时间戳。供 UI 与测试使用。
+export const decodeFlaskSessionFull = async (token: string): Promise<FlaskSessionFullInfo | { ok: false; error: string }> => {
+  const parts = parseFlaskSessionParts(token);
+  if ('error' in parts) return { ok: false, error: parts.error };
+  const payloadBytes = flaskB64Decode(parts.payloadB64);
+  if (!payloadBytes) return { ok: false, error: 'payload 段不是合法 Base64。' };
+
+  let raw = payloadBytes;
+  if (parts.compressed) {
+    try {
+      raw = await zlibInflate(payloadBytes);
+    } catch {
+      return { ok: false, error: '压缩段 zlib 解压失败（前导 "." 标记的段不是合法 RFC1950 流）。' };
+    }
+  }
+  const payloadText = new TextDecoder().decode(raw);
+  let prettyJson: string | null = null;
+  try {
+    prettyJson = JSON.stringify(JSON.parse(payloadText), null, 2);
+  } catch {
+    prettyJson = null;
+  }
+
+  let timestamp: { value: number; iso: string; age: string } | undefined;
+  if (parts.withTimestamp) {
+    const tsBytes = flaskB64Decode(parts.timestampB64 ?? '');
+    if (tsBytes) {
+      let value = 0n;
+      for (const byte of tsBytes) value = value * 256n + BigInt(byte);
+      timestamp = formatTimestampInfo(Number(value));
+    }
+  }
+  return {
+    ok: true,
+    withTimestamp: parts.withTimestamp,
+    compressed: parts.compressed,
+    parts: { payload: parts.payloadSegment, timestamp: parts.timestampB64, signature: parts.signatureB64 },
+    payloadText,
+    isJson: prettyJson !== null,
+    prettyJson,
+    timestamp,
+  };
+};
+
+export interface FlaskSignOptions {
+  secret: string;
+  // Flask SecureCookieSessionInterface 默认 salt="cookie-session"；itsdangerous Serializer 默认 "itsdangerous"
+  salt?: string;
+  derivation?: FlaskKeyDerivation;
+  digest?: FlaskDigestAlgorithm;
+  // Flask json dumps 口径 sort_keys=True；itsdangerous _CompactJSON 原序
+  sortKeys?: boolean;
+  compression?: FlaskCompression;
+  // Unix 秒；缺省取当前时间。显式传 0 合法（空时间戳段）。
+  timestamp?: number;
+  // true = 三段 TimedSerializer（默认）；false = 两段无时效 cookie
+  withTimestamp?: boolean;
+}
+
+export type FlaskSignResult =
+  | {
+    ok: true;
+    token: string;
+    payloadSegment: string;
+    timestampB64: string | null;
+    signatureB64: string;
+    signedValue: string;
+    compressed: boolean;
+    signingKeyHex: string;
+    timestamp: number | null;
+  }
+  | { ok: false; error: string };
+
+// Flask/itsdangerous JSON 序列化：紧凑分隔符 + 中文原样（ensure_ascii=False），可选递归排序键
+const serializeFlaskJsonBytes = (value: unknown, sortKeys: boolean): Uint8Array | null => {
+  const sortNode = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(sortNode);
+    if (node !== null && typeof node === 'object') {
+      return Object.fromEntries(
+        Object.entries(node as Record<string, unknown>)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([key, entry]) => [key, sortNode(entry)]),
+      );
+    }
+    return node;
+  };
+  try {
+    return utf8Bytes(JSON.stringify(sortKeys ? sortNode(value) : value));
+  } catch {
+    return null;
+  }
+};
+
+// 签发 Flask session cookie（itsdangerous URLSafeTimedSerializer / URLSafeSerializer 全链）
+export const flaskSessionSign = async (payload: unknown, options: FlaskSignOptions): Promise<FlaskSignResult> => {
+  const {
+    secret, salt = 'cookie-session', derivation = 'hmac', digest = 'sha1',
+    sortKeys = true, compression = 'auto', withTimestamp = true,
+  } = options;
+  if (!secret) return { ok: false, error: '缺少 secret。' };
+
+  let parsed: unknown = payload;
+  if (typeof payload === 'string') {
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return { ok: false, error: 'payload 不是合法 JSON。' };
+    }
+  }
+  const jsonBytes = serializeFlaskJsonBytes(parsed, sortKeys);
+  if (!jsonBytes) return { ok: false, error: 'payload 序列化失败（含不可序列化值）。' };
+
+  let payloadBytes = jsonBytes;
+  let compressed = false;
+  if (compression === 'always') {
+    payloadBytes = await zlibDeflate(jsonBytes);
+    compressed = true;
+  } else if (compression === 'auto') {
+    // itsdangerous auto 阈值：len(compressed) < len(json) - 1 才采用
+    const squeezed = await zlibDeflate(jsonBytes);
+    if (squeezed.length < jsonBytes.length - 1) {
+      payloadBytes = squeezed;
+      compressed = true;
+    }
+  }
+
+  const payloadB64 = flaskB64Encode(payloadBytes);
+  const payloadSegment = compressed ? `.${payloadB64}` : payloadB64;
+  const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
+  const key = await deriveFlaskSigningKey(secret, salt, derivation, digest);
+
+  let signedValue = payloadSegment;
+  let timestampB64: string | null = null;
+  if (withTimestamp) {
+    timestampB64 = flaskB64Encode(uint64BigEndianMinimal(timestamp));
+    signedValue = `${payloadSegment}.${timestampB64}`;
+  }
+  const signatureB64 = flaskB64Encode(await hmacFlaskBytes(key, utf8Bytes(signedValue), digest));
+  return {
+    ok: true,
+    token: `${signedValue}.${signatureB64}`,
+    payloadSegment,
+    timestampB64,
+    signatureB64,
+    signedValue,
+    compressed,
+    signingKeyHex: bytesToHex(key),
+    timestamp: withTimestamp ? timestamp : null,
+  };
+};
+
+export interface FlaskVerifyOptions {
+  secret: string;
+  salt?: string;
+  derivation?: FlaskKeyDerivation;
+  digest?: FlaskDigestAlgorithm;
+  // itsdangerous unsign(max_age) 语义：age = now - ts；age > maxAge 过期、age < 0 未生效同样拒绝
+  maxAge?: number;
+  now?: number;
+}
+
+export type FlaskVerifyResult =
+  | {
+    ok: true;
+    valid: boolean;
+    reason: 'bad-signature' | 'expired' | 'not-yet-valid' | null;
+    message: string;
+    expectedSignatureB64: string;
+    actualSignatureB64: string;
+    signatureValid: boolean;
+    timestamp: number | null;
+    ageSeconds: number | null;
+  }
+  | { ok: false; error: string };
+
+// 常数时间比较（hmac.compare_digest 同语义）：长度不等直接否，等长逐字符异或累加
+const constantTimeEqualAscii = (a: string, b: string): boolean => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
+
+// 校验 Flask session cookie：derive_key → HMAC 重签 → 常数时间比较 → maxAge 过期判定
+export const flaskSessionVerify = async (token: string, options: FlaskVerifyOptions): Promise<FlaskVerifyResult> => {
+  const parts = parseFlaskSessionParts(token);
+  if ('error' in parts) return { ok: false, error: parts.error };
+  const {
+    secret, salt = 'cookie-session', derivation = 'hmac', digest = 'sha1', maxAge,
+    now = Math.floor(Date.now() / 1000),
+  } = options;
+  if (!secret) return { ok: false, error: '缺少 secret。' };
+
+  const key = await deriveFlaskSigningKey(secret, salt, derivation, digest);
+  const signedValue = parts.withTimestamp ? `${parts.payloadSegment}.${parts.timestampB64}` : parts.payloadSegment;
+  const expectedSignatureB64 = flaskB64Encode(await hmacFlaskBytes(key, utf8Bytes(signedValue), digest));
+  const signatureValid = constantTimeEqualAscii(expectedSignatureB64, parts.signatureB64);
+
+  let timestamp: number | null = null;
+  let ageSeconds: number | null = null;
+  if (parts.withTimestamp) {
+    const tsBytes = flaskB64Decode(parts.timestampB64 ?? '');
+    if (tsBytes) {
+      let value = 0n;
+      for (const byte of tsBytes) value = value * 256n + BigInt(byte);
+      timestamp = Number(value);
+      ageSeconds = now - timestamp;
+    }
+  }
+
+  if (!signatureValid) {
+    return {
+      ok: true,
+      valid: false,
+      reason: 'bad-signature',
+      message: `签名不匹配——secret/salt/derivation/digest 与签发方不一致（期望 ${expectedSignatureB64}）。`,
+      expectedSignatureB64,
+      actualSignatureB64: parts.signatureB64,
+      signatureValid,
+      timestamp,
+      ageSeconds,
+    };
+  }
+  if (maxAge !== undefined && ageSeconds !== null) {
+    if (ageSeconds > maxAge) {
+      return {
+        ok: true, valid: false, reason: 'expired',
+        message: `签名正确但已过期：age ${ageSeconds}s > maxAge ${maxAge}s（itsdangerous SignatureExpired）。`,
+        expectedSignatureB64, actualSignatureB64: parts.signatureB64, signatureValid, timestamp, ageSeconds,
+      };
+    }
+    if (ageSeconds < 0) {
+      return {
+        ok: true, valid: false, reason: 'not-yet-valid',
+        message: `签名正确但时间戳在未来（age ${ageSeconds}s < 0）——itsdangerous 同样按 SignatureExpired 拒绝。`,
+        expectedSignatureB64, actualSignatureB64: parts.signatureB64, signatureValid, timestamp, ageSeconds,
+      };
+    }
+  }
+  return {
+    ok: true,
+    valid: true,
+    reason: null,
+    message: `签名匹配（${derivation} × ${digest.toUpperCase()}${maxAge !== undefined ? `，maxAge ${maxAge}s 内` : ''}）。`,
+    expectedSignatureB64,
+    actualSignatureB64: parts.signatureB64,
+    signatureValid,
+    timestamp,
+    ageSeconds,
+  };
 };
 
 // ---- ⑤ JWT 弱口令爆破（HS256 离线重签验证）----
@@ -326,13 +720,13 @@ export interface PhpLooseRow {
 }
 
 export const PHP_LOOSE_TABLE: ReadonlyArray<PhpLooseRow> = [
-  { left: "'abc'", right: '0', equal: true, why: '非数字开头字符串转数字为 0' },
-  { left: "'1abc'", right: '1', equal: true, why: '前导数字被提取' },
-  { left: "'0e123'", right: "'0e456'", equal: false, why: '字符串对字符串不转数字——但两边都过 md5 后变数字串可相等（0e 碰撞）' },
-  { left: "'0'", right: "''", equal: false, why: '非空字符串与 "0" 是仅有的两个 falsy 字符串，互不相等' },
+  { left: "'abc'", right: '0', equal: false, why: '两侧皆字符串：\'0\' 是数值串、\'abc\' 不是 → 按字符串逐字节比较（PHP5/7 旧题里 "abc"==0 曾因前导数字为 true，PHP8 已废除该转换）' },
+  { left: "'1abc'", right: '1', equal: false, why: '两侧皆字符串：\'1\' 是数值串、\'1abc\' 不是（前导数字不算数值串）→ 字符串比较不相等' },
+  { left: "'0e123'", right: "'0e456'", equal: true, why: '两侧都是数值串（0e 科学计数法）→ 按数值比较 0==0 恒成立——这正是 0e 碰撞的原理' },
+  { left: "'0'", right: "''", equal: false, why: '非空字符串与 "0" 是仅有的两个 falsy 字符串，互不相等（\'\' 不是数值串 → 字符串比较）' },
   { left: 'null', right: 'false', equal: true, why: 'null == false == 0 == ""（全互通）' },
   { left: 'null', right: '0', equal: true, why: '同上' },
-  { left: "'abc' == 0'", right: "'abd' == 0", equal: true, why: '哈希比较题：两个非数字串都 == 0 → 相等' },
+  { left: "'abc' == 0'", right: "'abd' == 0", equal: true, why: '哈希比较题（PHP5/7 语义）：两个非数字串转数字都为 0 → 相等；PHP8 起 "abc"==0 已为 false' },
   { left: '[] == false', right: '', equal: false, why: '空数组不是 falsy 比较（PHP8 起 [] == false 为 false）' },
 ];
 
@@ -342,21 +736,24 @@ export const MAGIC_HASHES: ReadonlyArray<{ hash: string; pair: [string, string];
   { hash: 'sha1', pair: ['aaO8zKZF', 'aa3OFF9m'], note: 'sha1 另一组（NaN 族）' },
 ];
 
-// 判定器：给两个 PHP 值（字符串形态）预测 == 结果
+// 判定器：给两个 PHP 值（字符串形态）预测 == 结果。
+// 口径：PHP 字符串==字符串 规则——两侧都是 numeric string 才按数值比较，否则逐字节比较
+//（'0'=='' 为 false、'0e123'=='0e456' 为 true 均由此推出）。
 export const judgePhpLoose = (left: string, right: string): { equal: boolean; why: string } => {
   const isNumeric = (v: string) => v !== '' && !Number.isNaN(Number(v));
-  const toNumber = (v: string): number => {
-    if (isNumeric(v)) return Number(v);
-    const leading = v.match(/^-?\d+(\.\d+)?([eE][+-]?\d+)?/);
-    return leading ? Number(leading[0]) : 0;
-  };
   if (isNumeric(left) && isNumeric(right)) {
-    return { equal: Number(left) === Number(right), why: '两侧均为数字串 → 按数值比较' };
+    return { equal: Number(left) === Number(right), why: `两侧均为数值串 → 按数值比较（${Number(left)} vs ${Number(right)}；0e 碰撞即此原理）` };
   }
-  if (isNumeric(left) || isNumeric(right)) {
-    return { equal: toNumber(left) === toNumber(right), why: `一侧数字：字符串侧按前导数字转换（${JSON.stringify(left)} → ${toNumber(left)}，${JSON.stringify(right)} → ${toNumber(right)}）` };
+  if (!isNumeric(left) && !isNumeric(right)) {
+    return { equal: left === right, why: '两侧均非数值串 → 按字符串严格比较（0e 碰撞需两侧都经哈希后再比）' };
   }
-  return { equal: left === right, why: '两侧均非数字串 → 按字符串严格比较（0e 碰撞需两侧都经哈希后再比）' };
+  // 单侧数值串：另一侧是非数值字符串 → 两侧皆字符串，按字符串比较（'0'=='' 即此场景，为 false）。
+  const numericSide = isNumeric(left) ? left : right;
+  const stringSide = isNumeric(left) ? right : left;
+  return {
+    equal: numericSide === stringSide,
+    why: `一侧是数值串 ${JSON.stringify(numericSide)}、另一侧 ${JSON.stringify(stringSide)} 是非数值字符串 → 按字符串比较（不相等；PHP8 起字符串与数字比较也不再转前导数字）`,
+  };
 };
 
 // ---- ⑦ HTTP 报文 / cURL 解析 ----
@@ -912,6 +1309,8 @@ export const parseRobots = (text: string): RobotsReport => {
   const sitemaps: string[] = [];
   const crawlDelays: string[] = [];
   const suspiciousPaths: string[] = [];
+  // 同一路径对同块多 User-agent 各记一次是组内展开的副作用，疑似路径清单按路径去重
+  const suspiciousSeen = new Set<string>();
   // robots 规范：规则对同块（连续 User-agent 行后）所有 agent 生效；同一 UA 多块出现时规则合并（reviewer P2）
   const groupsByAgent = new Map<string, RobotsGroup>();
   let blockAgents: string[] = [];
@@ -926,7 +1325,10 @@ export const parseRobots = (text: string): RobotsReport => {
         groupsByAgent.set(agent, group);
       }
       group.entries.push({ path: value, rule });
-      if (rule === 'disallow' && SUSPICIOUS_PATH_PATTERN.test(value)) suspiciousPaths.push(value);
+    }
+    if (rule === 'disallow' && SUSPICIOUS_PATH_PATTERN.test(value) && !suspiciousSeen.has(value)) {
+      suspiciousSeen.add(value);
+      suspiciousPaths.push(value);
     }
   };
   for (const rawLine of text.split(/\r?\n/)) {

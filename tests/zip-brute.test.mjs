@@ -4,8 +4,12 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import { deflateRawSync } from 'node:zlib';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel2, title2, fn) => (existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel2.split('/'))) ? test : test.skip)(title2, fn);
 
 const srcDir = path.join(projectRoot, 'src');
 const { loadModule } = createTsModuleLoader();
@@ -501,4 +505,28 @@ test('dictionaryCandidates：条目量级 ~150、去重、覆盖 CTF 高频弱�
   for (const must of ['123456', 'password', 'ctf', 'flag', 'infected', 'qwerty', 'admin', '2025', 'fish', 'misc']) {
     assert.ok(dict.includes(must), `字典缺少高频口令 ${must}`);
   }
+});
+
+// ---- 真题对拍：02_zip_crc_byuctf（中央 CRC 篡改 → 本地头 CRC 回退）----
+
+realTest('02_zip_crc_byuctf/zip.zip', '真题 02_zip_crc_byuctf：中央 CRC 被改写为 flag 值，本地头 CRC 回退路径命中 password123', async () => {
+  const fs = await import('node:fs');
+  const zip = Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', '02_zip_crc_byuctf', 'zip.zip')),
+  );
+  const entries = detectEncryptedEntries(zip);
+  assert.equal(entries.length, 1);
+  const entry = entries[0];
+  assert.equal(entry.fileName, 'flag.txt');
+  assert.equal(entry.method, 'zipcrypto');
+  // 题目把 flag 值（byuctf{ad74b76d}）写进了中央目录 CRC；本地头 CRC（真 CRC 0xf989c670）完好
+  assert.equal(entry.crc32 >>> 0, 0xad74b76d, '中央 CRC 应为题目篡改的 flag 值');
+
+  const result = await bruteZipPassword(zip, entry, dictionaryCandidates(), {
+    yieldEvery: 0,
+    timeBudgetMs: 30000,
+  });
+  assert.equal(result.password, 'password123', '内置字典含真口令，应经本地头 CRC 回退命中');
+  assert.equal(result.crcSource, 'local', '命中应标注为本地头 CRC 路径');
+  assert.ok(result.previewText.includes('XOR'), 'stored 预览应可见 extra-field XOR 提示');
 });

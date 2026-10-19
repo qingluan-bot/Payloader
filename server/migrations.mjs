@@ -25,6 +25,8 @@ import {
   defaultSettings,
   protectedExternalUrl,
   protectedXssToolId,
+  sanitizeExploit,
+  sanitizeExploitNode,
   sanitizeNavItem,
   sanitizePayload,
   sanitizeSettings,
@@ -102,12 +104,32 @@ const initializeContentDatabase = database => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS exploits (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS exploit_nodes (
+      id TEXT PRIMARY KEY,
+      tree TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 };
 
 const tableForResource = resource => {
   if (resource === 'payloads') return { table: 'payloads', dataColumn: 'data', sanitizer: sanitizePayload };
   if (resource === 'tools') return { table: 'tools', dataColumn: 'data', sanitizer: sanitizeTool };
+  if (resource === 'exploits') return { table: 'exploits', dataColumn: 'data', sanitizer: sanitizeExploit };
+  if (resource === 'exploit_navigation') return { table: 'exploit_nodes', dataColumn: 'tree', sanitizer: sanitizeExploitNode };
   throw new Error(`Unsupported resource: ${resource}`);
 };
 
@@ -166,11 +188,22 @@ const loadDefaultDataFromSeedDb = file => {
   }
 };
 
+// 旧种子库/旧运行库可能没有 EXP 表（readOnly 打开无法建表），读取前查 sqlite_master 容错。
+const hasContentTable = (database, name) => Boolean(
+  database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name),
+);
+
 const readContentDataFromOpenDatabase = database => ({
   payloads: rowsToItems(database.prepare('SELECT data FROM payloads WHERE enabled = 1 ORDER BY sort_order, id').all()),
   tools: rowsToItems(database.prepare('SELECT data FROM tools WHERE enabled = 1 ORDER BY sort_order, id').all()),
   navigation: rowsToItems(database.prepare("SELECT tree FROM navigation_nodes WHERE enabled = 1 AND kind = 'payloads' ORDER BY sort_order, id").all()),
   toolNavigation: rowsToItems(database.prepare("SELECT tree FROM navigation_nodes WHERE enabled = 1 AND kind = 'tools' ORDER BY sort_order, id").all()),
+  exploits: hasContentTable(database, 'exploits')
+    ? rowsToItems(database.prepare('SELECT data FROM exploits WHERE enabled = 1 ORDER BY sort_order, id').all())
+    : [],
+  exploitNavigation: hasContentTable(database, 'exploit_nodes')
+    ? rowsToItems(database.prepare('SELECT tree FROM exploit_nodes WHERE enabled = 1 ORDER BY sort_order, id').all())
+    : [],
   // 内容性 metadata 随装载带出（global_variables / ctf_cheatsheets），供首次种子与迁移补种消费。
   metadata: {
     globalVariables: readJsonMetadata(database, 'global_variables', null),
@@ -473,13 +506,51 @@ const insertNavigationKind = (database, navigation, kind) => {
   });
 };
 
+const insertExploits = (database, exploits, { trusted = false } = {}) => {
+  const statement = database.prepare(`
+    INSERT INTO exploits (id, data, sort_order, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, 1, ?, ?)
+  `);
+  const timestamp = now();
+  const usedIds = new Set();
+  exploits.forEach((exploit, index) => {
+    const normalized = prepareContentItemForInsert(exploit, sanitizeExploit, trusted);
+    if (usedIds.has(normalized.id)) {
+      normalized.id = `${normalized.id}-${index}`;
+    }
+    usedIds.add(normalized.id);
+    statement.run(normalized.id, json(normalized), index, timestamp, timestamp);
+  });
+};
+
+const insertExploitNavigation = (database, navigation, { trusted = false } = {}) => {
+  const statement = database.prepare(`
+    INSERT INTO exploit_nodes (id, tree, sort_order, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, 1, ?, ?)
+  `);
+  const timestamp = now();
+  const usedIds = new Set();
+  navigation.forEach((item, index) => {
+    const normalized = prepareContentItemForInsert(item, sanitizeExploitNode, trusted);
+    if (usedIds.has(normalized.id)) {
+      normalized.id = `${normalized.id}-${index}`;
+    }
+    usedIds.add(normalized.id);
+    statement.run(normalized.id, json(normalized), index, timestamp, timestamp);
+  });
+};
+
 const replaceContentData = (database, seedData, { trusted = false } = {}) => {
   database.prepare('DELETE FROM payloads').run();
   database.prepare('DELETE FROM tools').run();
   database.prepare('DELETE FROM navigation_nodes').run();
+  database.prepare('DELETE FROM exploits').run();
+  database.prepare('DELETE FROM exploit_nodes').run();
   insertPayloads(database, normalizeList(seedData.payloads), { trusted });
   insertTools(database, normalizeList(seedData.tools), { trusted });
   insertNavigation(database, normalizeList(seedData.navigation), normalizeList(seedData.toolNavigation), { trusted });
+  insertExploits(database, normalizeList(seedData.exploits), { trusted });
+  insertExploitNavigation(database, normalizeList(seedData.exploitNavigation), { trusted });
 };
 
 const writeDefaultSeedDatabase = async (seedData, file, source = 'database content seed') => {
@@ -945,6 +1016,8 @@ const seedIncludedMigrationKeys = Object.freeze([
   'migration_payload_content_presentation_v4',
   'migration_missing_default_tools_v3',
   'migration_project_attribution_v1',
+  'migration_exploit_seed_v1',
+  'migration_exploit_curated_source_v1',
 ]);
 
 const applyDataMigrations = async (database, { loadDefaults }) => {
@@ -959,6 +1032,48 @@ const applyDataMigrations = async (database, { loadDefaults }) => {
       const timestamp = now();
       writeMetadata(database, 'migration_content_metadata_seed', '1');
       writeMetadata(database, 'migration_content_metadata_seed_at', timestamp);
+    });
+  }
+
+  // v2.0.2 EXP 库补种：seeded=1 的老库升级后 exploits/exploit_nodes 是新建空表，
+  // 头牌功能对存量部署不可见——此处仅向空表补种种子内容，管理员已有数据（哪怕一条）不被触碰。
+  if (readMetadata(database, 'migration_exploit_seed_v1') !== '1') {
+    runTransaction(database, () => {
+      const timestamp = now();
+      const exploitCount = database.prepare('SELECT COUNT(*) AS n FROM exploits').get().n;
+      const nodeCount = database.prepare('SELECT COUNT(*) AS n FROM exploit_nodes').get().n;
+      if (exploitCount === 0 && nodeCount === 0) {
+        insertExploits(database, normalizeList(defaults.exploits), { trusted: true });
+        insertExploitNavigation(database, normalizeList(defaults.exploitNavigation), { trusted: true });
+      }
+      writeMetadata(database, 'migration_exploit_seed_v1', '1');
+      writeMetadata(database, 'migration_exploit_seed_v1_at', timestamp);
+    });
+  }
+
+  // v2.0.2 治理 B：存量库精选条目补 source:'curated'。识别口径=无 source 且 sourceRef
+  // 无聚合前缀（edb-/ghpoc-/msf-/nuclei-）——精选/手工层的稳定特征；已有 source 的行
+  // 与聚合行一概不动，幂等（迁移键），管理员数据零风险。
+  if (readMetadata(database, 'migration_exploit_curated_source_v1') !== '1') {
+    runTransaction(database, () => {
+      const timestamp = now();
+      const rows = database.prepare('SELECT id, data FROM exploits').all();
+      const update = database.prepare('UPDATE exploits SET data = ?, updated_at = ? WHERE id = ?');
+      for (const row of rows) {
+        let data;
+        try {
+          data = parseJson(row.data);
+        } catch {
+          continue;
+        }
+        if (!data || typeof data !== 'object' || data.source) continue;
+        const ref = typeof data.sourceRef === 'string' ? data.sourceRef : '';
+        if (/^(edb|ghpoc|msf|nuclei)-/.test(ref)) continue;
+        data.source = 'curated';
+        update.run(json(data), timestamp, row.id);
+      }
+      writeMetadata(database, 'migration_exploit_curated_source_v1', '1');
+      writeMetadata(database, 'migration_exploit_curated_source_v1_at', timestamp);
     });
   }
 
@@ -1217,6 +1332,8 @@ export {
   filterStoredPayloadNavigation,
   filterToolNavigation,
   initializeContentDatabase,
+  insertExploitNavigation,
+  insertExploits,
   insertNavigation,
   insertNavigationKind,
   insertPayloads,

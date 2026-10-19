@@ -2,17 +2,23 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SegmentedControl } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useLanguage } from '../../../appContext';
+import { Icon } from '../../Icon';
 import { MAX_FILE_BYTES, scanSuspiciousContent, type SuspiciousScan } from '../../../utils/ctf/fileDetect';
 import { WorkbenchMenuBar } from '../../codec/WorkbenchMenuBar';
 import { formatBytes, formatDuration, formatTimestamp } from '../../../utils/ctf/pcap/format';
 import { parseCapture } from '../../../utils/ctf/pcap/parser';
 import { buildPacketViews, type PacketView } from '../../../utils/ctf/pcap/protocols';
-import { analyzeCapture, assembleIcmpData, type CaptureAnalysis } from '../../../utils/ctf/pcap/analyze';
+import { analyzeCapture, assembleIcmpData, analyzeFtp, analyzeMqtt, decodeHttpTransactionBodies, type CaptureAnalysis, type FtpSession, type HttpBodyDecodeResult, type MqttSession } from '../../../utils/ctf/pcap/analyze';
 import { copyToClipboard } from '../../../utils/clipboard';
 import PacketTable from './PacketTable';
 import UsbHidCard from './UsbHidCard';
 import StreamView from './StreamView';
 import HttpObjects from './HttpObjects';
+import DnsTlsCard from './DnsTlsCard';
+import FtpCard from './FtpCard';
+import MqttCard from './MqttCard';
+import TlsDecryptCard from './TlsDecryptCard';
+import WpaDecryptCard from './WpaDecryptCard';
 import '../../../styles/traffic-workspace.css';
 
 interface TrafficReport {
@@ -23,6 +29,10 @@ interface TrafficReport {
   analysis: CaptureAnalysis;
   suspicious: SuspiciousScan;
   icmpAssembled: ReturnType<typeof assembleIcmpData>;
+  // 批次二补强（Lane K）：FTP 会话/传输配对、MQTT 主题表、HTTP body 多层解压产物。
+  ftpSessions: FtpSession[];
+  mqttSessions: MqttSession[];
+  decodedBodies: HttpBodyDecodeResult[];
   baseSeconds: number | null;
 }
 
@@ -56,13 +66,15 @@ const STAT_LABELS: Record<string, { zh: string; en: string }> = {
   other: { zh: '其他 / 未解析', en: 'Other / unparsed' },
 };
 
-type ViewKey = 'packets' | 'stats' | 'streams' | 'http' | 'suspicious';
+type ViewKey = 'packets' | 'stats' | 'streams' | 'http' | 'dns' | 'tlsdecrypt' | 'suspicious';
 
 const VIEW_MENU_NAMES: Record<ViewKey, { zh: string; en: string }> = {
   packets: { zh: '包列表', en: 'Packets' },
   stats: { zh: '协议统计', en: 'Protocols' },
   streams: { zh: 'TCP 流', en: 'TCP streams' },
   http: { zh: 'HTTP 对象', en: 'HTTP objects' },
+  dns: { zh: 'DNS/TLS', en: 'DNS/TLS' },
+  tlsdecrypt: { zh: 'TLS 解密', en: 'TLS decrypt' },
   suspicious: { zh: '可疑内容', en: 'Suspicious' },
 };
 
@@ -119,6 +131,11 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
       const suspicious = icmpAssembled
         ? mergeSuspiciousScans(wholeFileScan, scanSuspiciousContent(icmpAssembled.text))
         : wholeFileScan;
+      // 批次二补强（Lane K）：FTP 配对提取 / MQTT 主题表 / HTTP body 多层解压（DecompressionStream 异步）。
+      const ftpSessions = analyzeFtp(analysis);
+      const mqttSessions = analyzeMqtt(analysis);
+      const decodedBodies = await decodeHttpTransactionBodies(analysis.transactions);
+      if (loadSeqRef.current !== seq) return;
       const timestamps = capture.packets.map(packet => packet.tsSeconds).filter(value => Number.isFinite(value) && value > 0);
       setReport({
         name: file.name,
@@ -128,6 +145,9 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
         analysis,
         suspicious,
         icmpAssembled,
+        ftpSessions,
+        mqttSessions,
+        decodedBodies,
         baseSeconds: timestamps.length ? Math.min(...timestamps) : null,
       });
       setView('packets');
@@ -172,6 +192,8 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
     { value: 'stats', label: zh ? '协议统计' : 'Protocols' },
     { value: 'streams', label: zh ? `TCP 流 (${report?.analysis.streamTotal ?? 0})` : `TCP streams (${report?.analysis.streamTotal ?? 0})` },
     { value: 'http', label: zh ? `HTTP 对象 (${report?.analysis.httpTotal ?? 0})` : `HTTP objects (${report?.analysis.httpTotal ?? 0})` },
+    { value: 'dns', label: zh ? `DNS/TLS (${report?.analysis.dnsTotal ?? 0})` : `DNS/TLS (${report?.analysis.dnsTotal ?? 0})` },
+    { value: 'tlsdecrypt', label: zh ? 'TLS 解密' : 'TLS decrypt' },
     { value: 'suspicious', label: zh ? '可疑内容' : 'Suspicious' },
   ];
 
@@ -183,7 +205,7 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
       label: null,
       entries: [
         { key: 'pick', label: zh ? '【选择抓包文件】' : '[Choose capture]', onSelect: () => inputRef.current?.click() },
-        ...(['packets', 'stats', 'streams', 'http', 'suspicious'] as ViewKey[]).map(key => ({
+        ...(['packets', 'stats', 'streams', 'http', 'dns', 'tlsdecrypt', 'suspicious'] as ViewKey[]).map(key => ({
           key,
           label: zh ? `【${VIEW_MENU_NAMES[key].zh}】` : `[${VIEW_MENU_NAMES[key].en}]`,
           active: Boolean(report) && view === key,
@@ -220,7 +242,7 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
 
       {!report ? (
         <div className="pw-dropzone">
-          <div className="pw-dropzone-icon" aria-hidden="true">📡</div>
+          <div className="pw-dropzone-icon" aria-hidden="true"><Icon name="radio" size={34} /></div>
           <strong>{zh ? '把 pcap / pcapng 拖到这里，或点击选择' : 'Drop a pcap / pcapng here, or click to browse'}</strong>
           <small>
             {zh
@@ -255,16 +277,18 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
             )}
             {report.capture.truncated && (
               <p className="pw-warn">
+                <Icon name="alert-triangle" size={14} />{' '}
                 {zh
-                  ? `⚠ 包数达到解析上限 ${report.capture.packetLimit}：仅显示前 ${totalPackets} 包，其余未解析。大文件请先在 Wireshark 中按过滤条件导出。`
-                  : `⚠ Packet limit of ${report.capture.packetLimit} reached: only the first ${totalPackets} packets are shown. Export a filtered subset from Wireshark for large files.`}
+                  ? `包数达到解析上限 ${report.capture.packetLimit}：仅显示前 ${totalPackets} 包，其余未解析。大文件请先在 Wireshark 中按过滤条件导出。`
+                  : `Packet limit of ${report.capture.packetLimit} reached: only the first ${totalPackets} packets are shown. Export a filtered subset from Wireshark for large files.`}
               </p>
             )}
             {report.capture.corrupt && (
               <p className="pw-warn">
+                <Icon name="alert-triangle" size={14} />{' '}
                 {zh
-                  ? `⚠ 解析在第 ${report.capture.corrupt.packetIndex + 1} 包附近停止：${report.capture.corrupt.reason}。以下结果基于已解析部分。`
-                  : `⚠ Parsing stopped near packet ${report.capture.corrupt.packetIndex + 1}: ${report.capture.corrupt.reason}. Results below cover the parsed portion only.`}
+                  ? `解析在第 ${report.capture.corrupt.packetIndex + 1} 包附近停止：${report.capture.corrupt.reason}。以下结果基于已解析部分。`
+                  : `Parsing stopped near packet ${report.capture.corrupt.packetIndex + 1}: ${report.capture.corrupt.reason}. Results below cover the parsed portion only.`}
               </p>
             )}
             {totalPackets === 0 && (
@@ -280,10 +304,28 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
             />
           )}
 
+          {/* 批次二（Lane M）：802.11 抓包（radiotap 127 / 裸 105）的 WPA2 握手校验 + CCMP 解密卡片。 */}
+          {(report.capture.linkType === 127 || report.capture.linkType === 105) && (
+            <WpaDecryptCard
+              key={`wpa-${report.name}:${report.size}`}
+              capture={report.capture}
+              language={language}
+              onPcapReady={(bytes, name) => { void loadFile(new File([new Uint8Array(bytes)], name)); }}
+            />
+          )}
+
+          {/* 批次二补强（Lane K）：FTP 文件导出 / MQTT 主题表卡片；条件渲染的兄弟 key 带组件前缀。 */}
+          {report.ftpSessions.length > 0 && (
+            <FtpCard key={`ftp-${report.name}:${report.size}`} sessions={report.ftpSessions} language={language} />
+          )}
+          {report.mqttSessions.length > 0 && (
+            <MqttCard key={`mqtt-${report.name}:${report.size}`} sessions={report.mqttSessions} language={language} />
+          )}
+
           {report.analysis.flags.length > 0 && (
             <section className="pw-card pw-card-flag" aria-label={zh ? 'flag 命中' : 'Flag hits'}>
               <div className="pw-card-head">
-                <strong>{zh ? '🚩 从流量中定位到 flag' : '🚩 Flags located in traffic'}</strong>
+                <strong><Icon name="flag" size={16} /> {zh ? '从流量中定位到 flag' : 'Flags located in traffic'}</strong>
               </div>
               <div className="pw-row">
                 {report.analysis.flags.map(hit => (
@@ -326,7 +368,18 @@ function TrafficWorkspace({ pendingFile, onFileConsumed }: TrafficWorkspaceProps
             <StreamView streams={report.analysis.streams} streamTotal={report.analysis.streamTotal} language={language} />
           )}
           {view === 'http' && (
-            <HttpObjects transactions={report.analysis.transactions} httpTotal={report.analysis.httpTotal} language={language} />
+            <HttpObjects
+              transactions={report.analysis.transactions}
+              httpTotal={report.analysis.httpTotal}
+              decoded={report.decodedBodies}
+              language={language}
+            />
+          )}
+          {view === 'dns' && (
+            <DnsTlsCard analysis={report.analysis} streams={report.analysis.streams} language={language} />
+          )}
+          {view === 'tlsdecrypt' && report.analysis.streams.length > 0 && (
+            <TlsDecryptCard key={`tlsdec-${report.name}:${report.size}`} streams={report.analysis.streams} language={language} />
           )}
           {view === 'suspicious' && (
             <section className="pw-card" aria-label={zh ? '可疑内容' : 'Suspicious content'}>

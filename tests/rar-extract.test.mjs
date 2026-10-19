@@ -6,9 +6,13 @@
 // 截断容错、UNP_SIZE 炸弹预算、非 RAR4 输入抛错、CRC 不符抛错。
 // 合成向量沿用 rar-inspect.test.mjs 的手写头字节工厂（CRC 填真实 CRC32——解压器契约就是校验它）。
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel2, title2, fn) => (fs.existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel2.split('/'))) ? test : test.skip)(title2, fn);
 
 const srcDir = path.join(projectRoot, 'src');
 const { loadModule } = createTsModuleLoader();
@@ -342,4 +346,29 @@ test('extractRarEntry LZ 流损坏稳健性：位翻转要么受控报错要么�
   }
   assert.equal(controlled + intact, 24, '24 个位翻转样本全部有受控结局');
   assert.ok(controlled >= 16, `至少大多数翻转被拦截（实际 controlled=${controlled}, intact=${intact}）`);
+});
+
+// ---- 真题对拍：23-祥云杯2020-进制反转（伪加密清位 + RAR3 VM AUDIO 过滤器）----
+
+realTest('xctf-misc/23-祥云杯2020-进制反转/进制反转.rar', '真题 23-进制反转：清伪加密位后经 RAR3 VM 标准过滤器解出完整 flag.wav', () => {
+  const rar = Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', 'xctf-misc', '23-祥云杯2020-进制反转', '进制反转.rar')),
+  );
+  const fixed = fixRarPseudoEncryption(rar);
+  assert.ok(fixed.fixed, '伪加密应可清位');
+  const wavEntry = inspectRar(fixed.fixed).entries.find(entry => entry.name === 'flag.wav');
+  assert.ok(wavEntry, '应能枚举出 flag.wav 条目');
+  assert.equal(wavEntry.encrypted, false, '清位后加密位应已消失');
+
+  const before = extractRarEntry(rar, { ...wavEntry, encrypted: true });
+  assert.equal(before.bytes, null, '未清位时应拒绝解压（unsupported 路径）');
+
+  const result = extractRarEntry(fixed.fixed, wavEntry);
+  assert.ok(result.bytes, `应完整解出（VM 预处理过滤器路径）：${result.unsupported ?? ''}`);
+  assert.equal(result.bytes.length, 5882111);
+  // 引擎内 FILE_CRC 校验已通过；再按 writeup 口径核内容：整文件 XOR 0xFF 后为合法 RIFF/WAVE
+  const xored = Buffer.from(result.bytes.slice());
+  for (let index = 0; index < xored.length; index += 1) xored[index] ^= 0xff;
+  assert.equal(xored.subarray(0, 4).toString('latin1'), 'RIFF');
+  assert.equal(xored.subarray(8, 12).toString('latin1'), 'WAVE');
 });

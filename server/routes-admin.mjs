@@ -6,7 +6,7 @@
 import { baseResponseHeaders, HttpError, json, parseJsonBody } from './http-helpers.mjs';
 import { createImportTemplate } from './import-template.mjs';
 
-const RESOURCES = 'payloads|tools|navigation';
+const RESOURCES = 'payloads|tools|navigation|exploits|exploit_navigation';
 const maxImportRequestBytes = 24 * 1024 * 1024;
 
 export const createAdminRoutes = ({
@@ -25,8 +25,10 @@ export const createAdminRoutes = ({
   listAdminItems,
   saveAdminItem,
   saveNavigationItem,
+  saveExploitNavigationItem,
   deleteAdminItem,
   moveAdminItem,
+  restoreAdminItem,
   getClientBuildStatus,
   startClientBuild,
   clientBuildDownload,
@@ -206,7 +208,11 @@ export const createAdminRoutes = ({
         return;
       }
       const body = await parseAdminJsonBody(request);
-      const saved = resource === 'navigation' ? await saveNavigationItem(body) : await saveAdminItem(resource, body);
+      const saved = resource === 'navigation'
+        ? await saveNavigationItem(body)
+        : resource === 'exploit_navigation'
+          ? await saveExploitNavigationItem(body)
+          : await saveAdminItem(resource, body);
       json(response, 200, saved);
     }, { group: 'admin' });
 
@@ -217,13 +223,23 @@ export const createAdminRoutes = ({
       json(response, 200, { items: await listAdminItems(params.resource) });
     }, { group: 'admin' });
 
+    // EXP 隐藏恢复（DELETE /exploits/:id = 隐藏，POST restore = 恢复）
+    router.route(['POST'], '/api/admin/exploits/:id/restore', async (request, response, { params }) => {
+      await restoreAdminItem('exploits', params.id);
+      json(response, 200, { items: await listAdminItems('exploits') });
+    }, { group: 'admin' });
+
     // 单条更新与删除
     router.route(['PUT', 'DELETE'], `/api/admin/:resource(${RESOURCES})/:id`, async (request, response, { params }) => {
       const { resource, id } = params;
       if (request.method === 'PUT') {
         const body = await parseAdminJsonBody(request);
         const payload = { ...body, id };
-        const saved = resource === 'navigation' ? await saveNavigationItem(payload) : await saveAdminItem(resource, payload);
+        const saved = resource === 'navigation'
+          ? await saveNavigationItem(payload)
+          : resource === 'exploit_navigation'
+            ? await saveExploitNavigationItem(payload)
+            : await saveAdminItem(resource, payload);
         json(response, 200, saved);
         return;
       }

@@ -166,7 +166,7 @@ function ImagePlanesCard({ fileName, image, status, language }: ImagePlanesCardP
     setLsbResult({ bytes, text: bytesToPreviewText(bytes, LSB_PREVIEW_CHARS), truncated });
   };
 
-  // zsteg 式全组合扫描（9 通道组 × 8 位 × 2 位序 × 2 像素序 = 288 次 256B 提取，10ms 级），
+  // zsteg 式全组合扫描（通道组 × 位 × 位序 × 像素序 × 行序 × 位深，720 次级 256B 提取），
   // 只列带命中理由（zlib 魔数 / flag 格式 / 可打印率 / base64 特征）的组合，按分降序。
   const runAutoScan = () => {
     if (!image) return;
@@ -280,7 +280,7 @@ function ImagePlanesCard({ fileName, image, status, language }: ImagePlanesCardP
               </div>
             )}
             <div className="ff-tool">
-              <span className="ff-label">{zh ? '全组合自动扫描（zsteg 式：通道组 × 位 × 位序 × 像素序，共 288 组合）' : 'Auto-scan all combos (zsteg-style: channel group × bit × bit order × pixel order, 288 total)'}</span>
+              <span className="ff-label">{zh ? '全组合自动扫描（zsteg 式：通道组 × 位 × 位序 × 像素序 × 行序 × 位深）' : 'Auto-scan all combos (zsteg-style: channel group × bit × bit order × pixel order × row order × bit depth)'}</span>
               <div className="ff-row">
                 <button type="button" className="ff-button ff-button-primary" onClick={runAutoScan}>
                   {zh ? '自动扫描' : 'Auto-scan'}
@@ -307,8 +307,8 @@ function ImagePlanesCard({ fileName, image, status, language }: ImagePlanesCardP
                 scanHits.length === 0 ? (
                   <p className="ff-note">
                     {zh
-                      ? '288 个组合均无命中（无 zlib 魔数 / flag 格式 / 高可打印率 / base64 特征）。可换用下方手动提取或位平面放大目检。'
-                      : 'No hits across the 288 combos (no zlib magic / flag pattern / printable text / base64 traits). Try manual extraction below or inspect planes visually.'}
+                      ? '全部组合均无命中（无 zlib 魔数 / flag 格式 / 高可打印率 / base64 特征）。可换用下方手动提取或位平面放大目检。'
+                      : 'No hits across all combos (no zlib magic / flag pattern / printable text / base64 traits). Try manual extraction below or inspect planes visually.'}
                   </p>
                 ) : (
                   <>
@@ -316,8 +316,13 @@ function ImagePlanesCard({ fileName, image, status, language }: ImagePlanesCardP
                       {zh ? `命中 ${scanHits.length} 个组合（按评分降序；单通道行序命中可「深挖」导出完整字节）：` : `${scanHits.length} hits (score-descending; single-channel row hits support deep-dive export):`}
                     </p>
                     {scanHits.map(hit => {
-                      const combo = `${hit.channel}/${hit.bit}/${hit.lsbFirst ? 'lsb' : 'msb'}/${hit.pixelOrder === 'row' ? (zh ? '行' : 'row') : (zh ? '列' : 'col')}`;
-                      const deepDiveable = SCAN_CHANNEL_INDEX[hit.channel] !== undefined && !hit.lsbFirst && hit.pixelOrder === 'row';
+                      // key 含全部扫描维度（rowOrder/bitsPerSample）——仅新维度不同的两条命中 key 重复
+                      // 会触发兄弟 DOM 残留复用错乱（AGENTS.md 已知坑）
+                      const combo = `${hit.channel}/${hit.bit}/${hit.lsbFirst ? 'lsb' : 'msb'}/${hit.pixelOrder === 'row' ? (zh ? '行' : 'row') : (zh ? '列' : 'col')}${hit.rowOrder === 'bottomup' ? '/bottomup' : ''}${hit.bitsPerSample && hit.bitsPerSample > 1 ? `/${hit.bitsPerSample}bit` : ''}`;
+                      // 深挖走基准语义提取（topdown/1bit）——仅与命中维度一致时开放，避免导出与预览不符
+                      const deepDiveable = SCAN_CHANNEL_INDEX[hit.channel] !== undefined && !hit.lsbFirst
+                        && hit.pixelOrder === 'row' && hit.rowOrder !== 'bottomup'
+                        && (!hit.bitsPerSample || hit.bitsPerSample === 1);
                       return (
                         <div key={combo} className="ff-tool">
                           <div className="ff-row">

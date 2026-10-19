@@ -1,7 +1,8 @@
 // Python random 模块复刻（批次 SI·C 线盲水印前置）：MT19937 + Python3 init_by_array 播种 +
 // shuffle（_randbelow 拒绝采样）。与 CPython randommodule.c 语义逐位一致，供复刻
 // chishaxie/BlindWaterMark 的 random.seed(20160930) 行列洗牌序列。
-// 锚定向量（CPython 公开行为）：random.seed(0) 后 getrandbits(32) 首值 2357136044；
+// 锚定向量（CPython 实测 3.10.11 同值）：random.seed(0) 后 getrandbits(32) 首值 3626764237
+// （init_by_array 播种路径；2357136044 是 init_genrand(5489) 的经典向量，勿与 seed 口径混淆）；
 // MT19937 init_genrand(5489) 首输出 3499211612（MT19937 标准测试向量）。
 const MT_SIZE = 624;
 const MATRIX_A = 0x9908b0df;

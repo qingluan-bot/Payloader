@@ -27,7 +27,8 @@ const ENTRY_EXPORTS = [
 // 受众记账口径（批次 W 纠偏定稿 + autoSolve 三操作 + padding-oracle-attack/magic-chain/crc32-attack/base64-stego）：
 // 批次 SB 新增 snow-stego/cloakify/ttl-stego 三个 CTF 操作：
 // 全部操作 266 个 = ctf 179 + both 85 + pentest 2，钉住具体数字防止清单无声漂移（CC1 +12 / CC2 +2 ctf 操作）。
-const AUDIENCE_SNAPSHOT = { total: 266, ctf: 179, both: 85, pentest: 2 };
+// CTF 能力补强四批次：批次一 +9 / 批次三 +14 个 ctf 操作（23 个），290 = ctf 203 + both 85 + pentest 2。
+const AUDIENCE_SNAPSHOT = { total: 290, ctf: 203, both: 85, pentest: 2 };
 
 // 批次 O 形状探针中仍验证智能解码可达性的样本集（telecode/quwei 等 4 位数字组形态与日期/编号
 // 不可区分，已退出直解路径只出芯片，故不在自动解码样本内）。
@@ -2336,7 +2337,7 @@ await run('中文密码家族：官方向量、round-trip 与智能识别（批�
 const PARITY_OP_IDS = [
   'base92', 'base100', 'base85-rfc1924', 'base62-ascii', 'base64-multiline', 'base64-case-mangled', 'base64-to-hex', 'base-custom', 'base-multi-decode', 'rot18', 'rot-special',
   'pigpen', 'keyboard-keycode', 'handycode', 'chinesecode', 'backslash-code', 'slash-pipe', 'tomtom', 'clock-code', 'goldbug', 'kenny', 'abaddon', 'dvorak', 'five-needle', 'hodor', 'duckspeak', 'numberpad-lines', 'quadoo', 'bwt',
-  'core-values', 'hanzi-stroke', 'yinyang-qi', 'bagua-symbols', 'telecode', 'xiangyue', 'makabaka', 'yinyin', 'shouyin', 'periodic-table', 'mars-text', 'braille', 'music-notes', 'flower-code', 'letter-code', 'arrow-code', 'hanzi-code', 'ipa-code', 'whitespace-code', 'deadfish', 'spoon', 'manchester', 'emoji-encoder',
+  'core-values', 'hanzi-stroke', 'yinyang-qi', 'bagua-symbols', 'telecode', 'xiangyue', 'makabaka', 'yinyin', 'shouyin', 'periodic-table', 'mars-text', 'braille', 'music-notes', 'flower-code', 'letter-code', 'arrow-code', 'hanzi-code', 'ipa-code', 'whitespace-code', 'deadfish', 'spoon', 'manchester', 'emoji-encoder', 'homophone-contrast',
   'otp', 'multiplicative', 'fractionated-morse', 'fenham', 'running-key', 'bazeries', 'kamasutra', 'm209', 'rc2', 'rc6',
   'ieee754', 'twos-complement', 'ones-complement', 'radix-xor', 'bit-split', 'hamming', 'qwe-keyboard', 'gcd', 'prime-factor', 'fibonacci-code', 'pickle-parse', 'ascii-control', 'quwei',
 ];
@@ -2469,7 +2470,7 @@ const rangesText = (text, range) => text.slice(range.start, range.end);
 
 await run('CTF 顶部菜单栏：9 菜单覆盖全部 CTF 可见操作、无重复无遗漏', async () => {
   const menus = buildCtfMenus();
-  expect(menus.length === 10, `菜单数量漂移：期望 10，实际 ${menus.length}`);
+  expect(menus.length === 11, `菜单数量漂移：期望 11，实际 ${menus.length}`);
   expect(menus.every(menu => menu.sections.length > 0 && menu.sections.every(section => section.operations.length > 0)), '菜单不得出现空分组');
   const menuIds = menus.flatMap(menu => menu.sections.flatMap(section => section.operations.map(op => op.id)));
   expect(new Set(menuIds).size === menuIds.length, '同一操作不得出现在多个菜单');

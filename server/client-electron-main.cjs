@@ -21,6 +21,9 @@ const legacyAppDataRoot = join(appRoot, 'app');
 const legacyManifestPath = join(legacyAppDataRoot, 'manifest.json');
 let publicDataPath = join(legacyAppDataRoot, 'public-data.json');
 let customToolsPath = join(legacyAppDataRoot, 'custom-tools.json');
+// P1-2 快照拆分：payload 全量详情与搜索语料（旧部署包/旧内置目录可能没有，端点回落 404）
+let payloadDetailsPath = join(legacyAppDataRoot, 'payload-details.json');
+let searchCorpusPath = join(legacyAppDataRoot, 'payload-search-corpus.json');
 const scheme = 'payloader';
 const host = 'app';
 const pathSeparator = sep;
@@ -286,7 +289,36 @@ const loadManifest = async () => {
   if (deploymentPackage) {
     publicDataPath = deploymentPackage.publicDataPath;
     customToolsPath = deploymentPackage.customToolsPath;
+    if (deploymentPackage.payloadDetailsPath) payloadDetailsPath = deploymentPackage.payloadDetailsPath;
+    if (deploymentPackage.searchCorpusPath) searchCorpusPath = deploymentPackage.searchCorpusPath;
   }
+};
+
+// P1-2：payload 全量详情一次性载入（~8MB），按 id 供 /api/payloads/:id/detail 响应
+let payloadDetailsIndex = null;
+let payloadDetailsLoading = null;
+const loadPayloadDetailsIndex = async () => {
+  if (payloadDetailsIndex) return payloadDetailsIndex;
+  if (!payloadDetailsLoading) {
+    payloadDetailsLoading = (async () => {
+      const descriptor = deploymentPackage?.manifest?.files?.['payload-details.json'];
+      await verifyBundledFile(
+        payloadDetailsPath,
+        String(descriptor?.sha256 || manifest?.payloadDetailsSha256 || ''),
+        'payload details snapshot',
+      );
+      const parsed = JSON.parse(await readText(payloadDetailsPath));
+      if (!Array.isArray(parsed)) throw new Error('Payloader payload details snapshot is not an array.');
+      payloadDetailsIndex = new Map(parsed
+        .filter(item => item && typeof item.id === 'string')
+        .map(item => [item.id, item]));
+      return payloadDetailsIndex;
+    })().catch(error => {
+      payloadDetailsLoading = null;
+      throw error;
+    });
+  }
+  return payloadDetailsLoading;
 };
 
 const verifyBundledFile = async (filePath, expectedHash, label) => {
@@ -422,6 +454,55 @@ const handleProtocol = async request => {
         contentType: 'text/html; charset=utf-8',
         cacheControl: 'no-store',
       });
+    }
+  }
+
+  // P1-2：搜索语料快照（存在时流式下发，immutable 口径同 public-data）
+  if (pathname === '/api/payload-search-corpus') {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return response('Method not allowed', {
+        status: 405,
+        headers: { allow: 'GET, HEAD' },
+      });
+    }
+    const descriptor = deploymentPackage?.manifest?.files?.['payload-search-corpus.json'];
+    const expectedSha = String(descriptor?.sha256 || manifest?.searchCorpusSha256 || '');
+    if (!expectedSha) return response('Not found', { status: 404 });
+    try {
+      await verifyBundledFile(searchCorpusPath, expectedSha, 'search corpus snapshot');
+      return streamFileResponse(searchCorpusPath, {
+        head: request.method === 'HEAD',
+        contentType: descriptor?.mimeType || 'application/json; charset=utf-8',
+        cacheControl: 'public, max-age=31536000, immutable',
+        headers: descriptor?.size ? { 'content-length': String(descriptor.size) } : {},
+      });
+    } catch {
+      // 可选增强快照损坏只降级本端点（500），不置全局 startupErrorText —— 不能因
+      // 增强数据损坏把整个离线客户端打成启动失败页
+      return response('Search corpus snapshot failed integrity check', { status: 500 });
+    }
+  }
+
+  // P1-2：payload 详情（从全量快照按 id 取；快照缺失或 ID 未命中回落 404，前端有列表态兜底）
+  const payloadDetailMatch = /^\/api\/payloads\/([^/]+)\/detail$/.exec(pathname);
+  if (payloadDetailMatch) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return response('Method not allowed', {
+        status: 405,
+        headers: { allow: 'GET, HEAD' },
+      });
+    }
+    const descriptor = deploymentPackage?.manifest?.files?.['payload-details.json'];
+    const expectedSha = String(descriptor?.sha256 || manifest?.payloadDetailsSha256 || '');
+    if (!expectedSha) return response('Not found', { status: 404 });
+    try {
+      const index = await loadPayloadDetailsIndex();
+      const item = index.get(payloadDetailMatch[1]) || null;
+      if (!item) return response('Not found', { status: 404 });
+      return jsonResponse(item);
+    } catch {
+      // 同上：可选增强快照损坏只降级本端点，不 brick 整个应用
+      return response('Payload details snapshot failed integrity check', { status: 500 });
     }
   }
 

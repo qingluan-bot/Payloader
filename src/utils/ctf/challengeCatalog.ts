@@ -3,6 +3,9 @@
 // 纯数据零依赖；卡内三类入口——file（需上传文件，未上传点击弹选择器）/ cipher（跳密码域定位操作）/
 // module（切域）。cardId/operationId 由 tests/challenge-catalog.test.mjs 钉住与实现一致，防目录漂移。
 
+// icon 为全站 SVG 图标名（Icon.tsx 白名单）；type-only import 编译后擦除，node 沙箱测试仍可直接加载。
+import type { IconName } from '../../components/Icon';
+
 export type CatalogEntryKind = 'file' | 'cipher' | 'module';
 
 export interface CatalogTool {
@@ -25,7 +28,7 @@ export interface CatalogTool {
 
 export interface ChallengeCategory {
   id: string;
-  icon: string;
+  icon: IconName;
   label: { zh: string; en: string };
   hint: { zh: string; en: string };
   tools: CatalogTool[];
@@ -34,7 +37,7 @@ export interface ChallengeCategory {
 export const challengeCatalog: ChallengeCategory[] = [
   {
     id: 'archive',
-    icon: '🗜️',
+    icon: 'layers',
     label: { zh: '压缩包', en: 'Archives' },
     hint: { zh: '伪加密、弱口令、CRC32 反推与嵌入文件是压缩包题四板斧。', en: 'Pseudo-encryption, weak passwords, CRC32 recovery, and embedded files.' },
     tools: [
@@ -91,7 +94,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'image',
-    icon: '🖼️',
+    icon: 'image',
     label: { zh: '图片隐写', en: 'Image steganography' },
     hint: { zh: 'LSB 位平面与结构修复并重；先自动扫描再目检。', en: 'LSB bit planes plus structure repair; auto-scan first, then eyeball.' },
     tools: [
@@ -184,7 +187,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'audio',
-    icon: '🎧',
+    icon: 'music',
     label: { zh: '音频隐写', en: 'Audio steganography' },
     hint: { zh: '频谱图永远第一步；DTMF/摩尔斯/WAV-LSB 一张卡全覆盖。', en: 'Spectrogram first; DTMF, Morse, and WAV-LSB in one card.' },
     tools: [
@@ -199,7 +202,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'video',
-    icon: '🎞️',
+    icon: 'play',
     label: { zh: '视频与 GIF', en: 'Video & GIF' },
     hint: { zh: 'GIF 帧延时与注释段是高频考点；视频先查工具命令库 ffmpeg。', en: 'GIF frame delays and comments are classic; videos go through ffmpeg recipes.' },
     tools: [
@@ -222,7 +225,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'document',
-    icon: '📄',
+    icon: 'file-text',
     label: { zh: '文档与程序取证', en: 'Documents & bytecode' },
     hint: { zh: 'PDF 风险指标/注释/流；pyc 常量挖掘与 Stegosaurus 隐写。', en: 'PDF indicators, comments, streams; pyc constants and Stegosaurus stego.' },
     tools: [
@@ -252,7 +255,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'text',
-    icon: '🔤',
+    icon: 'code',
     label: { zh: '文本隐写', en: 'Text steganography' },
     hint: { zh: '零宽字符与不可见水印；纯输入工具即点即用。', en: 'Zero-width characters and invisible watermarks; pure-input tools.' },
     tools: [
@@ -295,7 +298,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'traffic',
-    icon: '📡',
+    icon: 'radio',
     label: { zh: '流量分析', en: 'Traffic analysis' },
     hint: { zh: 'pcap/pcapng 在流量域解析：包列表/协议统计/TCP 流/HTTP 对象。', en: 'pcap/pcapng parsing lives in the Traffic module.' },
     tools: [
@@ -311,7 +314,7 @@ export const challengeCatalog: ChallengeCategory[] = [
   },
   {
     id: 'generic',
-    icon: '🧰',
+    icon: 'binary',
     label: { zh: '文件基础 · 通用取证', en: 'File basics & forensics' },
     hint: { zh: '类型未知时从这里开始：熵/字符串/hexdump 三件套定性。', en: 'Start here for unknown files: entropy, strings, and hexdump.' },
     tools: [

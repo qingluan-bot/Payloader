@@ -17,7 +17,7 @@
 // 唯一公开入口 detectEncryptedEntries 语义是"只收集加密条目、无加密即抛错"，与本任务
 // "遍历全部条目 + 读双份 extra 区 + 容错降级"语义不同，故按同一算法（EOCD 反向扫描 + 46B 定长头
 // 步进）独立实现。
-import { MAX_FILE_BYTES } from './fileDetect';
+import { MAX_FILE_BYTES, crc32Bytes } from './fileDetect';
 import { detectFlagFormats } from '../codec/smartDecode';
 
 export interface NtfsAdsStream {
@@ -63,6 +63,11 @@ interface ZipEntry {
   centralExtra: { offset: number; length: number };
   localExtra: { offset: number; length: number } | null;
   fromCentral: boolean;
+  // 中央目录侧的 nameLen/extraLen 与 CRC32（本地头扫描兜底时为 null）：stored 条目数据偏移
+  // 的优先依据——部分 CTF 产物把数据长度写进本地头 nameLen（非标准），中央三字段才是对的。
+  centralNameLength: number | null;
+  centralExtraLength: number | null;
+  crc32: number | null;
 }
 
 const decodeName = (bytes: Uint8Array, offset: number, length: number, utf8: boolean): string =>
@@ -92,6 +97,7 @@ const parseCentralEntries = (bytes: Uint8Array): { entries: ZipEntry[]; notes: s
     }
     const flag = readLe16(bytes, cursor + 8);
     const method = readLe16(bytes, cursor + 10);
+    const crc32 = readLe32(bytes, cursor + 16);
     const compressedSize = readLe32(bytes, cursor + 20);
     const nameLength = readLe16(bytes, cursor + 28);
     const extraLength = readLe16(bytes, cursor + 30);
@@ -111,6 +117,9 @@ const parseCentralEntries = (bytes: Uint8Array): { entries: ZipEntry[]; notes: s
       centralExtra: { offset: cursor + 46 + nameLength, length: extraLength },
       localExtra,
       fromCentral: true,
+      centralNameLength: nameLength,
+      centralExtraLength: extraLength,
+      crc32,
     });
     cursor += 46 + nameLength + extraLength + commentLength;
   }
@@ -146,6 +155,9 @@ const scanLocalEntries = (bytes: Uint8Array): { entries: ZipEntry[]; notes: stri
       centralExtra: { offset: position + 30 + nameLength, length: 0 },
       localExtra: { offset: position + 30 + nameLength, length: extraLength },
       fromCentral: false,
+      centralNameLength: null,
+      centralExtraLength: null,
+      crc32: null,
     });
     position += 29 + nameLength + extraLength;
   }
@@ -258,14 +270,44 @@ const splitColonEntry = (name: string): { entryName: string; streamName: string 
   return { entryName: name.slice(0, colon), streamName: stream };
 };
 
-const storedEntryBytes = (bytes: Uint8Array, entry: ZipEntry): Uint8Array | null => {
+// stored（method 0）条目数据读取：数据偏移优先采用中央目录 nameLen/extraLen（真实 ZIP 两源一致时
+// 无差别；部分 CTF 产物把数据长度写进本地头 nameLen 非标准字段，中央三字段才是对的）。两源不一致时
+// 按"central csize + 数据 CRC32 吻合"仲裁：中央吻合用中央、否则本地吻合用本地、均不吻合按惯例落中央
+// 并写诊断行。
+const storedEntryBytes = (bytes: Uint8Array, entry: ZipEntry, diagnosis?: string[]): Uint8Array | null => {
   if (entry.localHeaderOffset < 0 || entry.localHeaderOffset + 30 > bytes.length || readLe32(bytes, entry.localHeaderOffset) !== LOCAL_SIGNATURE) return null;
-  const nameLength = readLe16(bytes, entry.localHeaderOffset + 26);
-  const extraLength = readLe16(bytes, entry.localHeaderOffset + 28);
-  const dataOffset = entry.localHeaderOffset + 30 + nameLength + extraLength;
-  const length = Math.min(entry.compressedSize, bytes.length - dataOffset);
-  if (length <= 0) return null;
-  return bytes.slice(dataOffset, dataOffset + length);
+  const localNameLength = readLe16(bytes, entry.localHeaderOffset + 26);
+  const localExtraLength = readLe16(bytes, entry.localHeaderOffset + 28);
+  const localDataOffset = entry.localHeaderOffset + 30 + localNameLength + localExtraLength;
+  const centralDataOffset =
+    entry.centralNameLength !== null && entry.centralExtraLength !== null
+      ? entry.localHeaderOffset + 30 + entry.centralNameLength + entry.centralExtraLength
+      : null;
+  const readAt = (dataOffset: number): Uint8Array | null => {
+    const length = Math.min(entry.compressedSize, bytes.length - dataOffset);
+    if (length <= 0) return null;
+    return bytes.slice(dataOffset, dataOffset + length);
+  };
+  if (centralDataOffset !== null && centralDataOffset !== localDataOffset) {
+    const crcMatchesAt = (dataOffset: number): boolean =>
+      entry.crc32 !== null &&
+      entry.crc32 !== 0 &&
+      dataOffset >= 0 &&
+      dataOffset + entry.compressedSize <= bytes.length &&
+      crc32Bytes(bytes.subarray(dataOffset, dataOffset + entry.compressedSize)) === entry.crc32;
+    const mismatchNote = `条目 "${entry.name}" 本地头 nameLen(${localNameLength}) 与中央目录（${entry.centralNameLength}）不一致`;
+    if (crcMatchesAt(centralDataOffset)) {
+      diagnosis?.push(`${mismatchNote}：CRC32 核验中央偏移 ${centralDataOffset} 吻合，按中央目录读取`);
+      return readAt(centralDataOffset);
+    }
+    if (crcMatchesAt(localDataOffset)) {
+      diagnosis?.push(`${mismatchNote}：CRC32 核验本地偏移 ${localDataOffset} 吻合，按本地头读取`);
+      return readAt(localDataOffset);
+    }
+    diagnosis?.push(`${mismatchNote}：两偏移（${localDataOffset}/${centralDataOffset}）CRC32 均不吻合，按惯例采用中央目录偏移`);
+    return readAt(centralDataOffset);
+  }
+  return readAt(centralDataOffset ?? localDataOffset);
 };
 
 const methodHint = (method: number): string | undefined => {
@@ -300,7 +342,7 @@ export const extractNtfsAds = (bytes: Uint8Array): NtfsAdsReport => {
     // 形态一：冒号虚拟条目（7-Zip/zipper/WinRAR 的标准 ADS 存储）。
     const colon = splitColonEntry(entry.name);
     if (colon) {
-      const data = entry.method === 0 ? storedEntryBytes(bytes, entry) : null;
+      const data = entry.method === 0 ? storedEntryBytes(bytes, entry, diagnosis) : null;
       const preview = data ? buildPreview(data) : '';
       streams.push({
         entryName: colon.entryName,
@@ -313,14 +355,19 @@ export const extractNtfsAds = (bytes: Uint8Array): NtfsAdsReport => {
       });
       diagnosis.push(`条目 "${entry.name}" 为冒号虚拟条目：宿主 "${colon.entryName}" 上的 ADS "${colon.streamName}"`);
     }
-    // 形态二：0x000a extra field（CD 与本地头两份都读，去重合并）。
+    // 形态二：0x000a extra field（CD 与本地头两份都读，filetimes 与流均去重合并）。
     const regions = [entry.centralExtra, entry.localExtra].filter(
       (region): region is { offset: number; length: number } => region !== null && region.length > 0,
     );
     const seen = new Set<string>();
     for (const region of regions) {
       const parsed = parseNtfsExtras(bytes, region);
-      for (const line of parsed.filetimes) diagnosis.push(`条目 "${entry.name}" 的 NTFS 时间戳：${line}`);
+      for (const line of parsed.filetimes) {
+        const filetimeKey = `ft#${entry.name}#${line}`;
+        if (seen.has(filetimeKey)) continue;
+        seen.add(filetimeKey);
+        diagnosis.push(`条目 "${entry.name}" 的 NTFS 时间戳：${line}`);
+      }
       for (const stream of parsed.streams) {
         const key = `${entry.name}#${stream.name}`;
         if (seen.has(key)) continue;

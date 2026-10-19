@@ -249,6 +249,22 @@ test('pollardPMinus1 幂光滑 p-1 因子分解', () => {
   assert.equal(n % factor, 0n);
 });
 
+test('pollardPMinus1 分阶段 gcd 回退：两因子同时被覆盖时不再整体失败（1031×65537）', () => {
+  // 审计 BUG-13 向量：65537-1 = 2^16，而 ord(2) mod 65537 = 32——一次性 gcd 语义下
+  // a^(2^13) 就已同时覆盖两因子，gcd(a-1,n)=n 返回 null；分阶段 gcd 在第一个覆盖点
+  //（素数 2 乘入后 gcd=65537）直接命中非平凡因子。
+  const n = 1031n * 65537n;
+  const factor = pollardPMinus1(n, 10_000);
+  assert.ok(factor !== null, `应救回非平凡因子，实际 null`);
+  assert.ok(factor === 1031n || factor === 65537n);
+  assert.equal(n % factor, 0n);
+  // 回退路径也救不回来的（逐素数乘后 gcd 仍=n）保持 null 语义：两个 p-1 完全同阶覆盖
+  // 3×5=15 与 2×7=14 阶重叠构造困难，这里改用"素数本身超界"的负例验证不误报
+  const bigPrime1 = nextPrime(2n ** 40n);
+  const bigPrime2 = nextPrime(2n ** 41n + 5n);
+  assert.equal(pollardPMinus1(bigPrime1 * bigPrime2, 100), null); // B=100 太小，两因子都覆盖不了
+});
+
 test('smallPrimeFactor 前 5000 素数试除', () => {
   const q = nextPrime(2n ** 61n + 7n);
   assert.equal(smallPrimeFactor(4999n * q), 4999n); // 4999 在前 5000 素数内

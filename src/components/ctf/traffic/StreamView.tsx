@@ -3,6 +3,7 @@ import { hexdumpPreview } from '../../../utils/ctf/fileDetect';
 import { formatBytes } from '../../../utils/ctf/pcap/format';
 import type { TcpStream } from '../../../utils/ctf/pcap/analyze';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { Icon } from '../../Icon';
 import '../../../styles/stream-view.css';
 
 const HEX_PREVIEW_BYTES = 64 * 1024;
@@ -67,7 +68,7 @@ function StreamView({ streams, streamTotal, language }: StreamViewProps) {
             <span className="pw-stream-meta">
               {stream.packetCount} pkt · {formatBytes(stream.byteCount)}
             </span>
-            {stream.hasFlag && <span className="pw-badge pw-badge-flag">🚩 flag</span>}
+            {stream.hasFlag && <span className="pw-badge pw-badge-flag"><Icon name="flag" size={12} /> flag</span>}
             {stream.truncated && <span className="pw-badge pw-badge-warn">{zh ? '超限截断' : 'truncated'}</span>}
           </button>
         ))}

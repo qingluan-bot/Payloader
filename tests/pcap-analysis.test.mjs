@@ -395,3 +395,15 @@ test('截断文件：包数据中途结束', () => {
   assert.notEqual(capture.corrupt, null);
   assert.match(capture.corrupt.reason, /截断/);
 });
+
+test('空捕获同口径：0 包 pcapng（仅 SHB/IDB）与 0 包 pcap 均合法（corrupt=null）', () => {
+  const emptyPcapng = parser.parseCapture(concat([pcapngBlocks.shb(true), pcapngBlocks.idb(true, 1, 6)]));
+  assert.equal(emptyPcapng.format, 'pcapng');
+  assert.equal(emptyPcapng.packets.length, 0);
+  assert.equal(emptyPcapng.corrupt, null, '空 pcapng 不应标注损坏（与空 pcap 口径一致）');
+  const headerOnly = concat([u32le(0xa1b2c3d4), u16le(2), u16le(4), u32le(0), u32le(0), u32le(262144), u32le(1)]);
+  const emptyPcap = parser.parseCapture(headerOnly);
+  assert.equal(emptyPcap.format, 'pcap');
+  assert.equal(emptyPcap.packets.length, 0);
+  assert.equal(emptyPcap.corrupt, null, '空 pcap 保持合法');
+});

@@ -59,7 +59,7 @@
         }
 
         .wb-menubar-dropdown .wb-menubar-item-active {
-          background: rgba(0, 240, 255, 0.12);
+          background: color-mix(in srgb, var(--accent) 12%, transparent);
           color: var(--neon-cyan);
         }
 

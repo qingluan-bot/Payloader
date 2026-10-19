@@ -490,3 +490,44 @@ test('extractNtfsAds：非 ZIP 输入的空报告路径', () => {
   assert.equal(report.entryCount, 0);
   assert.ok(report.diagnosis.some(line => line.includes('未发现')));
 });
+
+// ---- 批次修复回归：repairBmp 无证据候选评分 + 真题对拍 ----
+
+test('repairBmp：宽为 4 倍数（无补齐证据）的常见尺寸按中性分收敛，不再输给伪候选', async () => {
+  // 宽为 4 的倍数 → padBytes=0 → 无补齐证据（历史缺陷：伪候选扫到 ≥1 零补齐字节即胜出修错）。
+  for (const [width, height] of [[200, 150], [1920, 1080], [320, 240], [1024, 768]]) {
+    const good = buildBmp(width, height);
+    const broken = Buffer.from(good);
+    broken.writeInt32LE(7, 18);
+    broken.writeInt32LE(7, 22);
+    const result = await repairBmp(Uint8Array.from(broken));
+    assert.equal(result.width, width, `${width}×${height} 应修复回原宽`);
+    assert.equal(result.height, height, `${width}×${height} 应修复回原高`);
+    assert.ok(result.candidates && result.candidates.length > 1, '应输出并列候选清单');
+    assert.equal(result.candidates[0].width, width, '正确解应排候选首位');
+    assert.equal(result.candidates[0].height, height);
+    assert.ok(result.candidates.every(c => typeof c.score === 'number'), '候选应带综合分');
+    const trueEntry = result.candidates.find(c => c.width === width && c.height === height);
+    assert.ok(trueEntry, '候选清单应包含正确解');
+  }
+});
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel, title, fn) => (fs.existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel.split('/'))) ? test : test.skip)(title, fn);
+
+realTest('sb/05-ntfs-ads/streams.zip', 'extractNtfsAds：真题 sb/05 streams.zip——中央目录 nameLen 优先仲裁，流内容完整解出', () => {
+  const zipBytes = Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', 'sb', '05-ntfs-ads', 'streams.zip')),
+  );
+  const report = extractNtfsAds(zipBytes);
+  const secret = report.streams.find(stream => stream.streamName === 'secret.txt');
+  assert.ok(secret, '应解出 secret.txt 流');
+  assert.equal(Buffer.from(secret.bytes).toString('latin1'), 'flag{ntfs_str3am}', '流内容应完整（历史缺陷：错位 4 字节截断）');
+});
+
+test('extractNtfsAds：官方 FILETIME 诊断行 CD+local 双读去重', () => {
+  const zipBytes = makeZip([{ name: 'ts.txt', data: 'x', extra: buildNtfsExtra([buildFiletimeAttr()]) }]);
+  const report = extractNtfsAds(zipBytes);
+  const timeLines = report.diagnosis.filter(line => line.includes('NTFS 时间戳'));
+  assert.equal(timeLines.length, 1, `FILETIME 诊断行应去重为 1 条，实际 ${timeLines.length}`);
+});

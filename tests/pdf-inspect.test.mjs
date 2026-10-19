@@ -3,10 +3,14 @@
 // 非 PDF 抛错。测试向量全部程序化构造（自带 xref/trailer 造 PDF 工厂，FlateDecode 流用 zlib
 // deflate——RFC1950 zlib 格式与 PDF /FlateDecode 同格式），无外部 fixture。
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import zlib from 'node:zlib';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel2, title2, fn) => (fs.existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel2.split('/'))) ? test : test.skip)(title2, fn);
 
 const srcDir = path.join(projectRoot, 'src');
 const { loadModule } = createTsModuleLoader();
@@ -262,4 +266,63 @@ test('PDF_MAX_BYTES 红线为 20MB；indicators 固定十条且干净文件全�
     assert.ok(item.label.length > 0 && item.key.startsWith('/'));
     assert.equal(item.count, 0);
   }
+});
+
+// ---- 用例 12：/Length 声明越过 EOF 归入 endstream 回退（D-10 回归锚） ----
+
+test('inspectPdf /Length 越过 EOF：按 endstream 回退定位而非剩余字节，回解一致', () => {
+  const content = 'flag{beyond_eof_length} ' + 'z'.repeat(20);
+  const objects = [
+    { num: 1, dict: '/Type /Catalog' },
+    { num: 2, dict: '', stream: { content, deflate: false, lengthOverride: 99999 } },
+  ];
+  const bytes = buildPdf({ objects });
+  const result = inspectPdf(bytes);
+  assert.equal(result.streams.length, 1);
+  // 不再按"剩余字节"计流长（那样会把 endstream/endobj/trailer 尾料切进流区间）
+  assert.equal(result.streams[0].length, objects[1]._truth.length, `length=${result.streams[0].length}`);
+  assert.equal(result.streams[0].offset, objects[1]._truth.offset);
+  // 回解一致：切出的字节正是原文
+  const slice = Buffer.from(bytes.slice(result.streams[0].offset, result.streams[0].offset + result.streams[0].length)).toString('latin1');
+  assert.equal(slice, content);
+  // 异常标注：越过 EOF + 已回退
+  assert.ok(result.anomalies.some(note => note.includes('99999') && note.includes('越过文件末尾')), `anomalies=${JSON.stringify(result.anomalies)}`);
+  assert.ok(result.anomalies.some(note => note.includes('endstream 回退定位')), `anomalies=${JSON.stringify(result.anomalies)}`);
+});
+
+// ---- 用例 13：/JS 脚本提取 + 静态还原（P1-16 回归锚） ----
+
+const { deobfuscatePdfJs } = loadModule(path.join(srcDir, 'utils', 'ctf', 'pdfInspect.ts'));
+
+test('deobfuscatePdfJs：常量折叠/转义解码/数组解引用三通道', () => {
+  // 常量折叠：'u'+'t'+'f' 拼接合并
+  const folded = deobfuscatePdfJs("console['l'+'o'+'g']('u'+'t'+'f'+'l'+'a'+'g'+'{'+'x'+'}');");
+  assert.ok(folded.code.includes("console['log']('utflag{x}')"), folded.code);
+  assert.ok(folded.notes.some(note => note.includes('折叠')), JSON.stringify(folded.notes));
+  // 转义解码：源码里的 \x75\x74\x66 转义 → 明文 utf
+  const decoded = deobfuscatePdfJs("var s = '\\x75\\x74\\x66\\x2d\\x38';");
+  assert.ok(decoded.code.includes("'utf-8'"), decoded.code);
+  assert.ok(decoded.notes.some(note => note.includes('解码')), JSON.stringify(decoded.notes));
+  // 数组解引用：偏移访问器 + 别名（轮转 IIFE 常见形态）
+  const derefSrc = "var _0xa=['aa0','bb1','cc2'];var _0xf=function(_0x1){_0x1=_0x1-0x10;return _0xa[_0x1];};var _0xg=_0xf;app.alert(_0xg(0x12));";
+  const deref = deobfuscatePdfJs(derefSrc);
+  assert.ok(deref.code.includes("'cc2'"), `解引用失败：${deref.code}`);
+  assert.ok(deref.notes.some(note => note.includes('解引用')), JSON.stringify(deref.notes));
+  // 数组轮转自校验检测标注
+  const rot = deobfuscatePdfJs("var _0xa=['1x','2y'];while(!![]){try{break;}catch(e){_0xa['push'](_0xa['shift']());}}");
+  assert.ok(rot.notes.some(note => note.includes('轮转')), JSON.stringify(rot.notes));
+});
+
+realTest('07_pdf_js/from-dad.pdf', 'inspectPdf：真题 from-dad.pdf 的 /JS 还原出明文 flag（07_pdf_js 链路）', () => {
+  const bytes = new Uint8Array(fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', '07_pdf_js', 'from-dad.pdf')));
+  const result = inspectPdf(bytes);
+  assert.equal(result.scripts.length, 1, `scripts=${result.scripts.length}`);
+  const script = result.scripts[0];
+  assert.ok(script.source.startsWith('var _0x790b='), `source 头部异常：${script.source.slice(0, 40)}`);
+  assert.ok(script.source.length > 800, `source 应为完整 JS（${script.source.length} 字节，受 256 字节上限截断则还原必失败）`);
+  // 还原后文本含明文 flag
+  assert.ok(script.deobfuscated.includes('utflag{be_careful_with_pdfs}'), `deobf 尾部：${script.deobfuscated.slice(-160)}`);
+  assert.ok(script.deobfuscated.includes("console['log']"), '常量折叠应还原 console["log"]');
+  assert.ok(script.notes.some(note => note.includes('折叠')), JSON.stringify(script.notes));
+  assert.ok(script.notes.some(note => note.includes('轮转')), '真题脚本含轮转自校验，必须标注');
 });

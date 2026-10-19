@@ -2,7 +2,7 @@
           .header {
             height: var(--app-header-height);
             flex: 0 0 var(--app-header-height);
-            background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+            background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
@@ -10,16 +10,6 @@
             padding: 0 20px;
             position: relative;
             z-index: 100;
-          }
-
-          .header::before {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
           }
 
           .header-left {
@@ -56,7 +46,6 @@
 
           .logo-icon {
             font-size: 28px;
-            filter: drop-shadow(0 0 10px var(--neon-cyan));
           }
 
           .logo-image {
@@ -65,8 +54,7 @@
             flex: 0 0 32px;
             object-fit: contain;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.05);
-            filter: drop-shadow(0 0 10px var(--neon-cyan));
+            background: color-mix(in srgb, var(--text-primary) 5%, transparent);
           }
 
           .logo-text {
@@ -78,10 +66,7 @@
             font-size: 20px;
             font-weight: 700;
             letter-spacing: 3px;
-            background: var(--gradient-cyber);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: var(--accent);
           }
 
           .logo-subtitle {
@@ -113,7 +98,7 @@
             min-height: 24px;
             margin-left: 2px;
             padding: 0 8px;
-            border: 1px solid rgba(0, 240, 255, 0.28);
+            border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
             border-radius: 6px;
             color: var(--neon-cyan);
             font-family: var(--font-display);
@@ -121,14 +106,13 @@
             font-weight: 700;
             letter-spacing: 0;
             text-decoration: none;
-            background: rgba(0, 240, 255, 0.06);
+            background: color-mix(in srgb, var(--accent) 6%, transparent);
             transition: all var(--transition-fast);
           }
 
           .xeye-link:hover {
             color: var(--bg-primary);
             background: var(--neon-cyan);
-            box-shadow: 0 0 14px rgba(0, 240, 255, 0.28);
           }
 
           .client-download-link,
@@ -136,10 +120,10 @@
             align-items: center;
             justify-content: center;
             min-height: 34px;
-            border: 1px solid rgba(0, 255, 65, 0.32);
+            border: 1px solid color-mix(in srgb, var(--state-success) 32%, transparent);
             border-radius: 6px;
             color: var(--neon-green);
-            background: rgba(0, 255, 65, 0.07);
+            background: color-mix(in srgb, var(--state-success) 7%, transparent);
             font-family: var(--font-display);
             font-weight: 700;
             letter-spacing: 0;
@@ -172,7 +156,6 @@
           .mobile-client-download:hover {
             color: var(--bg-primary);
             background: var(--neon-green);
-            box-shadow: 0 0 14px rgba(0, 255, 65, 0.22);
           }
 
           .client-download-link:hover small {
@@ -203,7 +186,6 @@
 
           .search-box:focus-within {
             border-color: var(--neon-cyan);
-            box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
           }
 
           .search-icon {
@@ -285,8 +267,9 @@
           }
 
           .tab-btn.active {
-            background: var(--neon-cyan);
-            color: var(--bg-primary);
+            background: var(--accent-soft);
+            color: var(--accent);
+            box-shadow: inset 0 -2px 0 var(--accent);
             font-weight: 600;
           }
 
@@ -313,7 +296,6 @@
           .lang-toggle:hover {
             border-color: var(--neon-green);
             color: var(--neon-green);
-            box-shadow: 0 0 12px rgba(0, 255, 136, 0.2);
           }
 
           .theme-toggle {
@@ -332,12 +314,11 @@
 
           .theme-toggle:hover {
             border-color: var(--neon-yellow);
-            box-shadow: 0 0 12px rgba(255, 255, 0, 0.2);
-            transform: scale(1.1);
+            color: var(--neon-yellow);
           }
 
           .encoding-toggle {
-            background: rgba(139, 0, 255, 0.1);
+            background: color-mix(in srgb, var(--src-nuclei) 10%, transparent);
             border: 1px solid var(--neon-purple);
             color: var(--neon-purple);
             padding: 8px 14px;
@@ -349,8 +330,7 @@
           }
 
           .encoding-toggle:hover {
-            background: rgba(139, 0, 255, 0.2);
-            box-shadow: 0 0 15px rgba(139, 0, 255, 0.3);
+            background: color-mix(in srgb, var(--src-nuclei) 20%, transparent);
           }
 
           .mode-switcher {
@@ -381,7 +361,7 @@
             padding: 0 10px;
             border: 1px solid var(--neon-purple);
             border-radius: 6px;
-            background: rgba(139, 0, 255, 0.1);
+            background: color-mix(in srgb, var(--src-nuclei) 10%, transparent);
             color: var(--neon-purple);
             font-size: 12px;
             font-weight: 700;
@@ -413,19 +393,19 @@
           }
 
           .header .mode-btn.active {
-            background: rgba(0, 240, 255, 0.1);
+            background: color-mix(in srgb, var(--accent) 10%, transparent);
             border-color: var(--neon-cyan);
             color: var(--neon-cyan);
           }
 
           .header .mode-btn.active.warning {
-            background: rgba(255, 102, 0, 0.1);
+            background: color-mix(in srgb, var(--sev-high) 10%, transparent);
             border-color: var(--neon-orange);
             color: var(--neon-orange);
           }
 
           .header .mode-btn.active.danger {
-            background: rgba(255, 0, 85, 0.1);
+            background: color-mix(in srgb, var(--sev-critical) 10%, transparent);
             border-color: var(--neon-red);
             color: var(--neon-red);
           }
@@ -458,8 +438,8 @@
             width: min(720px, calc(100vw - 24px));
             background: var(--bg-card);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: var(--shadow-card);
+            border-radius: 6px;
+            box-shadow: var(--shadow-md);
             z-index: 1000;
             overflow: hidden;
           }
@@ -469,7 +449,7 @@
             align-items: flex-start;
             justify-content: space-between;
             gap: 12px;
-            padding: 16px;
+            padding: 12px 16px;
             border-bottom: 1px solid var(--border-color);
           }
 
@@ -506,7 +486,7 @@
           .variables-tools {
             padding: 12px 14px;
             border-bottom: 1px solid var(--border-color);
-            background: rgba(255, 255, 255, 0.02);
+            background: color-mix(in srgb, var(--text-primary) 2%, transparent);
           }
 
           .variables-search {
@@ -541,7 +521,7 @@
             align-items: center;
             gap: 8px;
             padding: 9px 14px;
-            background: rgba(0, 229, 255, 0.05);
+            background: color-mix(in srgb, var(--accent) 5%, transparent);
             border: 0;
             color: var(--text-primary);
             text-align: left;
@@ -597,7 +577,7 @@
           }
 
           .variable-item.pinned {
-            background: rgba(0, 229, 255, 0.035);
+            background: color-mix(in srgb, var(--accent) 4%, transparent);
           }
 
           .variable-item:last-child {
@@ -654,7 +634,7 @@
 
           .variables-footer {
             border-top: 1px solid var(--border-color);
-            background: rgba(255, 255, 255, 0.02);
+            background: color-mix(in srgb, var(--text-primary) 2%, transparent);
           }
 
           @media (max-width: 1280px) {
@@ -1146,7 +1126,7 @@
             }
 
             .search-box:focus-within {
-              box-shadow: inset 0 0 0 1px var(--neon-cyan), 0 0 12px rgba(0, 240, 255, 0.15);
+              box-shadow: inset 0 0 0 1px var(--neon-cyan);
             }
 
             .search-input {
@@ -1188,9 +1168,9 @@
               width: min(320px, calc(100vw - 20px));
               padding: 10px;
               border: 1px solid var(--border-color);
-              border-radius: 8px;
+              border-radius: 6px;
               background: var(--bg-card);
-              box-shadow: var(--shadow-card);
+              box-shadow: var(--shadow-md);
             }
 
             .mobile-utilities-menu > button,
@@ -1318,12 +1298,12 @@
               .encoding-modal {
                 background: var(--bg-primary);
                 border: 1px solid var(--border-color);
-                border-radius: 12px;
+                border-radius: 6px;
                 width: 95%;
                 max-width: 1100px;
                 max-height: 90vh;
                 overflow: hidden;
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+                box-shadow: var(--shadow-md);
                 animation: slideUp 0.3s ease;
               }
 
@@ -1342,7 +1322,7 @@
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 16px 24px;
+                padding: 12px 16px;
                 border-bottom: 1px solid var(--border-color);
               }
 
@@ -1379,7 +1359,7 @@
               }
 
               .encoding-modal-body .encoding-tools {
-                padding: 16px 24px;
+                padding: 12px 16px;
               }
 
               .encoding-modal-body .encoding-header {
@@ -1397,7 +1377,7 @@
                   width: 100%;
                   max-width: none;
                   max-height: calc(100dvh - 16px);
-                  border-radius: 8px;
+                  border-radius: 6px;
                 }
 
                 .encoding-modal-header {

@@ -394,8 +394,12 @@ export const parseElf = (bytes: Uint8Array): ElfParseResult => {
   const isSharedObject = typeId === 3 && !df1Pie;
   const relroPh = programHeaders.find(p => p.type === 'GNU_RELRO');
   const relro = !relroPh ? 'No RELRO' : bindNow ? 'Full RELRO' : 'Partial RELRO';
-  const FORTIFY_NAMES = ['__printf_chk', '__fprintf_chk', '__sprintf_chk', '__snprintf_chk', '__memcpy_chk', '__strcpy_chk', '__memset_chk', '__longjmp_chk', '__read_chk', '__recv_chk'];
-  const fortified = dynamicSymbols.filter(s => s.defined && FORTIFY_NAMES.includes(s.name)).length;
+  // FORTIFY 检测：动态链接二进制的 __*_chk 几乎全是 UNDEF 导入（gcc 编译期替换 + glibc 提供
+  // 实现），不能按"有定义"筛——静态链接与动态链接两种形态都按"dynsym 里出现即算"判定
+  //（pwntools checksec 对 sample-ls.elf 的 9 个 _chk 导入同样报 FORTIFY=yes）。
+  // 注意 __stack_chk_fail 是 canary 判定符号，不进 FORTIFY 名单。
+  const FORTIFY_NAMES = ['__printf_chk', '__fprintf_chk', '__vprintf_chk', '__vfprintf_chk', '__sprintf_chk', '__vsprintf_chk', '__snprintf_chk', '__vsnprintf_chk', '__memcpy_chk', '__memmove_chk', '__mempcpy_chk', '__strcpy_chk', '__strncpy_chk', '__strcat_chk', '__strncat_chk', '__memset_chk', '__longjmp_chk', '__read_chk', '__recv_chk', '__fdelt_chk'];
+  const fortified = dynamicSymbols.filter(s => FORTIFY_NAMES.includes(s.name)).length;
   const stripped = !sections.some(s => s.name === '.symtab');
 
   const checksec: ChecksecItem[] = [

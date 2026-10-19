@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLanguage } from '../../appContext';
 import { DetectStrip } from './DetectStrip';
 import { WorkbenchOutputPanel } from './WorkbenchOutputPanel';
+import { Icon } from '../Icon';
 import { useSmartIdentify } from './useSmartIdentify';
 import type { OperationId } from '../../utils/codec/types';
 
@@ -32,7 +33,7 @@ function SmartDetectBar({ input, onDetection, onUseAsInput, onClear }: SmartDete
   } else if (autoDisabled) {
     status = isZh ? '超过 20000 字符，已暂停自动识别' : 'Over 20,000 chars; auto-identify paused';
   } else if (flagHits.length) {
-    status = isZh ? '🚩 已识别 flag 格式' : '🚩 Flag format detected';
+    status = isZh ? '已识别 flag 格式' : 'Flag format detected';
   } else if (detections.length) {
     const labels = detections.slice(0, 3).map(detection => detection.label).join('、');
     status = isZh ? `识别到 ${detections.length} 种：${labels}` : `${detections.length} detected: ${labels}`;
@@ -52,15 +53,15 @@ function SmartDetectBar({ input, onDetection, onUseAsInput, onClear }: SmartDete
           aria-expanded={expanded}
           title={isZh ? '展开/收起智能识别结果' : 'Expand or collapse smart identify result'}
         >
-          <strong>⚡ {status}</strong>
-          <span aria-hidden="true">{expanded ? '▴' : '▾'}</span>
+          <strong><Icon name="zap" size={16} /> {status}</strong>
+          <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={14} />
         </button>
         {detections.length ? <DetectStrip detections={detections} onDetect={onDetection} /> : null}
         {flagHits.length ? (
           <span className="smart-detect-flags" aria-label={isZh ? '识别到 flag 格式' : 'Flag formats found'}>
             {flagHits.map(hit => (
               <span key={hit.prefix} className="ctf-flag-badge" title={hit.sample}>
-                🚩<code>{hit.prefix}{'{...}'}</code>
+                <Icon name="flag" size={14} /><code>{hit.prefix}{'{...}'}</code>
               </span>
             ))}
           </span>

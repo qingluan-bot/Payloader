@@ -963,6 +963,132 @@ const quweiDecode = (input: string): string => {
   return output;
 };
 
+// ==================== geohash ====================
+// 算法定义：Geohash（Gustavo Niemeyer）把经度 [-180,180]、纬度 [-90,90] 各自逐次二分，
+// 比特流按「偶数位=经度、奇数位=纬度」（第 0 位是经度）交错，每 5 位查 base32 表
+// 0123456789bcdefghjkmnpqrstuvwxyz（剔除 a/i/l/o）得一个字符，精度 1-12 位可选；
+// decode 逆向重建经纬度区间，返回格子中点与半格误差（相邻前缀性质：共同前缀越长位置越近）。
+// 来源：https://en.wikipedia.org/wiki/Geohash（官方算例 42.6,-5.6 → ezs42，含逐位推导）；
+// 多语言实现对拍值见 https://rosettacode.org/wiki/Geohash（57.64911,10.40744 → u4pruydqqvj）。
+
+const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
+
+export interface GeohashCell {
+  lat: number;
+  lon: number;
+  latError: number;
+  lonError: number;
+  latMin: number;
+  latMax: number;
+  lonMin: number;
+  lonMax: number;
+}
+
+const geohashNormalizePrecision = (precisionValue: string): number => {
+  const trimmed = String(precisionValue ?? '').trim();
+  if (!/^\d+$/.test(trimmed)) throw new Error(`Geohash 精度必须是 1-12 的整数，收到 ${JSON.stringify(trimmed)}`);
+  const precision = Number.parseInt(trimmed, 10);
+  if (precision < 1 || precision > 12) throw new Error(`Geohash 精度必须在 1-12 之间，收到 ${precision}`);
+  return precision;
+};
+
+export const geohashEncode = (lat: number, lon: number, precision: number): string => {
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) throw new Error(`纬度必须在 [-90, 90] 内，收到 ${lat}`);
+  if (!Number.isFinite(lon) || lon < -180 || lon > 180) throw new Error(`经度必须在 [-180, 180] 内，收到 ${lon}`);
+  if (!Number.isInteger(precision) || precision < 1 || precision > 12) throw new Error(`Geohash 精度必须在 1-12 之间，收到 ${precision}`);
+  let latMin = -90;
+  let latMax = 90;
+  let lonMin = -180;
+  let lonMax = 180;
+  let bucket = 0;
+  let bucketBits = 0;
+  let output = '';
+  for (let index = 0; index < precision * 5; index += 1) {
+    if (index % 2 === 0) {
+      const mid = (lonMin + lonMax) / 2;
+      if (lon >= mid) {
+        bucket = bucket * 2 + 1;
+        lonMin = mid;
+      } else {
+        bucket *= 2;
+        lonMax = mid;
+      }
+    } else {
+      const mid = (latMin + latMax) / 2;
+      if (lat >= mid) {
+        bucket = bucket * 2 + 1;
+        latMin = mid;
+      } else {
+        bucket *= 2;
+        latMax = mid;
+      }
+    }
+    bucketBits += 1;
+    if (bucketBits === 5) {
+      // 每 5 位查一次 base32 表产出一位 geohash 字符
+      output += GEOHASH_ALPHABET[bucket];
+      bucket = 0;
+      bucketBits = 0;
+    }
+  }
+  return output;
+};
+
+export const geohashDecode = (hash: string): GeohashCell => {
+  const normalized = hash.trim().toLowerCase();
+  if (!normalized) throw new Error('Geohash 解码输入不能为空');
+  if (normalized.length > 12) throw new Error(`Geohash 长度最多 12 位，收到 ${normalized.length}`);
+  let latMin = -90;
+  let latMax = 90;
+  let lonMin = -180;
+  let lonMax = 180;
+  let isLon = true;
+  for (const char of normalized) {
+    const value = GEOHASH_ALPHABET.indexOf(char);
+    if (value < 0) throw new Error(`「${char}」不是合法的 geohash 字符（base32 表 ${GEOHASH_ALPHABET}，不含 a/i/l/o）`);
+    for (let shift = 4; shift >= 0; shift -= 1) {
+      const bit = (value >> shift) & 1;
+      if (isLon) {
+        const mid = (lonMin + lonMax) / 2;
+        if (bit === 1) lonMin = mid;
+        else lonMax = mid;
+      } else {
+        const mid = (latMin + latMax) / 2;
+        if (bit === 1) latMin = mid;
+        else latMax = mid;
+      }
+      isLon = !isLon;
+    }
+  }
+  return {
+    lat: (latMin + latMax) / 2,
+    lon: (lonMin + lonMax) / 2,
+    latError: (latMax - latMin) / 2,
+    lonError: (lonMax - lonMin) / 2,
+    latMin,
+    latMax,
+    lonMin,
+    lonMax,
+  };
+};
+
+// 工具入口：编码接受「纬度,经度」（逗号/空白分隔，精度经 digits 参数，留空回落 9 位）；
+// 解码接受 geohash 串，输出格子中点坐标、半格误差与经纬度区间。
+export const geohashTransform = (input: string, direction: string, precisionValue: string): string => {
+  if (direction === 'encode') {
+    const numbers = input.trim().split(/[\s,，]+/).filter(Boolean);
+    if (numbers.length !== 2) throw new Error('Geohash 编码输入格式：「纬度,经度」，如 31.231706,121.472644');
+    const precision = geohashNormalizePrecision(precisionValue.trim() === '' ? '9' : precisionValue);
+    return geohashEncode(Number(numbers[0]), Number(numbers[1]), precision);
+  }
+  const cell = geohashDecode(input);
+  const trimNumber = (value: number) => String(Number(value.toFixed(10)));
+  return [
+    `纬度 ${trimNumber(cell.lat)} ±${trimNumber(cell.latError)}（区间 ${trimNumber(cell.latMin)} ~ ${trimNumber(cell.latMax)}）`,
+    `经度 ${trimNumber(cell.lon)} ±${trimNumber(cell.lonError)}（区间 ${trimNumber(cell.lonMin)} ~ ${trimNumber(cell.lonMax)}）`,
+  ].join('\n');
+};
+
 // ==================== 操作元数据 ====================
 
 export const parityNumOperations: Operation[] = [

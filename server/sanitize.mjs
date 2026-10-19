@@ -2,6 +2,7 @@
 // 与 makeId/cloneValue 工具。文本归一依赖 text-quality，零 db 与 IO 依赖，独立可测。
 
 import { publicProjectRoute } from './project-attribution.mjs';
+import { createUlid } from './ulid.mjs';
 import {
   dedupeCommandEntries,
   ensureDisplayTextObject,
@@ -68,9 +69,12 @@ export const sanitizeSettings = value => {
   };
 };
 
+const executionKindValues = new Set(['bypass', 'control']);
+const executionEffectivenessLevels = new Set(['A', 'B', 'C']);
+
 const sanitizePayloadExecution = value => {
   const candidate = isObject(value) ? value : {};
-  return {
+  const sanitized = {
     title: ensureDisplayTextObject(candidate.title),
     command: String(candidate.command ?? '').trim(),
     description: candidate.description == null ? undefined : ensureDisplayTextObject(candidate.description),
@@ -78,6 +82,11 @@ const sanitizePayloadExecution = value => {
     platform: isPlatform(candidate.platform) ? candidate.platform : 'all',
     requiresAdmin: Boolean(candidate.requiresAdmin),
   };
+  // 变体分类字段（2026-10 WAF 审查批次）：kind 区分真绕过与受控样例，effectiveness 标注
+  // 现代 WAF 有效性档位。仅合法值输出，存量条目 JSON 形态保持不变。
+  if (executionKindValues.has(candidate.kind)) sanitized.kind = candidate.kind;
+  if (executionEffectivenessLevels.has(candidate.effectiveness)) sanitized.effectiveness = candidate.effectiveness;
+  return sanitized;
 };
 
 const sanitizeSyntaxPart = value => {
@@ -120,6 +129,13 @@ const sanitizeStoredPublicPayload = value => {
     wafBypass: dedupeCommandEntries(normalizeList(candidate.wafBypass).map(sanitizePayloadExecution).filter(item => item.command)),
     attackChain: normalizeList(candidate.attackChain).map(sanitizeAttackChainStep).filter(Boolean),
     references: normalizeList(candidate.references).map(String).map(item => item.trim()).filter(Boolean),
+    // 治理 M5：CVE/产品双通道预关联的公开 EXP（仅 id/name/source 三个安全字段透传）
+    relatedExploits: normalizeList(candidate.relatedExploits)
+      .map(item => isObject(item) && typeof item.id === 'string' && /^EXP-[0-9A-HJKMNP-TV-Z]{26}$/.test(item.id)
+        ? { id: item.id, name: (typeof item.name === 'string' ? item.name : item.name == null ? '' : JSON.stringify(item.name)).slice(0, 200), source: String(item.source ?? 'curated') }
+        : null)
+      .filter(Boolean)
+      .slice(0, 3),
     tutorial: isObject(candidate.tutorial) ? {
       overview: ensureDisplayTextObject(candidate.tutorial.overview),
       vulnerability: ensureDisplayTextObject(candidate.tutorial.vulnerability),
@@ -149,6 +165,12 @@ export const sanitizePayload = value => {
     wafBypass: normalizeList(candidate.wafBypass).map(sanitizePayloadExecution).filter(item => item.command),
     attackChain: normalizeList(candidate.attackChain).map(sanitizeAttackChainStep).filter(Boolean),
     references: normalizeList(candidate.references).map(String).map(item => item.trim()).filter(Boolean),
+    relatedExploits: normalizeList(candidate.relatedExploits)
+      .map(item => isObject(item) && typeof item.id === 'string' && /^EXP-[0-9A-HJKMNP-TV-Z]{26}$/.test(item.id)
+        ? { id: item.id, name: (typeof item.name === 'string' ? item.name : item.name == null ? '' : JSON.stringify(item.name)).slice(0, 200), source: String(item.source ?? 'curated') }
+        : null)
+      .filter(Boolean)
+      .slice(0, 3),
     tutorial: isObject(candidate.tutorial) ? {
       overview: ensureDisplayTextObject(candidate.tutorial.overview),
       vulnerability: ensureDisplayTextObject(candidate.tutorial.vulnerability),
@@ -201,6 +223,11 @@ export const sanitizeTool = value => {
     item.externalUrl = externalUrl;
     item.systemLocked = true;
   }
+  // 治理 D 时效标注：active（现役，缺省）| archived（已归档/改名，配 replacedBy 指向等价替代）
+  const status = String(candidate.status ?? '').trim().toLowerCase();
+  if (['active', 'archived'].includes(status)) item.status = status;
+  const replacedBy = String(candidate.replacedBy ?? '').trim();
+  if (replacedBy) item.replacedBy = replacedBy;
   return item;
 };
 
@@ -219,7 +246,116 @@ export const sanitizeNavItem = value => {
   return item;
 };
 
+// ---- EXP 漏洞利用库（v2.0.2）：结构化字段机器可读优先，供 AI 检索与公开 API 消费 ----
+
+export const exploitSeverities = ['critical', 'high', 'medium', 'low', 'unknown'];
+
+const sanitizeVulnerabilityId = value => {
+  if (!isObject(value)) return null;
+  const type = String(value.type ?? '').trim().toUpperCase();
+  const idValue = String(value.value ?? '').trim();
+  if (!type || !idValue) return null;
+  return { type, value: idValue };
+};
+
+const sanitizeExploitCodeSegment = value => {
+  if (!isObject(value)) return null;
+  const code = String(value.code ?? '').trim();
+  if (!code) return null;
+  const segment = {
+    title: String(value.title ?? '').trim() || '利用代码',
+    language: String(value.language ?? '').trim().toLowerCase() || 'text',
+    code,
+  };
+  const description = String(value.description ?? '').trim();
+  if (description) segment.description = description;
+  return segment;
+};
+
+const sanitizeAttribution = value => {
+  const candidate = isObject(value) ? value : {};
+  const source = String(candidate.source ?? '').trim();
+  const author = String(candidate.author ?? '').trim();
+  const license = String(candidate.license ?? '').trim();
+  const attribution = {};
+  if (source) attribution.source = source;
+  if (author) attribution.author = author;
+  if (license) attribution.license = license;
+  return Object.keys(attribution).length ? attribution : undefined;
+};
+
+export const sanitizeExploit = value => {
+  const candidate = isObject(value) ? value : {};
+  const name = String(candidate.name ?? '').trim();
+  // 稳定 ID：缺省生成 EXP-<ULID>（时间有序可排序）；已有条目保留原 id（导入/自定义兼容）
+  const item = {
+    id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `EXP-${createUlid()}`,
+    name: name || '未命名漏洞利用',
+    description: String(candidate.description ?? '').trim(),
+    vulnType: String(candidate.vulnType ?? '').trim().toLowerCase() || 'uncategorized',
+    affected: String(candidate.affected ?? '').trim(),
+    severity: exploitSeverities.includes(candidate.severity) ? candidate.severity : 'unknown',
+    publishedAt: String(candidate.publishedAt ?? '').trim(),
+    vulnerabilityIds: normalizeList(candidate.vulnerabilityIds).map(sanitizeVulnerabilityId).filter(Boolean),
+    exploitCode: normalizeList(candidate.exploitCode).map(sanitizeExploitCodeSegment).filter(Boolean),
+    prerequisites: String(candidate.prerequisites ?? '').trim(),
+    // 参考链接协议白名单：上游聚合数据是"非管理员录入"入口，仅收 http(s)，阻断 javascript: 等注入面
+    references: normalizeList(candidate.references).map(String).map(item => item.trim()).filter(item => /^https?:\/\//i.test(item)),
+    tags: normalizeList(candidate.tags).map(String).map(item => item.trim()).filter(Boolean),
+  };
+  // 分层来源字段（v2.0.3 聚合管线）：source 标上游来源（如 exploit-db），无 source 即精选/手工层；
+  // sourceRef 存上游主键（如 edb-12345）供聚合管线幂等复用；treePath 为分类挂载位置（大类/类型/叶子 id）。
+  const source = String(candidate.source ?? '').trim();
+  const sourceRef = String(candidate.sourceRef ?? '').trim();
+  const treePath = String(candidate.treePath ?? '').trim();
+  if (source) item.source = source;
+  if (sourceRef) item.sourceRef = sourceRef;
+  if (treePath) item.treePath = treePath;
+  // 治理 A5/A6 归一字段：products 为机器可读产品数组（API product 过滤主通道），
+  // canonicalKey 为主 CVE 编号（跨源同漏洞分组）。非空才写，精选层可缺省。
+  const products = normalizeList(candidate.products).map(value => String(value ?? '').trim()).filter(Boolean).slice(0, 12);
+  if (products.length) item.products = products;
+  const canonicalKey = String(candidate.canonicalKey ?? '').trim();
+  if (canonicalKey) item.canonicalKey = canonicalKey;
+  const attribution = sanitizeAttribution(candidate.attribution);
+  if (attribution) item.attribution = attribution;
+  return item;
+};
+
+export const sanitizeExploitNode = value => {
+  const candidate = isObject(value) ? value : {};
+  const name = normalizeText(candidate.name);
+  const item = {
+    id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : makeId('expnode', name.zh || name.en || 'node'),
+    name,
+  };
+  if (typeof candidate.icon === 'string' && candidate.icon.trim()) item.icon = candidate.icon.trim();
+  if (typeof candidate.exploitId === 'string' && candidate.exploitId.trim()) item.exploitId = candidate.exploitId.trim();
+  // 治理 B：叶子多值挂载（多条同叶 EXP 全量引用，树点击直达取 exploitIds[0]）
+  const exploitIds = normalizeList(candidate.exploitIds).map(value => String(value ?? '').trim()).filter(value => /^EXP-[0-9A-HJKMNP-TV-Z]{26}$/.test(value));
+  if (exploitIds.length) item.exploitIds = exploitIds;
+  const children = normalizeList(candidate.children).map(sanitizeExploitNode);
+  if (children.length) item.children = children;
+  return item;
+};
+
 const cloneValue = value => parseJson(json(value));
+
+
+// ---- canonical 分组键（与 scripts/exp-corpus/classify.mjs 同语义，server 侧权威）：
+// CVE 编号按（年份, 序号）数值升序取首个；无合法 CVE 返回空串 ----
+export const primaryCveKey = vulnerabilityIds => {
+  const cves = (Array.isArray(vulnerabilityIds) ? vulnerabilityIds : [])
+    .map(item => (item && item.type === 'CVE' ? String(item.value ?? '').trim().toUpperCase() : ''))
+    .filter(value => /^CVE-\d{4}-\d{4,7}$/.test(value));
+  if (!cves.length) return '';
+  cves.sort((a, b) => {
+    const [yearA, seqA] = a.slice(4).split('-').map(Number);
+    const [yearB, seqB] = b.slice(4).split('-').map(Number);
+    return yearA - yearB || seqA - seqB;
+  });
+  return cves[0];
+};
 
 export {
   cloneValue,

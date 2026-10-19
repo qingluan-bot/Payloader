@@ -548,6 +548,536 @@ export const cryptoAttackHelper = (value: string) => {
   }, null, 2);
 };
 
+// ===================== xorshift 状态恢复与预测 =====================
+// 算法出处：George Marsaglia, "Xorshift RNGs", Journal of Statistical Software 8(14), 2003
+// （doi:10.18637/jss.v008.i14）。单寄存器标准移位：32 位 (13,17,5)；64 位 (12,25,27)
+// （论文 64 位全周期三元组表，即 xorshift64* 的核三移位，此处不含其输出乘法）。
+// 128 状态版按论文示例 t=(x^(x<<13)); x=y; y=z; z=w; w=(w^(w>>17))^(t^(t>>5)) 滚动，
+// 32/64 位字宽各支持一份（论文 32 位示例种子 123456789/362436069/521288629/88675123）。
+// 预测只需 4 个连续输出构成的滚动状态（o[i]=w[i+1] ⇒ 状态 (x,y,z,w)=(o1,o2,o3,o4)），
+// 初始 w 常数不参与预测，故不要求用户提供。
+// 求逆原理：y = x ^ (x<<k) 按位展开 y_i = x_i ^ x_{i-k}，故 x_i = y_i ^ x_{i-k}，
+// 自最低位向最高位逐位确定（下标越界视为 0）；y = x ^ (x>>k) 时 y_i = x_i ^ x_{i+k}，
+// x_i = y_i ^ x_{i+k}，自最高位向最低位逐位确定。
+// 对拍锚点（手算样例）：seed=1 时 32 位版前两输出 270369、68157441
+// （1^1<<13=8193 → 8193>>17=0 → 8193<<5=262176，8193^262176=0x42021=270369）；
+// 64 位版首输出 549889035713（1<<12=4096 → 4097>>25=0 → 4097<<27，4097^549889031616）。
+export type XorshiftVersion = 'xorshift32' | 'xorshift64' | 'xorshift128';
+
+export type XorshiftAnalysis = {
+  version: XorshiftVersion | 'unknown';
+  wordSize: 32 | 64 | null;
+  seed: bigint | null;
+  seedHex: string | null;
+  state128: bigint[] | null;
+  predicted: bigint[];
+  verified: boolean;
+  verifiedOutputs: number;
+  notes: string[];
+};
+
+// x ^= x<<k 的逐位求逆：x_i = y_i ^ x_{i-k}，自低位向高位
+export const invXorLeft = (y: bigint, k: number, bits: number) => {
+  let x = 0n;
+  for (let index = 0; index < bits; index += 1) {
+    const shifted = index >= k ? (x >> BigInt(index - k)) & 1n : 0n;
+    x |= (((y >> BigInt(index)) & 1n) ^ shifted) << BigInt(index);
+  }
+  return x;
+};
+
+// x ^= x>>k 的逐位求逆：x_i = y_i ^ x_{i+k}，自高位向低位
+export const invXorRight = (y: bigint, k: number, bits: number) => {
+  let x = 0n;
+  for (let index = bits - 1; index >= 0; index -= 1) {
+    const shifted = index + k < bits ? (x >> BigInt(index + k)) & 1n : 0n;
+    x |= (((y >> BigInt(index)) & 1n) ^ shifted) << BigInt(index);
+  }
+  return x;
+};
+
+// 单寄存器单步前推；输出 = 更新后的状态（与 Marsaglia 论文代码 return state 一致）
+export const xorshift32Next = (x: bigint) => {
+  const mask = (1n << 32n) - 1n;
+  let value = x & mask;
+  value ^= (value << 13n) & mask;
+  value ^= value >> 17n;
+  value ^= (value << 5n) & mask;
+  return value & mask;
+};
+
+export const xorshift64Next = (x: bigint) => {
+  const mask = (1n << 64n) - 1n;
+  let value = x & mask;
+  value ^= (value << 12n) & mask;
+  value ^= value >> 25n;
+  value ^= (value << 27n) & mask;
+  return value & mask;
+};
+
+// 128 状态滚动一步：返回新状态 [y, z, w, newW]，下一个输出即 newW
+const xorshift128NextWords = (state: bigint[], bits: 32 | 64) => {
+  const mask = (1n << BigInt(bits)) - 1n;
+  const [x, y, z, w] = state;
+  const t = (x ^ ((x << 13n) & mask)) & mask;
+  return [y, z, w, ((w ^ (w >> 17n)) ^ t ^ (t >> 5n)) & mask];
+};
+
+export const xorshift128Next32 = (state: bigint[]) => xorshift128NextWords(state, 32);
+
+export const xorshift128Next64 = (state: bigint[]) => xorshift128NextWords(state, 64);
+
+// 由首个输出逆推单寄存器种子：按移位施加的逆序逐步求逆（<<5 的逆 → >>17 的逆 → <<13 的逆）
+export const xorshift32SeedFromOutput = (output: bigint) =>
+  invXorLeft(invXorRight(invXorLeft(output, 5, 32), 17, 32), 13, 32);
+
+export const xorshift64SeedFromOutput = (output: bigint) =>
+  invXorLeft(invXorRight(invXorLeft(output, 27, 64), 25, 64), 12, 64);
+
+export const xorshiftAnalyzeFromOutputs = (outputs: bigint[], predictCount = 5): XorshiftAnalysis => {
+  if (!outputs.length) throw new Error('xorshift 分析至少需要 1 个输出');
+  const max = outputs.reduce((acc, item) => (item > acc ? item : acc), 0n);
+  const notes: string[] = [];
+  const predicted: bigint[] = [];
+  const mask32 = (1n << 32n) - 1n;
+  const mask64 = (1n << 64n) - 1n;
+  const build = (
+    version: XorshiftVersion | 'unknown',
+    wordSize: 32 | 64 | null,
+    seed: bigint | null,
+    state128: bigint[] | null,
+    verified: boolean,
+    verifiedOutputs: number,
+  ): XorshiftAnalysis => ({
+    version,
+    wordSize,
+    seed,
+    seedHex: seed == null ? null : `0x${seed.toString(16)}`,
+    state128,
+    predicted,
+    verified,
+    verifiedOutputs,
+    notes,
+  });
+
+  if (max <= mask32) {
+    const seed = xorshift32SeedFromOutput(outputs[0]);
+    let cursor = seed;
+    let matches = 0;
+    for (let index = 0; index < outputs.length; index += 1) {
+      cursor = xorshift32Next(cursor);
+      if (cursor === outputs[index]) matches += 1;
+      else break;
+    }
+    if (matches === outputs.length) {
+      for (let index = 0; index < predictCount; index += 1) {
+        cursor = xorshift32Next(cursor);
+        predicted.push(cursor);
+      }
+      if (outputs.length === 1) notes.push('仅 1 个输出：种子已由首个输出逆推，但无法交叉验证（xorshift128 与 xorshift32 单输出形态不可区分）。');
+      return build('xorshift32', 32, seed, null, outputs.length >= 2, outputs.length - 1);
+    }
+    if (outputs.length >= 4) {
+      let state = outputs.slice(0, 4);
+      let ok = true;
+      for (let index = 4; index < outputs.length; index += 1) {
+        state = xorshift128Next32(state);
+        if (state[3] !== outputs[index]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        for (let index = 0; index < predictCount; index += 1) {
+          state = xorshift128Next32(state);
+          predicted.push(state[3]);
+        }
+        if (outputs.length === 4) notes.push('恰 4 个输出：滚动状态已定位为 (o1,o2,o3,o4)，但没有第 5 个输出做交叉验证。');
+        return build('xorshift128', 32, null, outputs.slice(0, 4), outputs.length >= 5, outputs.length - 4);
+      }
+      notes.push('输出既不匹配 xorshift32(13,17,5) 也不匹配 xorshift128(13,17,5) 32 位版的连续输出。');
+    } else {
+      notes.push(`仅 ${outputs.length} 个输出：xorshift32 种子无法交叉验证；xorshift128 需 ≥4 个连续输出才能定位滚动状态。`);
+    }
+    notes.push('诊断：若确为 xorshift32，种子候选 ' + (seed == null ? '' : `0x${seed.toString(16)}`) + ' 与观测不符；若是输出非连续或含跳号，请补齐连续序列。');
+    return build('unknown', null, seed, outputs.length >= 4 ? outputs.slice(0, 4) : null, false, 0);
+  }
+  if (max <= mask64) {
+    const seed = xorshift64SeedFromOutput(outputs[0]);
+    let cursor = seed;
+    let matches = 0;
+    for (let index = 0; index < outputs.length; index += 1) {
+      cursor = xorshift64Next(cursor);
+      if (cursor === outputs[index]) matches += 1;
+      else break;
+    }
+    if (matches === outputs.length) {
+      for (let index = 0; index < predictCount; index += 1) {
+        cursor = xorshift64Next(cursor);
+        predicted.push(cursor);
+      }
+      if (outputs.length === 1) notes.push('仅 1 个输出：种子已由首个输出逆推，但无法交叉验证。');
+      return build('xorshift64', 64, seed, null, outputs.length >= 2, outputs.length - 1);
+    }
+    if (outputs.length >= 4) {
+      let state = outputs.slice(0, 4);
+      let ok = true;
+      for (let index = 4; index < outputs.length; index += 1) {
+        state = xorshift128Next64(state);
+        if (state[3] !== outputs[index]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        for (let index = 0; index < predictCount; index += 1) {
+          state = xorshift128Next64(state);
+          predicted.push(state[3]);
+        }
+        if (outputs.length === 4) notes.push('恰 4 个输出：滚动状态已定位为 (o1,o2,o3,o4)，但没有第 5 个输出做交叉验证。');
+        return build('xorshift128', 64, null, outputs.slice(0, 4), outputs.length >= 5, outputs.length - 4);
+      }
+      notes.push('输出既不匹配 xorshift64(12,25,27) 也不匹配 xorshift128(13,17,5) 64 位版的连续输出。');
+    } else {
+      notes.push(`仅 ${outputs.length} 个输出：xorshift64 种子无法交叉验证；xorshift128(64 位字) 需 ≥4 个连续输出。`);
+    }
+    return build('unknown', null, seed, outputs.length >= 4 ? outputs.slice(0, 4) : null, false, 0);
+  }
+  throw new Error('输出超出 64 位范围：本工具支持的版本为 xorshift32/xorshift64/xorshift128（32/64 位字）');
+};
+
+export const xorshiftHelper = (value: string, secret: string) => {
+  const fields = parseLooseCtfFields(value);
+  const fieldSequence = looseField(fields, ['outputs', 'output', 'states', 'state', 'samples', 'values', 'leaks', 'sequence', 'randoms']);
+  const indexed = parseIndexedSequence(value);
+  const outputs = fieldSequence
+    ? parseNumericList(fieldSequence)
+    : indexed.length >= 2
+      ? indexed
+      : parseNumericList(stripPrngScalarAssignments(value));
+  if (!outputs.length) throw new Error('xorshift 分析需要空格/逗号分隔的十进制或 0x hex 输出序列');
+  const predictField = looseField(fields, ['predict', 'next', 'count']);
+  const predictCount = Math.min(1000, Math.max(0, Number.parseInt(predictField || secret || '5', 10) || 5));
+  const analysis = xorshiftAnalyzeFromOutputs(outputs, predictCount);
+  return JSON.stringify({
+    version: analysis.version,
+    wordSize: analysis.wordSize,
+    seed: analysis.seed?.toString() ?? null,
+    seedHex: analysis.seedHex,
+    xorshift128State: analysis.state128?.map(item => item.toString()) ?? null,
+    observedCount: outputs.length,
+    verified: analysis.verified,
+    verifiedOutputs: analysis.verifiedOutputs,
+    predictedCount: analysis.predicted.length,
+    predicted: analysis.predicted.map(item => item.toString()),
+    predictedHex: analysis.predicted.map(item => `0x${item.toString(16)}`),
+    notes: analysis.notes,
+  }, null, 2);
+};
+
+// ===================== 截断 LCG 种子恢复 =====================
+// 出处：截断输出的 LCG 恢复在文献中走格基归约（Frieze, Håstad, Kannan, Lagarias, Shamir,
+// "Reconstructing Truncated Integer Variables Satisfying Linear Congruences", SIAM J. Comput.
+// 17(2), 1988）。本实现补其小空间初等替代：模 2^M 且已知各输出高 k 位时，首输出的低 M-k 位
+// 穷举（护栏 2^24），按 x[n+1]=(a*x[n]+c) mod 2^M 前推校验各观测高位，命中后 a⁻¹ 回退一步
+// 得种子 x0（x1 = a*x0 + c mod m）。
+// 标准参数与公开对拍锚点（Rosetta Code LCG 条目，seed=1 公开序列；JDK javadoc 规格公式）：
+//   glibc/BSD（ANSI C 最小标准）：a=1103515245, c=12345, m=2^31
+//     → 1103527590 377401575 662824084 1147902781 2035015474 ...
+//   MSVC rand：状态 x=(x*214013+2531011) mod 2^32，rand()=(x>>16)&0x7fff（观测 30..16 位，
+//     bit31 不可观测，故按 mod 2^31 同余系统求解，k=15）
+//     → srand(1): 41 18467 6334 26500 19169 ...
+//   Java java.util.Random：seed'=(seed^0x5DEECE66D)&(2^48-1)，next(32)=seed''>>>16
+//     （观测 47..16 位，k=32）→ new Random(42).nextInt() = -1170105035。
+
+export type TruncatedLcgPresetName = 'glibc' | 'msvc' | 'java';
+
+export const truncatedLcgPresets: Record<TruncatedLcgPresetName, {
+  multiplier: bigint;
+  increment: bigint;
+  modulus: bigint;
+  observedBits: number | null;
+  label: string;
+}> = {
+  glibc: { multiplier: 1103515245n, increment: 12345n, modulus: 1n << 31n, observedBits: null, label: 'glibc/BSD rand（ANSI C 最小标准，完整 31 位状态输出）' },
+  msvc: { multiplier: 214013n, increment: 2531011n, modulus: 1n << 31n, observedBits: 15, label: 'MSVC rand（观测 state>>16 & 0x7fff，即状态 30..16 位；bit31 不可观测，按 mod 2^31 求解）' },
+  java: { multiplier: 25214903917n, increment: 11n, modulus: 1n << 48n, observedBits: 32, label: 'java.util.Random next(32)（观测 48 位状态的 47..16 位）' },
+};
+
+export type TruncatedLcgConfig = {
+  modulus: bigint;
+  multiplier: bigint;
+  increment: bigint;
+  observedBits: number;
+  predictCount?: number;
+  maxBruteForce?: bigint;
+};
+
+export type TruncatedLcgRecovery = {
+  recovered: boolean;
+  seed: bigint | null;
+  firstState: bigint | null;
+  states: bigint[];
+  predictedOutputs: bigint[];
+  lowBits: number;
+  bruteForceSpace: bigint;
+  candidatesTried: number;
+  notes: string[];
+};
+
+export const truncatedLcgRecover = (outputs: bigint[], config: TruncatedLcgConfig): TruncatedLcgRecovery => {
+  if (outputs.length < 2) throw new Error('截断 LCG 恢复至少需要 2 个连续截断输出（建议 ≥3 以降低误报）');
+  const { modulus, multiplier, increment, observedBits } = config;
+  if (modulus <= 0n || (modulus & (modulus - 1n)) !== 0n) throw new Error('截断 LCG 穷举法要求模数为 2 的幂（m=2^M）；其它模数请转 lattice/HNP（Sage/fpylll/Z3）');
+  const modulusBits = modulus.toString(2).length - 1;
+  if (!Number.isInteger(observedBits) || observedBits < 1 || observedBits > modulusBits) {
+    throw new Error(`观测位数 k=${observedBits} 非法：需要 1 ≤ k ≤ ${modulusBits}（模数 2^${modulusBits}）`);
+  }
+  const lowBits = modulusBits - observedBits;
+  const space = 1n << BigInt(lowBits);
+  const cap = config.maxBruteForce ?? (1n << 24n);
+  if (space > cap) {
+    throw new Error(`截断 LCG 穷举空间 2^${lowBits}（k=${observedBits}，m=2^${modulusBits}）超过上限 2^24；请增大 k，或转 lattice/HNP（Sage/fpylll/Z3）`);
+  }
+  const highBase = 1n << BigInt(observedBits);
+  const outOfRange = outputs.find(item => item < 0n || item >= highBase);
+  if (outOfRange != null) throw new Error(`输出 ${outOfRange} 超出 k=${observedBits} 位能表示的范围 [0, 2^${observedBits})`);
+  const mask = modulus - 1n;
+  const a = multiplier & mask;
+  const c = increment & mask;
+  const shift = BigInt(lowBits);
+  const base = outputs[0] << shift;
+  const targets = outputs.slice(1);
+  let candidatesTried = 0;
+  let hit: bigint | null = null;
+  for (let r = 0n; r < space; r += 1n) {
+    candidatesTried += 1;
+    let state = base | r;
+    let ok = true;
+    for (let index = 0; index < targets.length; index += 1) {
+      state = (a * state + c) & mask;
+      if ((state >> shift) !== targets[index]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      hit = base | r;
+      break;
+    }
+  }
+  if (hit == null) {
+    return {
+      recovered: false,
+      seed: null,
+      firstState: null,
+      states: [],
+      predictedOutputs: [],
+      lowBits,
+      bruteForceSpace: space,
+      candidatesTried,
+      notes: ['穷举完成但没有任何低位候选能同时满足全部观测高位：检查输出是否连续、a/c/m 是否正确、k 是否与实际截断位数一致。'],
+    };
+  }
+  const inverse = bigintModInverse(a, modulus);
+  if (inverse == null) throw new Error('a 与模数不互素，无法回退种子（标准参数 a 均为奇数，不应当出现）');
+  const seed = (((hit - c) % modulus + modulus) % modulus * inverse) % modulus;
+  const states: bigint[] = [hit];
+  let cursor = hit;
+  for (let index = 0; index < targets.length; index += 1) {
+    cursor = (a * cursor + c) & mask;
+    states.push(cursor);
+  }
+  const predictedOutputs: bigint[] = [];
+  const predictCount = Math.max(0, config.predictCount ?? 5);
+  for (let index = 0; index < predictCount; index += 1) {
+    cursor = (a * cursor + c) & mask;
+    states.push(cursor);
+    predictedOutputs.push(cursor >> shift);
+  }
+  return {
+    recovered: true,
+    seed,
+    firstState: hit,
+    states,
+    predictedOutputs,
+    lowBits,
+    bruteForceSpace: space,
+    candidatesTried,
+    notes: [`种子 x0 满足 x1 = (a*x0 + c) mod m；首个观测输出对应状态 x1=${hit}。`],
+  };
+};
+
+export const truncatedLcgHelper = (value: string, secret: string) => {
+  const fields = parseLooseCtfFields(value);
+  const presetRaw = (looseField(fields, ['preset', 'library', 'engine', 'rand', 'source']) || '').toLowerCase();
+  const presetKey = (Object.keys(truncatedLcgPresets) as TruncatedLcgPresetName[]).find(key => presetRaw.includes(key))
+    ?? (/ms|visual|vc/.test(presetRaw) ? 'msvc' : null)
+    ?? (/jdk|util\.random|nextint/.test(presetRaw) ? 'java' : null)
+    ?? (/ansi|bsd|minimal/.test(presetRaw) ? 'glibc' : null);
+  const preset = presetKey ? truncatedLcgPresets[presetKey] : null;
+  const modulus = parsePowerOrNumeric(looseField(fields, ['m', 'mod', 'modulus', 'modulo'])) || preset?.modulus || parsePowerOrNumeric(secret);
+  const multiplier = parsePowerOrNumeric(looseField(fields, ['a', 'multiplier', 'mul'])) ?? preset?.multiplier ?? null;
+  const increment = parsePowerOrNumeric(looseField(fields, ['c', 'increment', 'inc'])) ?? preset?.increment ?? null;
+  const observedBitsField = looseField(fields, ['k', 'bits', 'observed', 'observedbits', 'highbits', 'truncated']);
+  const observedBits = observedBitsField
+    ? Number.parseInt(observedBitsField, 10)
+    : preset?.observedBits ?? null;
+  const predictField = looseField(fields, ['predict', 'next', 'count']);
+  const predictCount = Math.min(256, Math.max(0, Number.parseInt(predictField || '5', 10) || 5));
+  const missing: string[] = [];
+  if (modulus == null) missing.push('m=<2^M 形式的模数>');
+  if (multiplier == null) missing.push('a=<乘数>');
+  if (increment == null) missing.push('c=<增量>');
+  if (observedBits == null || !Number.isFinite(observedBits)) missing.push('k=<观测的高位位数>');
+  if (missing.length) throw new Error(`截断 LCG 缺少参数：${missing.join('、')}；可写 preset=msvc|glibc|java 一键填标准参数`);
+  const fieldSequence = looseField(fields, ['outputs', 'output', 'states', 'samples', 'values', 'leaks', 'sequence', 'randoms']);
+  const indexed = parseIndexedSequence(value);
+  const outputs = fieldSequence
+    ? parseNumericList(fieldSequence)
+    : indexed.length >= 2
+      ? indexed
+      : parseNumericList(stripPrngScalarAssignments(value));
+  if (outputs.length < 2) throw new Error('截断 LCG 恢复至少需要 2 个连续截断输出（空格/逗号分隔的十进制或 0x hex）');
+  const recovery = truncatedLcgRecover(outputs, {
+    modulus: modulus!,
+    multiplier: multiplier!,
+    increment: increment!,
+    observedBits: observedBits!,
+    predictCount,
+  });
+  return JSON.stringify({
+    preset: presetKey,
+    presetNote: preset?.label ?? null,
+    modulus: modulus!.toString(),
+    multiplier: multiplier!.toString(),
+    increment: increment!.toString(),
+    observedBits,
+    lowBruteBits: recovery.lowBits,
+    bruteForceSpace: `2^${recovery.lowBits}`,
+    candidatesTried: recovery.candidatesTried,
+    recovered: recovery.recovered,
+    seed: recovery.seed?.toString() ?? null,
+    firstState: recovery.firstState?.toString() ?? null,
+    states: recovery.states.map(item => item.toString()),
+    predictedOutputs: recovery.predictedOutputs.map(item => item.toString()),
+    notes: recovery.notes,
+  }, null, 2);
+};
+
+// ===================== LFSR 序列外推预测 =====================
+// 出处：线性反馈移位寄存器的递推外推是 Golomb "Shift Register Sequences"（Holden-Day, 1967）
+// 的经典结论：给定连接多项式（抽头 t1..tL）与连续 L bit 初始状态，后续序列由
+// s[n] = XOR_i s[n-i] 唯一确定。抽头可直接给出（如 8,6,5,4 对应 x^8+x^6+x^5+x^4+1），
+// 也可对已知 keystream 跑本文件已有的 Berlekamp-Massey 自动恢复（观测 ≥2L bit 时唯一）。
+// 对拍锚点（手算样例）：抽头 3,2、种子 1,1,1 → 序列 11100101（s3=s0^s1=0, s4=s1^s2=0,
+// s5=s2^s3=1, s6=s3^s4=0, s7=s4^s5=1），外推 s8=s5^s6=1, s9=s6^s7=1, s10=0, s11=0。
+
+export type LfsrExtrapolation = {
+  taps: number[];
+  length: number;
+  seedBits: number[];
+  predictedBits: number[];
+  replayVerified: boolean;
+  replayMismatchIndex: number | null;
+  usedObservedBits: number;
+  notes: string[];
+};
+
+export const lfsrExtrapolate = (bits: number[], taps: number[], predictCount = 16): LfsrExtrapolation => {
+  const cleanTaps = [...new Set(taps)].filter(tap => Number.isInteger(tap) && tap >= 1);
+  if (!cleanTaps.length) throw new Error('LFSR 外推需要非空的抽头列表（如 8,6,5,4，或 0x 掩码）');
+  const length = Math.max(...cleanTaps);
+  if (bits.length < length) throw new Error(`LFSR 外推需要至少 ${length} bit 连续序列作为初始状态，当前只有 ${bits.length} bit`);
+  const orderedTaps = [...cleanTaps].sort((left, right) => left - right);
+  const total = bits.length + Math.max(0, predictCount);
+  // 回代校验：只用前 length bit 做种子重放整段已知序列，逐位比对观测值
+  const replay = bits.slice(0, length);
+  while (replay.length < bits.length) {
+    let bit = 0;
+    for (const tap of orderedTaps) bit ^= replay[replay.length - tap];
+    replay.push(bit);
+  }
+  let replayMismatchIndex: number | null = null;
+  for (let index = length; index < bits.length; index += 1) {
+    if (replay[index] !== bits[index]) {
+      replayMismatchIndex = index;
+      break;
+    }
+  }
+  // 外推：从观测序列尾部继续递推（回代失败时结果标记为不可信）
+  const sequence = bits.slice();
+  while (sequence.length < total) {
+    let bit = 0;
+    for (const tap of orderedTaps) bit ^= sequence[sequence.length - tap];
+    sequence.push(bit);
+  }
+  return {
+    taps: orderedTaps,
+    length,
+    seedBits: bits.slice(0, length),
+    predictedBits: sequence.slice(bits.length),
+    replayVerified: replayMismatchIndex == null,
+    replayMismatchIndex,
+    usedObservedBits: bits.length,
+    notes: [
+      `递推式 s[n] = ${orderedTaps.map(tap => `s[n-${tap}]`).join(' ^ ')}`,
+      replayMismatchIndex == null
+        ? '回代校验通过：初始状态重放全部已知序列逐位一致，外推可信。'
+        : `回代校验失败：重放在第 ${replayMismatchIndex} 位与观测不一致（抽头/掩码约定或序列有误），外推不可信。`,
+    ],
+  };
+};
+
+export const lfsrPredictHelper = (value: string) => {
+  const fields = parseLooseCtfFields(value);
+  const inference = inferLfsrBitsFromText(value);
+  const bits = inference.bits;
+  if (bits.length < 4) throw new Error('LFSR 外推需要 ≥4 bit 的 0/1 keystream（可用 bits=/keystream= 字段或直接粘贴二进制串）');
+  const tapsField = looseField(fields, ['taps', 'tap', '抽头', 'polynomial']);
+  let taps: number[] = [];
+  let tapSource = '';
+  const hexMask = tapsField?.match(/0x[0-9a-f]+/i)?.[0];
+  if (hexMask) {
+    const maskValue = parseNumericValue(hexMask);
+    if (maskValue != null && maskValue > 0n) {
+      for (let bit = 0; bit < 128; bit += 1) {
+        if ((maskValue >> BigInt(bit)) & 1n) taps.push(bit + 1);
+      }
+      tapSource = `taps 按掩码 ${hexMask} 解释：bit(t-1)=1 ⟺ 抽头 t。`;
+    }
+  } else if (tapsField) {
+    taps = (tapsField.match(/\d+/g) || []).map(Number).filter(tap => tap >= 1);
+  }
+  let complexity: number | null = null;
+  if (!taps.length) {
+    const analysis = berlekampMassey(bits);
+    taps = analysis.polynomial
+      .map((coefficient, index) => (coefficient && index > 0 ? index : -1))
+      .filter(index => index > 0);
+    complexity = analysis.complexity;
+    tapSource = `Berlekamp-Massey 自动恢复：线性复杂度 ${analysis.complexity}，抽头 [${taps.join(',')}]`;
+  }
+  const predictField = looseField(fields, ['predict', 'next', 'count']);
+  const predictCount = Math.min(4096, Math.max(0, Number.parseInt(predictField || '16', 10) || 16));
+  const extrapolation = lfsrExtrapolate(bits, taps, predictCount);
+  return JSON.stringify({
+    observedBits: bits.length,
+    taps: extrapolation.taps,
+    length: extrapolation.length,
+    tapSource,
+    linearComplexity: complexity,
+    seedBits: extrapolation.seedBits.join(''),
+    predictedBits: extrapolation.predictedBits.join(''),
+    predictedBitCount: extrapolation.predictedBits.length,
+    replayVerified: extrapolation.replayVerified,
+    replayMismatchIndex: extrapolation.replayMismatchIndex,
+    inferredFields: inference.fields,
+    inferenceConfidence: inference.confidence,
+    notes: [...(inference.notes), ...extrapolation.notes],
+  }, null, 2);
+};
+
 // bigIntSqrt 已下沉 codec/math.ts（T5 解环）；rsa 借用路径改指 math。
 import { bigIntSqrt } from './math';
 export { bigIntSqrt };

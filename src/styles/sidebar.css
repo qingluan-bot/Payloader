@@ -18,8 +18,7 @@
           right: 0;
           width: 1px;
           height: 100%;
-          background: linear-gradient(180deg, var(--neon-cyan), transparent);
-          opacity: 0.3;
+          background: var(--border-color);
         }
 
         .sidebar.collapsed {
@@ -52,7 +51,7 @@
 
         .search-result-count {
           font-size: 11px;
-          color: var(--neon-green);
+          color: var(--accent);
           font-weight: 500;
         }
 
@@ -96,8 +95,8 @@
           display: flex;
           align-items: center;
           width: 100%;
-          min-height: 40px;
-          padding: 8px 12px;
+          min-height: 34px;
+          padding: 6px 12px;
           border: 0;
           border-left: 2px solid transparent;
           border-radius: 0;
@@ -113,7 +112,7 @@
         }
 
         .tree-item.selected {
-          background: rgba(0, 240, 255, 0.1);
+          background: color-mix(in srgb, var(--accent) 10%, transparent);
           border-left-color: var(--neon-cyan);
         }
 
@@ -121,13 +120,14 @@
           color: var(--neon-cyan);
         }
 
+        /* E-17：搜索命中改 accent 底色 + 左描边，与「WAF 可用」绿色语义脱钩 */
         .tree-item.search-match {
-          background: rgba(0, 255, 136, 0.08);
-          border-left-color: var(--neon-green);
+          background: color-mix(in srgb, var(--accent) 8%, transparent);
+          border-left-color: var(--accent);
         }
 
         .tree-item.search-match .tree-label {
-          color: var(--neon-green);
+          color: var(--accent);
           font-weight: 600;
         }
 
@@ -185,7 +185,7 @@
             height: calc(100dvh - var(--app-header-height));
             width: var(--app-drawer-width);
             z-index: 90;
-            box-shadow: 12px 0 30px rgba(0, 0, 0, 0.35);
+            box-shadow: var(--shadow-md);
             transform: translateX(0);
             visibility: visible;
             will-change: transform;
@@ -219,3 +219,31 @@
             transform: translateY(0);
           }
         }
+
+/* EXP 树类型节点分类入口徽标（点击进入该类型全量列表） */
+.tree-badge-type {
+  color: var(--accent, #4c8dff);
+  border-color: var(--accent, #4c8dff);
+}
+
+/* E-16 徽标图例：侧栏底部小字，解释树内 P/T/E 徽标含义（AT 用户已有徽标 aria-label，此处 aria-hidden）。 */
+/* 侧栏转 flex 列，让 .sidebar-content 占满余量、图例常驻底部（作用域限定桌面 aside，不影响移动端 sheet）。 */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar .sidebar-content {
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sidebar-legend {
+  flex-shrink: 0;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}

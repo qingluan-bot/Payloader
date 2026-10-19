@@ -1,3 +1,4 @@
+import type { IconName } from '../../components/Icon';
 import type { OperationId } from '../codec/types';
 
 // CTF 解题工具箱模块契约层（T2 分层解耦）：纯类型 + 纯数据，零运行时 import（type-only 引用
@@ -27,7 +28,8 @@ export interface CtfWorkspaceProps {
 export interface ModuleContract {
   id: string;
   name: { zh: string; en: string };
-  icon: string;
+  // 全站统一 SVG 图标名（Icon.tsx 白名单）；type-only import 编译后擦除，node 沙箱仍可直接加载本文件。
+  icon: IconName;
   entryKinds: ModuleEntryKind[];
   // 切换域时保持挂载（隐藏不卸载），保留工作台输入与选择状态。
   keepMounted?: boolean;
@@ -42,14 +44,14 @@ export const ctfModuleContracts: ModuleContract[] = [
   {
     id: 'cipher',
     name: { zh: '密码与编码', en: 'Ciphers & Encoding' },
-    icon: '🔐',
+    icon: 'lock',
     entryKinds: ['text'],
     keepMounted: true,
   },
   {
     id: 'misc',
     name: { zh: '杂项取证', en: 'Misc & Forensics' },
-    icon: '🧩',
+    icon: 'puzzle',
     entryKinds: ['file'],
     keepMounted: true,
     heroMode: 'collapsed',
@@ -57,7 +59,7 @@ export const ctfModuleContracts: ModuleContract[] = [
   {
     id: 'traffic',
     name: { zh: '流量分析', en: 'Traffic Analysis' },
-    icon: '📡',
+    icon: 'radio',
     entryKinds: ['file'],
     keepMounted: true,
     heroMode: 'collapsed',
@@ -65,7 +67,7 @@ export const ctfModuleContracts: ModuleContract[] = [
   {
     id: 'web',
     name: { zh: 'Web', en: 'Web' },
-    icon: '🌐',
+    icon: 'globe',
     entryKinds: ['text', 'cheatsheet'],
     heroMode: 'collapsed',
 
@@ -73,7 +75,7 @@ export const ctfModuleContracts: ModuleContract[] = [
   {
     id: 'reverse',
     name: { zh: '逆向', en: 'Reverse' },
-    icon: '🔍',
+    icon: 'search',
     entryKinds: ['file', 'cheatsheet'],
     keepMounted: true,
     heroMode: 'collapsed',
@@ -85,7 +87,7 @@ export const ctfModuleContracts: ModuleContract[] = [
   {
     id: 'pwn',
     name: { zh: 'Pwn', en: 'Pwn' },
-    icon: '⚔️',
+    icon: 'crosshair',
     entryKinds: ['text', 'cheatsheet'],
     keepMounted: true,
     heroMode: 'collapsed',
@@ -97,7 +99,7 @@ export const ctfModuleContracts: ModuleContract[] = [
   {
     id: 'ai',
     name: { zh: 'AI', en: 'AI' },
-    icon: '🤖',
+    icon: 'robot',
     entryKinds: ['cheatsheet'],
     heroMode: 'collapsed',
     note: {

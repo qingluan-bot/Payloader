@@ -1,7 +1,7 @@
 {
   "name": "payloader",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.0.2",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -38,10 +38,16 @@
     "apply:windows-signing": "node scripts/apply-signed-windows-installers.mjs",
     "merge:client-shells": "node scripts/merge-client-shell-manifests.mjs",
     "verify:client-release-context": "node scripts/validate-client-release-context.mjs",
-    "lint": "eslint src admin server tests vite.config.ts eslint.config.js scripts/build-default-seed-db.mjs scripts/default-seed-source.mjs scripts/verify-project-attribution.mjs scripts/verify-encoding-tools.mjs scripts/verify-content-quality.mjs scripts/repair-content-quality.mjs scripts/payload-editorial-review.mjs scripts/tool-editorial-review.mjs scripts/curate-payload-library.mjs scripts/apply-payload-curation.mjs scripts/generate-core-tool-migrations.mjs scripts/generate-core-web-semantic-reviews.mjs scripts/generate-intranet-technique-reviews.mjs scripts/generate-remaining-web-reviews.mjs scripts/generate-tool-quality-completion.mjs scripts/build-client-shells.mjs scripts/build-windows-signing-stages.mjs scripts/apply-signed-windows-installers.mjs scripts/client-binary-architecture.mjs scripts/merge-client-shell-manifests.mjs scripts/validate-client-release-context.mjs scripts/run-production-build.mjs scripts/run-quality-gate.mjs scripts/run-client-performance-check.mjs scripts/smoke-running-server.mjs scripts/smoke-client-performance.mjs scripts/smoke-client-shell.mjs",
+    "lint": "eslint src admin server tests vite.config.ts eslint.config.js scripts/build-default-seed-db.mjs scripts/default-seed-source.mjs scripts/verify-project-attribution.mjs scripts/verify-encoding-tools.mjs scripts/verify-content-quality.mjs scripts/repair-content-quality.mjs scripts/payload-editorial-review.mjs scripts/tool-editorial-review.mjs scripts/curate-payload-library.mjs scripts/apply-payload-curation.mjs scripts/generate-core-tool-migrations.mjs scripts/generate-core-web-semantic-reviews.mjs scripts/generate-intranet-technique-reviews.mjs scripts/generate-remaining-web-reviews.mjs scripts/generate-tool-quality-completion.mjs scripts/build-client-shells.mjs scripts/build-windows-signing-stages.mjs scripts/apply-signed-windows-installers.mjs scripts/client-binary-architecture.mjs scripts/merge-client-shell-manifests.mjs scripts/validate-client-release-context.mjs scripts/run-production-build.mjs scripts/run-quality-gate.mjs scripts/run-client-performance-check.mjs scripts/smoke-running-server.mjs scripts/smoke-client-performance.mjs scripts/smoke-client-shell.mjs scripts/aggregate-exp-corpus.mjs scripts/import-exp.mjs scripts/exp-corpus",
     "check": "node scripts/run-quality-gate.mjs",
     "preview": "vite preview",
-    "serve": "node server/admin-server.mjs"
+    "serve": "node server/admin-server.mjs",
+    "curate:exp": "node scripts/build-exp-seed.mjs",
+    "verify:exp": "node scripts/build-exp-seed.mjs --verify",
+    "aggregate:exp": "node scripts/aggregate-exp-corpus.mjs",
+    "aggregate:exp:verify": "node scripts/aggregate-exp-corpus.mjs --verify",
+    "import:exp": "node scripts/import-exp.mjs",
+    "calibrate:exp": "node scripts/calibrate-exp-severity.mjs"
   },
   "dependencies": {
     "@alexaltea/capstone-js": "^5.0.9",
@@ -63,6 +69,7 @@
     "react-dom": "^19.2.0",
     "semver": "^7.8.5",
     "sm-crypto": "^0.5.7",
+    "svg-captcha": "^1.4.0",
     "tar": "^7.5.20",
     "tar-stream": "^3.2.0",
     "whirlpool-js": "^1.0.0",

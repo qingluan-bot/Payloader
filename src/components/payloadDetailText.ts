@@ -37,6 +37,7 @@ const uiText = {
   clearSearch: { zh: '清除', en: 'Clear' },
   noItemsTitle: { zh: '没有匹配的 Payload', en: 'No matching payloads' },
   noItemsHint: { zh: '换个关键词试试。', en: 'Try another keyword.' },
+  clearFilters: { zh: '清除筛选', en: 'Clear filters' },
   noWafTitle: { zh: '当前条目暂无 WAF 绕过内容', en: 'No WAF bypass content for this item' },
   noWafHint: { zh: '这里不会用标准 Payload 冒充绕过方案，可切回标准模式查看已有内容。', en: 'Standard payloads are not presented as bypasses. Switch to standard mode to view available content.' },
   backToNormal: { zh: '切回标准模式', en: 'Use standard mode' },

@@ -483,24 +483,44 @@ export const xorAutoSolve = (bytes: Uint8Array, options: XorAutoSolveOptions = {
   }
   const printableRatio = printable / plainBytes.length;
   let confidence = (0.6 * printableRatio + 0.4 * Math.min(1, bestLenScore / 0.06)) * Math.min(1, bytes.length / 40);
-  if (bestCandidate.verified && hint && plaintext.includes(hint)) confidence = Math.max(confidence, 0.8);
+  // 长度比惩罚（审计 BUG-09）：密文不足 keyLen 的 8 倍时逐列频率自由度过高，
+  // 错误 key 也能凑出高可打印率——按比例线性压低，短密文不再给出 0.5+ 的乐观置信度。
+  confidence *= Math.min(1, bytes.length / (key.length * 8));
+  // hintVerified 语义 = "明文确含 hint"（审计 BUG-09）：不区分 key 来自 hint 派生还是
+  // 重合指数统计——只要还原明文真的含有已知片段，对选手就是同等强度的验证信号。
+  const hintVerified = Boolean(hint) && plaintext.includes(hint);
+  if (hintVerified) confidence = Math.max(confidence, 0.8);
   confidence = Math.min(confidence, 0.99);
 
-  return { key, keyText: latin1(key), keyLen: key.length, plaintext, keyLenScore, confidence, hintVerified: bestCandidate.verified };
+  return { key, keyText: latin1(key), keyLen: key.length, plaintext, keyLenScore, confidence, hintVerified };
 };
 
 // ---- Vigenère 自动破译（IC 择优 + 列卡方拟合） ----
 
-export interface VigenereAutoSolveResult {
+export interface VigenereAutoSolveOptions {
+  /** 已知明文 crib（如 'flag{'）：按周期一致性锁定对应列的密钥前缀，其余列仍走卡方+精修。 */
+  knownPlaintext?: string;
+}
+
+export interface VigenereCandidate {
   /** 大写字母密钥。 */
   key: string;
   keyLen: number;
   /** 解密结果：保留大小写与非字母原样。 */
   plaintext: string;
+}
+
+export interface VigenereAutoSolveResult {
+  key: string;
+  keyLen: number;
+  /** 解密结果：保留大小写与非字母原样。 */
+  plaintext: string;
   confidence: number;
-  /** 因子族候选（最优长度与最小非平凡因子不同时给出）：字母+bigram 目标下整数倍长度
-   *  可过拟合出伪英文，正确解可能是其中较短者，由选手并排识别。 */
-  alternate?: { key: string; keyLen: number; plaintext: string };
+  /** 次优候选（校正分最高且 key 不同的解）：因子族过拟合场景下正确解常在此。 */
+  alternate?: VigenereCandidate;
+  /** top-N 候选（主候选首位，按过拟合校正分排序）：短文本多列精修可把伪英文推过真解，
+   * 置信度再高也不该只给单一口径——候选列表全透明（审计 BUG-01④）。 */
+  candidates?: Array<VigenereCandidate & { score: number }>;
 }
 
 const extractLetters = (text: string) => {
@@ -575,25 +595,87 @@ const letterStreamScore = (plainValues: number[], adjacent: boolean[]) => {
   return score;
 };
 
-export const vigenereAutoSolve = (cipher: string): VigenereAutoSolveResult => {
+// 列级精修的伪增益与自由度/样本比（keyLen/文长）成正比：12-14 列在 ~110 字母文本上实测能把
+// 伪英文推过真解约 0.26/字母。长度比较前统一扣除 OVERFIT_RATE·keyLen/letterCount，
+// 短凯撒/ROT13（真 keyLen=1）不再被多列过拟合击败，长文本（比 <1:30）几乎不受影响（审计 BUG-01）。
+const VIGENERE_OVERFIT_RATE = 2.4;
+
+export const vigenereAutoSolve = (cipher: string, options: VigenereAutoSolveOptions = {}): VigenereAutoSolveResult => {
   const { positions, values, adjacent } = extractLetters(cipher);
   const letterCount = values.length;
-  if (!letterCount) return { key: '', keyLen: 0, plaintext: cipher, confidence: 0 };
+  if (!letterCount) return { key: '', keyLen: 0, plaintext: cipher, confidence: 0, candidates: [] };
   const maxLen = Math.max(1, Math.min(20, Math.floor(letterCount / 2)));
   const decryptWithKey = (key: number[]) => values.map((value, index) => (value - key[index % key.length] + 26) % 26);
 
+  // crib 锁定（审计 BUG-07/GAP-1）：已知明文逐位按 i mod keyLen 推列移位，冲突的长度整体排除；
+  // 通过一致性校验的长度记录"列 → 移位"锁定表，求解时锁定列不参与卡方初值与精修漂移。
+  const cribLetters = (options.knownPlaintext ?? '').toUpperCase().replace(/[^A-Z]/g, '');
+  const lockedByLen = new Map<number, Map<number, number>>();
+  if (cribLetters.length >= 2 && cribLetters.length <= letterCount) {
+    for (let len = 1; len <= maxLen; len += 1) {
+      const locked = new Map<number, number>();
+      let consistent = true;
+      for (let index = 0; index < cribLetters.length && consistent; index += 1) {
+        const column = index % len;
+        const shift = (((values[index] - (cribLetters.charCodeAt(index) - 65)) % 26) + 26) % 26;
+        const existing = locked.get(column);
+        if (existing === undefined) locked.set(column, shift);
+        else if (existing !== shift) consistent = false;
+      }
+      if (consistent) lockedByLen.set(len, locked);
+    }
+  }
+
   // 完整求解单个候选长度（卡方初值 + 列级 bigram 精修），返回 { key, rank }。
   const solveForLength = (len: number): { key: number[]; rank: number } => {
-    const key = Array.from({ length: len }, (_, column) => chiSquaredShift(values, column, len));
+    const locked = lockedByLen.get(len);
+    const key = Array.from({ length: len }, (_, column) => locked?.get(column) ?? chiSquaredShift(values, column, len));
+    if (locked) {
+      // crib 锚定模式：未知列 ≤3 时做 26^k 关节全枚举取全局最优——短文本下逐列贪心会困在
+      // 联合局部最优（C07 未知两列需同时正确，bigram 链才显现），且关节枚举量 ≤26³ 可控。
+      // 每长度保留 top-2 联合解进候选池：21 字母级别 unigram+bigram 模型对未知列的区分度
+      // 有限（真解与次优可差 2-3 分/全文），只回 argmax 会把真解藏掉，候选透明化兜底。
+      const unlocked = Array.from({ length: len }, (_, column) => column).filter(column => !locked.has(column));
+      if (unlocked.length >= 1 && unlocked.length <= 3) {
+        const combos: Array<{ key: number[]; score: number }> = [];
+        const walk = (depth: number) => {
+          if (depth === unlocked.length) {
+            combos.push({ key: key.slice(), score: letterStreamScore(decryptWithKey(key), adjacent) });
+            return;
+          }
+          const column = unlocked[depth];
+          const original = key[column];
+          for (let shift = 0; shift < 26; shift += 1) {
+            key[column] = shift;
+            walk(depth + 1);
+          }
+          key[column] = original;
+        };
+        walk(0);
+        combos.sort((left, right) => right.score - left.score);
+        const adjustedBase = combos[0].score - len * 1e-6;
+        const solution: LengthSolution = { len, key: combos[0].key, adjusted: adjustedOf({ key: combos[0].key, rank: adjustedBase }, len) };
+        solutions.push(solution);
+        if (combos.length > 1) {
+          const runnerUpRank = combos[1].score - len * 1e-6;
+          solutions.push({ len, key: combos[1].key, adjusted: adjustedOf({ key: combos[1].key, rank: runnerUpRank }, len) });
+        }
+        return { key: solution.key, rank: adjustedBase };
+      }
+    }
     // 列级精修：列样本少时卡方会有偏差，用全文 bigram 耦合评分逐列重试 26 个移位。
     // 带 4 分边际门控：评分在列样本上有噪声，微小"改进"不采纳，避免把卡方已正确的列漂移错。
+    // crib 锚定模式用 0 边际：锁定列已被已知明文钉死，精修只负责补齐未知列——
+    // 短文本下真列修正的 bigram 增益常不足 4 分（C07 3 字母/列场景），门控会把真解挡在门外。
+    const refineMargin = locked ? 0 : 4;
     let currentScore = letterStreamScore(decryptWithKey(key), adjacent);
     for (let round = 0; round < 3; round += 1) {
       let improved = false;
       for (let column = 0; column < len; column += 1) {
+        if (locked?.has(column)) continue;
         const original = key[column];
         let bestShift = original;
-        let bestScore = currentScore + 4;
+        let bestScore = currentScore + refineMargin;
         for (let shift = 0; shift < 26; shift += 1) {
           if (shift === original) continue;
           key[column] = shift;
@@ -605,7 +687,7 @@ export const vigenereAutoSolve = (cipher: string): VigenereAutoSolveResult => {
         }
         key[column] = bestShift;
         if (bestShift !== original) {
-          currentScore = bestScore - 4;
+          currentScore = bestScore - refineMargin;
           improved = true;
         }
       }
@@ -614,9 +696,39 @@ export const vigenereAutoSolve = (cipher: string): VigenereAutoSolveResult => {
     return { key, rank: currentScore - len * 1e-6 };
   };
 
-  // 长度选择：先扫描全长度找评分最优，再对其全部真因子重解比较——评分按每字母归一化，
-  // 长密钥列精修的过拟合优势摊到每字母后消失（正确解的明文就是最高 bigram 分），
-  // 归一化分并列（差 < 0.005/字母）时取更短（奥卡姆）。IC 只做粗筛跳过明显随机的长度以省计算。
+  // 明文按原位写回 + key 最小周期归并（'CRYPTOCRYPTO' → 'CRYPTO'）。
+  const renderPlain = (key: number[]) => {
+    const plainValues = decryptWithKey(key);
+    const output = Array.from(cipher);
+    for (let index = 0; index < positions.length; index += 1) {
+      const position = positions[index];
+      const code = cipher.charCodeAt(position);
+      output[position] = String.fromCharCode((code >= 65 && code <= 90 ? 65 : 97) + plainValues[index]);
+    }
+    return output.join('');
+  };
+  const keyTextOf = (key: number[]) => {
+    let reduced = key.length;
+    for (let period = 1; period < reduced; period += 1) {
+      let periodic = true;
+      for (let index = period; index < key.length; index += 1) {
+        if (key[index] !== key[index % period]) {
+          periodic = false;
+          break;
+        }
+      }
+      if (periodic) {
+        reduced = period;
+        break;
+      }
+    }
+    return { keyText: key.slice(0, reduced).map(shift => LETTERS[shift]).join(''), keyLen: reduced };
+  };
+
+  // 长度选择：先扫描全长度找校正分最优，再对其全部真因子（含 1——凯撒/ROT13 的真解）重解比较。
+  // 每字母评分扣除过拟合校正项（见 VIGENERE_OVERFIT_RATE）后，多列精修的伪增益不再压过真解；
+  // 校正分并列（差 < 0.02/字母）时取更短（奥卡姆）。IC 只做粗筛跳过明显随机的长度以省计算，
+  // crib 锚定的长度不受粗筛影响（其列移位来自已知明文而非统计）。
   const RANDOM_IC = 0.0385;
   const icByLen: number[] = [];
   let bestIc = 0;
@@ -627,102 +739,93 @@ export const vigenereAutoSolve = (cipher: string): VigenereAutoSolveResult => {
   }
   const icFloor = bestIc > RANDOM_IC * 1.3 ? Math.min(RANDOM_IC * 1.3 + (bestIc - RANDOM_IC) * 0.25, bestIc) : bestIc;
 
-  let bestKey: number[] = [];
-  let bestPerLetter = -Infinity;
-  let bestLen = 1;
-  for (let len = 1; len <= maxLen; len += 1) {
-    if (len > 1 && icByLen[len] < icFloor) continue;
-    const { key, rank } = solveForLength(len);
-    const perLetter = (rank + len * 1e-6) / letterCount;
-    if (perLetter > bestPerLetter) {
-      bestPerLetter = perLetter;
-      bestKey = key;
-      bestLen = len;
-    }
-  }
-  // 真因子重解归约：bestLen 的全部真因子（含 1）重解，归一化分接近（0.005/字母容差）即取更短。
-  for (let d = 1; d < bestLen; d += 1) {
-    if (bestLen % d !== 0) continue;
-    const { key, rank } = solveForLength(d);
-    const perLetter = (rank + d * 1e-6) / letterCount;
-    if (perLetter >= bestPerLetter - 0.005) {
-      bestKey = key;
-      bestLen = d;
-      bestPerLetter = perLetter;
-      break;
-    }
-  }
-
-  // 缩减到密钥最小周期（'CRYPTOCRYPTO' → 'CRYPTO'）。
-  let keyLen = bestKey.length;
-  for (let period = 1; period < keyLen; period += 1) {
-    let periodic = true;
-    for (let index = period; index < bestKey.length; index += 1) {
-      if (bestKey[index] !== bestKey[index % period]) {
-        periodic = false;
-        break;
-      }
-    }
-    if (periodic) {
-      keyLen = period;
-      break;
-    }
-  }
-
-  const plainValues = decryptWithKey(bestKey);
-  const output = Array.from(cipher);
-  for (let index = 0; index < positions.length; index += 1) {
-    const position = positions[index];
-    const code = cipher.charCodeAt(position);
-    output[position] = String.fromCharCode((code >= 65 && code <= 90 ? 65 : 97) + plainValues[index]);
-  }
-  const confidence = Math.min(0.99, Math.max(0, (bestIc - 0.038) / (ENGLISH_INDEX_OF_COINCIDENCE - 0.038)) * Math.min(1, letterCount / 60));
-
-  // 因子族多候选（实战需要）：字母+bigram 目标下，真密钥长的整数倍可过拟合出"高频伪英文"超过真解——
-  // 把最优长度与其最小非平凡因子（若不同）的解都返回，由选手并排识别正确明文（xortool 同策略）。
-  const primary = {
-    key: bestKey.slice(0, keyLen).map(shift => LETTERS[shift]).join(''),
-    keyLen,
-    plaintext: output.join(''),
+  const adjustedOf = (solved: { key: number[]; rank: number }, len: number) => {
+    const perLetter = (solved.rank + len * 1e-6) / letterCount;
+    return perLetter - VIGENERE_OVERFIT_RATE * (len / letterCount);
   };
-  let alternate: { key: string; keyLen: number; plaintext: string } | null = null;
-  if (bestLen > 2) {
-    // 全部真因子（≥2 且 < bestLen）重解，取每字母分最高的作为并排候选——
-    // 正确密钥长度的明文分理论上限就是真明文，通常即因子族中的最优短解。
-    let altBest: { key: number[]; perLetter: number } | null = null;
-    for (let d = 2; d < bestLen; d += 1) {
-      if (bestLen % d !== 0) continue;
-      const solved = solveForLength(d);
-      const perLetter = (solved.rank + d * 1e-6) / letterCount;
-      if (!altBest || perLetter > altBest.perLetter) altBest = { key: solved.key, perLetter };
-    }
-    if (altBest) {
-      let altKeyLen = altBest.key.length;
-      for (let period = 1; period < altKeyLen; period += 1) {
-        let periodic = true;
-        for (let index = period; index < altBest.key.length; index += 1) {
-          if (altBest.key[index] !== altBest.key[index % period]) { periodic = false; break; }
-        }
-        if (periodic) { altKeyLen = period; break; }
-      }
-      const altPlainValues = decryptWithKey(altBest.key);
-      const altOutput = Array.from(cipher);
-      for (let index = 0; index < positions.length; index += 1) {
-        const position = positions[index];
-        const code = cipher.charCodeAt(position);
-        altOutput[position] = String.fromCharCode((code >= 65 && code <= 90 ? 65 : 97) + altPlainValues[index]);
-      }
-      alternate = {
-        key: altBest.key.slice(0, altKeyLen).map(shift => LETTERS[shift]).join(''),
-        keyLen: altKeyLen,
-        plaintext: altOutput.join(''),
-      };
+
+  // crib 可用（存在一致长度）时进入"锚定模式"：只考虑与已知明文周期一致的长度——
+  // 已知明文是用户给出的硬证据，不能让忽略 crib 的统计解反超（C07 'flag{' → CRYP… 场景）。
+  const cribRestricted = lockedByLen.size > 0;
+
+  interface LengthSolution {
+    len: number;
+    key: number[];
+    adjusted: number;
+  }
+  const solutions: LengthSolution[] = [];
+  const ensureSolved = (len: number): LengthSolution => {
+    const existing = solutions.find(item => item.len === len);
+    if (existing) return existing;
+    const solved = solveForLength(len);
+    const solution: LengthSolution = { len, key: solved.key, adjusted: adjustedOf(solved, len) };
+    solutions.push(solution);
+    return solution;
+  };
+  for (let len = 1; len <= maxLen; len += 1) {
+    if (cribRestricted && !lockedByLen.has(len)) continue;
+    if (len > 1 && icByLen[len] < icFloor && !lockedByLen.has(len)) continue;
+    ensureSolved(len);
+  }
+  solutions.sort((left, right) => right.adjusted - left.adjusted);
+  let best = solutions[0] ?? ensureSolved(1);
+
+  // 真因子重解归约：bestLen 的全部真因子（含 1）重解，过拟合校正分接近（0.02/字母容差）即取更短。
+  // crib 锚定模式下只允许归约到同样与已知明文一致的因子长度。
+  for (let d = 1; d < best.len; d += 1) {
+    if (best.len % d !== 0) continue;
+    if (cribRestricted && !lockedByLen.has(d)) continue;
+    const solution = ensureSolved(d);
+    if (solution.adjusted >= best.adjusted - 0.02) {
+      best = solution;
+      break;
     }
   }
+
+  // top-N 候选（主候选首位）：过拟合校正分全排序、按 key 去重，真解即使在多列过拟合之后也可见。
+  const candidateEntries = solutions
+    .slice()
+    .sort((left, right) => right.adjusted - left.adjusted)
+    .map(solution => {
+      const { keyText, keyLen } = keyTextOf(solution.key);
+      return { keyText, keyLen, adjusted: solution.adjusted, rawKey: solution.key };
+    });
+  const dedupedByKey: typeof candidateEntries = [];
+  for (const entry of candidateEntries) {
+    if (entry.keyText && !dedupedByKey.some(item => item.keyText === entry.keyText)) dedupedByKey.push(entry);
+  }
+  const bestOf = dedupedByKey.find(item => item.rawKey === best.key) ?? dedupedByKey[0];
+  const ordered = [bestOf, ...dedupedByKey.filter(item => item !== bestOf)].slice(0, 5);
+  const primaryEntry = ordered[0];
+
+  const plainValuesForPrimary = decryptWithKey(primaryEntry.rawKey);
+  const primaryPlaintext = renderPlain(primaryEntry.rawKey);
+
+  let confidence = Math.min(0.99, Math.max(0, (bestIc - 0.038) / (ENGLISH_INDEX_OF_COINCIDENCE - 0.038)) * Math.min(1, letterCount / 60));
+  const cribConfirmed = Boolean(cribLetters)
+    && lockedByLen.has(primaryEntry.rawKey.length)
+    && plainValuesForPrimary.slice(0, cribLetters.length).every((value, index) => value === cribLetters.charCodeAt(index) - 65);
+  // keyLen/文长 > 1:6（审计 BUG-01③）：列级自由度过高，统计结论本身不可靠——显著压低置信度；
+  // crib 锚定的 key 长度除外（锁定列不来自统计，比例再高也有已知明文背书）。
+  if (!cribConfirmed && primaryEntry.keyLen / letterCount > 1 / 6) confidence *= 0.3;
+  if (cribConfirmed) confidence = Math.max(confidence, 0.7);
+
+  const candidates = ordered.map(entry => ({
+    key: entry.keyText,
+    keyLen: entry.keyLen,
+    plaintext: renderPlain(entry.rawKey),
+    score: Number(entry.adjusted.toFixed(4)),
+  }));
+  const alternateCandidate = candidates.find(item => item.key !== primaryEntry.keyText);
+  const alternate = alternateCandidate ? { key: alternateCandidate.key, keyLen: alternateCandidate.keyLen, plaintext: alternateCandidate.plaintext } : undefined;
+
   return {
-    ...primary,
+    key: primaryEntry.keyText,
+    keyLen: primaryEntry.keyLen,
+    plaintext: primaryPlaintext,
     confidence,
     ...(alternate ? { alternate } : {}),
+    candidates,
   };
 };
 
@@ -751,9 +854,36 @@ export interface SubstitutionAutoSolveResult {
   confidence: number;
 }
 
+// 输入以 CJK 为主（≥60% 码点落在 U+4E00-9FFF 基本区）判定：中文谐音替换密码无字母频率可用，
+// 英文单表替换频率爬山对该形态必然产出伪解，供破译入口前置短路。
+export const isCjkDominatedText = (input: string): boolean => {
+  const characters = [...input];
+  if (characters.length === 0) return false;
+  let cjkCount = 0;
+  for (const char of characters) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code >= 0x4e00 && code <= 0x9fff) cjkCount += 1;
+  }
+  return cjkCount / characters.length >= 0.6;
+};
+
+// CJK 短路提示文案（autoSolve 结果与 transform 分发层共用，单一出处防双份漂移）。
+export const cjkSubstitutionHint = '请改用「谐音对照解码」操作：粘贴对照明文与对照密文两段参考文本，逐字对齐构建替换映射后再还原密文。';
+
 const BIGRAM_SCALE = 2.5;
 
 export const substitutionAutoSolve = (cipher: string, options: SubstitutionAutoSolveOptions = {}): SubstitutionAutoSolveResult => {
+  // 中文谐音替换（谍报型）无字母频率可用：不跑英文爬山，在既有结果结构里给出
+  // 指向「谐音对照解码」操作的提示（confidence 0），英文破译路径零改动。
+  if (isCjkDominatedText(cipher)) {
+    return {
+      mapping: {},
+      mappingKey: '',
+      plaintext: `输入以中文为主，英文单表替换频率破译不适用。${cjkSubstitutionHint}`,
+      score: 0,
+      confidence: 0,
+    };
+  }
   const cribs = (options.cribs ?? [])
     .map(crib => crib.toUpperCase().replace(/[^A-Z]/g, ''))
     .filter(crib => crib.length >= 2);

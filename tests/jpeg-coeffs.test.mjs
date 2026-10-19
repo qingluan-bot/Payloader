@@ -228,6 +228,26 @@ test('jstegReveal：includeMinusOne 开关的跳过集差异（-1 系数默认�
   assert.equal(legacy.rawBits[0], 0b110);
 });
 
+// ---- 真实工具产物回归锚（jsteg Go 原版） ----
+
+test('黄金向量：jsteg Go 原版产物经完整管线命中 flag（标准之字表回归锚）', () => {
+  // lukechampine/jsteg（Go 原版，`go install` 构建）`jsteg hide carrier.jpg secret.txt out.jpg`
+  // 产物复制为 tests/fixtures/jsteg-real-carrier.jpg（sha256
+  // d17a7964829d5574b354a675b4fd9d79382e2408dce4dc7bff5aadbc3d4d6f98）。
+  // jsteg 用标准之字序消费系数——本锚钉住 vendor 表不得改回 jpeg-6b 历史互换序
+  // （55/62 适配只允许做在 F5/outguess 消费侧）。
+  const fixturePath = path.join(projectRoot, 'tests', 'fixtures', 'jsteg-real-carrier.jpg');
+  const bytes = new Uint8Array(fs.readFileSync(fixturePath));
+  const reveal = jsteg.jstegReveal(bytes);
+  assert.ok(
+    reveal.findings.some(
+      (f) => f.kind === 'jsteg' && f.preview.includes('flag{jsteg_real_tool_ok}'),
+    ),
+    `应命中 jsteg CLI 封装 finding（实际 ${JSON.stringify(Array.from(reveal.findings, (f) => f.kind))}）`,
+  );
+  assert.ok(reveal.findings.some((f) => f.kind === 'flag' && f.preview.includes('flag{jsteg_real_tool_ok}')));
+});
+
 // ---- 防呆 ----
 
 test('readJpegCoefficients/jstegReveal：非 JPEG / 空 / 渐进式 / 截断 / 20MB 均抛中文错误', () => {

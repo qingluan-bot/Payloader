@@ -31,6 +31,10 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   return copyViaExecCommand(text);
 }
 
+// 复制成功全局事件（CopyToast 消费）：useCopyFeedback 是组件级 state，
+// toast 需要跨组件全局反馈（移动端 M3：复制成功 toast），事件总线最轻。
+export const COPIED_EVENT = 'payloader:copied';
+
 // 复制反馈 hook：copiedKey 记录最近一次成功复制的 key（不传 key 用 '' 哨兵，适合单按钮 boolean 判断），
 // resetMs 后自动复位。全站统一 1800ms（此前 1500/1600/1800/2000 四种并存）。
 export function useCopyFeedback(resetMs = 1800): {
@@ -47,6 +51,7 @@ export function useCopyFeedback(resetMs = 1800): {
   const copy = useCallback(async (text: string, key?: string): Promise<boolean> => {
     const ok = await copyToClipboard(text);
     if (!ok) return false;
+    window.dispatchEvent(new CustomEvent(COPIED_EVENT));
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     setCopiedKey(key ?? '');
     timerRef.current = window.setTimeout(() => {

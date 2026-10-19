@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { Icon } from '../Icon';
 
 interface CtfHeroStripProps {
   // 折叠条状态摘要：一眼看到当前识别进展（由宿主按 running/输入/flag 命中等算好传入）。
@@ -28,9 +29,12 @@ function CtfHeroStrip({ status, expanded, onExpand, onSwitchToCipher, language, 
           aria-expanded={false}
           title={isZh ? '展开完整智能识别（粘贴即自动解码）' : 'Expand full Smart Identify (auto-decodes on paste)'}
         >
-          <strong>⚡ {isZh ? '快速文本识别' : 'Quick Identify'}</strong>
+          <strong><Icon name="zap" size={16} /> {isZh ? '快速文本识别' : 'Quick Identify'}</strong>
           <span className="ctf-hero-strip-status">{status}</span>
-          <span className="ctf-hero-strip-toggle" aria-hidden="true">{isZh ? '展开 ▾' : 'Expand ▾'}</span>
+          <span className="ctf-hero-strip-toggle" aria-hidden="true">
+            {isZh ? '展开' : 'Expand'}
+            <Icon name="chevron-down" size={14} />
+          </span>
         </button>
         {onSwitchToCipher ? (
           <button

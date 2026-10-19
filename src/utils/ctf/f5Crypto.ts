@@ -1,9 +1,11 @@
 // F5 隐写前置件（批次 SI·A 线）：Java sun.security.provider.SecureRandom（SHA1PRNG）与
-// F5 的 Permutation 置换复刻（规格取自 OpenJDK jdk8u SecureRandom.java 与 Westfeld F5
-// crypt/F5Random.java + crypt/Permutation.java，按算法规格重写非翻译源码）。
-// SHA1PRNG 语义：state(20B) = SHA1(seed)；每块输出 = SHA1(state)，随后
-// state = (state + 输出 + 1) mod 2^160（逐字节大端带进位，初始 carry=1）；未消费字节进
-// remainder 下次先取。getNextValue：4 字节按 Java 带符号 byte 符号扩展组装 int32，% max，负则 +max。
+// F5 的 Permutation 置换复刻（规格取自 OpenJDK jdk8u SecureRandom.updateState 与 Westfeld
+// F5 crypt/F5Random.java + crypt/Permutation.java，按算法规格重写非翻译源码）。
+// SHA1PRNG 语义：state(20B) = SHA1(seed)；每块输出 = SHA1(state)，随后按 JDK updateState
+// 推进——index 0→19 逐字节做【带符号 byte 加法】v = state[i] + output[i] + last（last 初值
+// 1，为算术进位 v>>8，可为负），state[i] = v & 0xff；整块无任何字节发生变化则 state[0]++。
+// 未消费字节进 remainder 下次先取。getNextValue：4 字节按 Java 带符号 byte 符号扩展组装
+// int32，% max，负则 +max。
 import { sha1Bytes } from './rarCrypt';
 
 export class F5Random {
@@ -20,22 +22,20 @@ export class F5Random {
     // 显式拷贝为独立缓冲：sha1Bytes 返回的视图类型携带 ArrayBufferLike，避免严格模式赋值摩擦
     this.remainder = new Uint8Array(output);
     this.remainderIndex = 0;
-    // state += output + 1 (mod 2^160)：从最低位（大端末字节）带进位
-    let carry = 1;
-    for (let index = 19; index >= 0; index -= 1) {
-      const sum = this.state[index] + output[index] + carry;
-      this.state[index] = sum & 0xff;
-      carry = sum >> 8;
-    }
-    // OpenJDK：加法后若 state 全零（和恰为 2^160 的 2^-160 概率事件）则 state[0]=1，保证状态前进
-    let allZero = true;
+    // JDK updateState：index 0→19，state/output 均按带符号 byte 参与 int 加法，
+    // last = v >> 8（算术移位，v 为负时 last 为负）；zf 记录"是否有字节发生变化"
+    let last = 1;
+    let zf = false;
     for (let index = 0; index < 20; index += 1) {
-      if (this.state[index] !== 0) {
-        allZero = false;
-        break;
-      }
+      const sum =
+        ((this.state[index] << 24) >> 24) + ((output[index] << 24) >> 24) + last;
+      const updated = sum & 0xff;
+      zf = zf || this.state[index] !== updated;
+      this.state[index] = updated;
+      last = sum >> 8;
     }
-    if (allZero) this.state[0] = 1;
+    // JDK：整块无任何字节变化（state 未前进的退化情形）则 state[0]++ 强制前进
+    if (!zf) this.state[0] += 1;
   }
 
   getNextByte(): number {

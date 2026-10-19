@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useLanguage } from '../../appContext';
+import { Icon } from '../Icon';
 import { copyToClipboard } from '../../utils/clipboard';
 import { useDebouncedCallback } from '../../utils/debounce';
 import CheatsheetSection from './CheatsheetSection';
@@ -88,7 +89,14 @@ const useBinaryLoader = (zh: boolean): {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const parsed = parseElf(bytes);
       if (!parsed.ok) {
-        setError(zh ? `「${file.name}」不是可解析的 ELF 文件（${parsed.error}）` : `"${file.name}" is not a parseable ELF (${parsed.error})`);
+        // F-13：非 ELF（魔数不符）给统一行动文案；其余解析错误（截断等）保留引擎细节。
+        setError(/魔数/.test(parsed.error)
+          ? (zh
+            ? '这不是 ELF 文件（文件头魔数不是 \\x7fELF）。请拖入题目二进制或 libc。'
+            : 'This is not an ELF file (the header magic is not \\x7fELF). Drop the challenge binary or a libc instead.')
+          : (zh
+            ? `「${file.name}」不是可解析的 ELF 文件（${parsed.error}）`
+            : `"${file.name}" is not a parseable ELF (${parsed.error})`));
         setBinary(null);
         return;
       }
@@ -552,7 +560,9 @@ function CyclicCard() {
   const staleLookup = lookup !== null && lookup.input !== crashInput;
   const failed = lookup !== null && !staleLookup && 'error' in lookup.result ? lookup.result : null;
   const succeeded = lookup !== null && !staleLookup && !('error' in lookup.result) ? lookup.result : null;
-  const beyondGenerated = succeeded !== null && succeeded.offset >= pattern.length;
+  // 引擎侧精确判定（offset 在界内但命中窗口越过 pattern 边界 → beyondPattern）优先于 UI 粗判
+  const beyondGenerated = succeeded !== null
+    && (succeeded.beyondPattern === true || (succeeded.beyondPattern === undefined && succeeded.offset >= pattern.length));
 
   return (
     <section id="pwn-card-cyclic" className="ff-card" aria-label={zh ? 'cyclic pattern 生成与反查' : 'Cyclic pattern generator and offset lookup'}>
@@ -643,8 +653,9 @@ function CyclicCard() {
           {beyondGenerated && (
             <p className="ff-note">
               {zh
-                ? `注意：该 offset 超出你当前生成的 ${pattern.length} 字符——它仍是完整序列中的正确位置，但说明崩溃点在你发送内容之外，检查是否发够了长度。`
-                : `Note: the offset exceeds your generated ${pattern.length} chars — still a valid position in the full sequence, but the crash lies beyond what you sent.`}
+                ? `注意：该 offset 超出你当前生成的 ${pattern.length} 字符——它仍是完整序列中的正确位置，但说明崩溃点在你发送内容之外，检查是否发够了长度。默认字母表为 62 字符（含大写与数字），pwntools cyclic 默认是小写 26 表——对拍口径不同结果会不同。`
+                : `Note: the offset exceeds your generated ${pattern.length} chars — still a valid position in the full sequence, but the crash lies beyond what you sent. The default alphabet is 62 chars (upper+lower+digits); pwntools cyclic defaults to the lowercase 26-char set.`}
+              {succeeded?.patternNote && <><br />{succeeded.patternNote}</>}
             </p>
           )}
         </div>
@@ -998,21 +1009,19 @@ function PwnWorkspace({ pendingFile, onFileConsumed }: {
         </nav>
         <div className="ctf-toolnav-body">
           {/* hidden 保挂载：切换工具不丢各卡输入状态 */}
+          {/* F-13：错误态隐藏"拖入文件"空态大卡，错误卡（上方 role=alert）单独呈现；选择文件按钮只留 hero 一个 */}
           <div className="ctf-toolpanel" hidden={activeTool !== 'binary'}>
             {binary ? (
               <BinaryWorkbench binary={binary} zh={zh} onClear={clear} />
-            ) : (
+            ) : error ? null : (
               <div className="ff-dropzone">
-                <div className="ff-dropzone-icon" aria-hidden="true">⚔️</div>
+                <div className="ff-dropzone-icon" aria-hidden="true"><Icon name="crosshair" size={34} /></div>
                 <strong>{zh ? '拖入 ELF（题目二进制或 libc），或点击选择' : 'Drop an ELF (challenge binary or libc), or click to browse'}</strong>
                 <small>
                   {zh
                     ? '载入后这里出二进制概要、checksec 攻击路径建议、libc 符号偏移与 gadget 扫描四张卡。'
                     : 'Unlocks binary summary, checksec verdicts, libc offsets, and gadget scanning.'}
                 </small>
-                <button type="button" className="ff-button ff-button-primary" onClick={() => inputRef.current?.click()}>
-                  {zh ? '选择 ELF 文件' : 'Choose ELF file'}
-                </button>
                 <p className="ff-note">
                   {zh
                     ? 'cyclic / 坏字符 / 格式化字符串 / ROP / shellcode / exp 模板在「Payload 构造」分组可直接使用，无需文件。'

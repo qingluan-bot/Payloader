@@ -506,6 +506,7 @@ test('body decoding and health, readiness, and authenticated safety APIs honor b
   process.env.PAYLOADER_SEED_DB = missingSeedPath;
   process.env.PAYLOADER_ADMIN_USER = 'data-safety-admin';
   process.env.PAYLOADER_ADMIN_PASSWORD = 'Data-Safety-Password-2026!';
+  process.env.PAYLOADER_CAPTCHA_ECHO_ANSWER = '1';
   process.env.PAYLOADER_PORT = '0';
 
   const admin = await import(uniqueModuleUrl('../server/admin-server.mjs', 'admin-api'));
@@ -550,10 +551,16 @@ test('body decoding and health, readiness, and authenticated safety APIs honor b
   const unauthorizedExport = await fetch(`${baseUrl}/api/admin/export`);
   assert.equal(unauthorizedExport.status, 401);
 
+  const captcha = await (await fetch(`${baseUrl}/api/admin/captcha`)).json();
   const login = await fetch(`${baseUrl}/api/admin/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: 'data-safety-admin', password: 'Data-Safety-Password-2026!' }),
+    body: JSON.stringify({
+      username: 'data-safety-admin',
+      password: 'Data-Safety-Password-2026!',
+      captchaToken: captcha.token,
+      captchaAnswer: captcha.answer,
+    }),
   });
   assert.equal(login.status, 200);
   const session = await login.json();

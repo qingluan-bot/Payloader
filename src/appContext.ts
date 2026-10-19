@@ -1,11 +1,13 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { Language } from './i18n';
-import type { CheatSheet, GlobalVariable, NavItem, PayloadItem, SiteSettings, ToolCommand } from './types';
+import type { CheatSheet, ExploitItem, GlobalVariable, NavItem, PayloadItem, SiteSettings, ToolCommand } from './types';
 import type { SearchMatches } from './searchIndex';
+import type { PayloadSearchCorpus } from './data/payloadSearchCorpus';
 
 export type ThemeMode = 'dark' | 'light';
-export type ActiveTab = 'payloads' | 'tools' | 'ctf';
-export type ActiveView = 'workspace' | 'clientDownloads';
+export type ActiveTab = 'payloads' | 'tools' | 'exploits' | 'ctf';
+// 'more' 仅为移动端「更多」页（MobileNav 第四项）；桌面导航不会产生该值。
+export type ActiveView = 'workspace' | 'clientDownloads' | 'more';
 export type PayloadMode = 'normal' | 'waf';
 
 // ① 静态数据：启动加载后恒定的 publicData 切片与加载状态。消费面最广、变更频率最低。
@@ -14,6 +16,8 @@ export interface StaticDataContextType {
   allToolCommands: ToolCommand[];
   allPayloadNavigation: NavItem[];
   allToolNavigation: NavItem[];
+  allExploits: ExploitItem[];
+  allExploitNavigation: NavItem[];
   settings: SiteSettings;
   // CTF 题型速查（硬编码治理批）：随 /api/public-data 的 DB 权威下发，前端不再打包静态种子。
   ctfCheatsheets: Record<string, CheatSheet>;
@@ -37,6 +41,14 @@ export interface NavContextType {
   setSelectedPayloadId: React.Dispatch<React.SetStateAction<string | null>>;
   selectedToolId: string | null;
   setSelectedToolId: React.Dispatch<React.SetStateAction<string | null>>;
+  selectedExploitId: string | null;
+  setSelectedExploitId: React.Dispatch<React.SetStateAction<string | null>>;
+  /** EXP 分类树类型节点浏览态（值为节点 id，如 web-app-rce）——点左树类型节点进入该漏洞类型全量列表 */
+  selectedExploitTypeId: string | null;
+  setSelectedExploitTypeId: React.Dispatch<React.SetStateAction<string | null>>;
+  /** 移动端 payload/工具 分类浏览态（导航树分类节点 id）：MobileCategoryBar 的 sheet 选中分类后进入该分类条目列表 */
+  mobileCategoryId: string | null;
+  setMobileCategoryId: React.Dispatch<React.SetStateAction<string | null>>;
   bypassMode: PayloadMode;
   setBypassMode: React.Dispatch<React.SetStateAction<PayloadMode>>;
 }
@@ -47,6 +59,9 @@ export interface SearchContextType {
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   deferredSearchQuery: string;
   searchMatches: SearchMatches;
+  // P1-2 搜索语料（命令文本）：App 空闲/首次搜索时延迟拉取后注入，
+  // Header 下拉预览索引与整页搜索共用，保证命令内容搜索不回归
+  payloadCommandCorpus: PayloadSearchCorpus;
 }
 
 // ⑤ 会话：会话内用户可变数据。

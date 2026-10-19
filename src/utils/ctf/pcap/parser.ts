@@ -205,9 +205,8 @@ const parsePcapng = (bytes: Uint8Array, maxPackets: number): ParsedCapture => {
     }
     position += headLength;
   }
-  if (!corrupt && packets.length === 0) {
-    corrupt = { packetIndex: 0, reason: '未找到任何包含数据包的块' };
-  }
+  // 0 包口径与 pcap 解析器一致：仅有 SHB/IDB 的空 pcapng 视作合法捕获（corrupt=null），
+  // 不再单独标注"未找到任何包含数据包的块"——两种格式收尾口径统一为"空即合法"。
   return { format: 'pcapng', byteOrder: little ? 'le' : 'be', nanosecond: false, linkType, linkTypeCount: interfaces.length || 1, packets, truncated, corrupt, packetLimit: maxPackets };
 };
 

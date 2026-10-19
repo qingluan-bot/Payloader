@@ -15,6 +15,10 @@ interface ChallengePickerCardProps {
   onSwitchModule: (moduleId: string) => void;
   // 已上传文件随行移交（traffic 类条目带文件走魔数路由，与推荐条 handoffFile 行为一致）；无文件时不传。
   onHandOffCurrentFile?: () => void;
+  // 受控分类（B3 单一状态源）：父层持有categoryId，左侧工具菜单切视图时反向同步 select，
+  // 消除"select 停在 A 分组、主区已切到 B 工具"的两套导航割裂。不传则退回本地自持。
+  categoryId?: string;
+  onCategoryChange?: (id: string) => void;
 }
 
 const KIND_BADGE: Record<CatalogTool['kind'], { zh: string; en: string }> = {
@@ -31,9 +35,16 @@ function ChallengePickerCard({
   onOpenCipherOperation,
   onSwitchModule,
   onHandOffCurrentFile,
+  categoryId: categoryIdProp,
+  onCategoryChange,
 }: ChallengePickerCardProps) {
   const zh = language === 'zh';
-  const [categoryId, setCategoryId] = useState<string>(challengeCatalog[0].id);
+  const [localCategoryId, setLocalCategoryId] = useState<string>(challengeCatalog[0].id);
+  const categoryId = categoryIdProp ?? localCategoryId;
+  const setCategoryId = (id: string) => {
+    if (onCategoryChange) onCategoryChange(id);
+    else setLocalCategoryId(id);
+  };
   const category: ChallengeCategory = challengeCatalog.find(item => item.id === categoryId) ?? challengeCatalog[0];
 
   const runTool = (tool: CatalogTool) => {
@@ -95,7 +106,8 @@ function ChallengePickerCard({
             onChange={event => setCategoryId(event.target.value)}
           >
             {challengeCatalog.map(item => (
-              <option key={item.id} value={item.id}>{item.icon} {item.label[language]}</option>
+              // option 只能承载纯文本：目录 icon 改为 SVG 后不再进下拉文案，分类名自明。
+              <option key={item.id} value={item.id}>{item.label[language]}</option>
             ))}
           </select>
         </div>

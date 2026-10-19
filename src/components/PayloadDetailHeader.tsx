@@ -14,10 +14,10 @@ interface PayloadDetailHeaderProps {
 
 const getDifficultyColor = (difficulty: string) => {
   switch (difficulty) {
-    case 'beginner': return 'var(--neon-green)';
-    case 'intermediate': return 'var(--neon-cyan)';
-    case 'advanced': return 'var(--neon-orange)';
-    case 'expert': return 'var(--neon-red)';
+    case 'beginner': return 'var(--state-success)';
+    case 'intermediate': return 'var(--accent)';
+    case 'advanced': return 'var(--sev-high)';
+    case 'expert': return 'var(--sev-critical)';
     default: return 'var(--text-muted)';
   }
 };

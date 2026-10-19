@@ -1,8 +1,9 @@
-// 批次 K 杂项取证域引擎测试：全部二进制样本程序化自造（无外部 fixture），逐条验证探测结论。
+// 批次 K 杂项取证域引擎测试：二进制样本以程序化自造为主，真题对拍锚定 real-challenges。
 // 加载方式统一走 tests/helpers/compileTsModule.mjs（T4 测试基建收敛）。
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
-import test from 'node:test';
+import test, { describe, it } from 'node:test';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
 
 // 加载方式统一走 tests/helpers/compileTsModule.mjs（T4 测试基建收敛：同一加载语义只写一遍）。
@@ -10,7 +11,13 @@ const srcDir = path.join(projectRoot, 'src');
 const { loadModule } = createTsModuleLoader();
 
 const fileDetect = loadModule(path.join(srcDir, 'utils', 'ctf', 'fileDetect.ts'));
-const { zeroWidthEncode } = loadModule(path.join(srcDir, 'utils', 'codec', 'textEncodings.ts'));
+const {
+  detectZeroWidthScheme,
+  zeroWidthDecodeAuto,
+  zeroWidthEncode,
+  zeroWidthSchemeDecode,
+  zeroWidthSchemeEncode,
+} = loadModule(path.join(srcDir, 'utils', 'codec', 'textEncodings.ts'));
 
 // ---- 自造二进制工厂 ----
 
@@ -204,6 +211,29 @@ test('PNG IHDR 校验与 CRC 爆破还原', async () => {
   assert.equal(fileDetect.parsePngIhdr(fixed.bytes).crcOk, true, '修复后 CRC 应通过');
 });
 
+// ---- PNG 双维抹零真题（IDAT 数学反推段） ----
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel, title, fn) => (fs.existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel.split('/'))) ? test : test.skip)(title, fn);
+
+realTest('03_png_dimensions/kali.png', 'PNG 双维抹零真题（03 kali.png 1453×1080）：IDAT 数学反推 + CRC 对拍还原', async () => {
+  const kali = Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', '03_png_dimensions', 'kali.png')),
+  );
+  const broken = fileDetect.parsePngIhdr(kali);
+  assert.ok(broken, '真题应为可解析 PNG');
+  assert.equal(broken.width, 0);
+  assert.equal(broken.height, 0);
+  assert.equal(broken.bitDepth, 8);
+  assert.equal(broken.colorType, 6);
+
+  const fixed = await fileDetect.fixPngDimensions(kali);
+  assert.ok(fixed, '双维抹零应经 IDAT 数学反推修复');
+  assert.equal(fixed.width, 1453);
+  assert.equal(fixed.height, 1080);
+  assert.equal(fileDetect.parsePngIhdr(fixed.bytes).crcOk, true, '修复后 IHDR CRC 应通过');
+  assert.equal(fixed.bytes.length, kali.length, '修复只改 IHDR 17 字节，文件长度不变');
+});
+
 // ---- ZIP 伪加密 ----
 
 test('ZIP 伪加密检测与标志位修复', () => {
@@ -231,6 +261,67 @@ test('零宽字符从文本中提取并解码', () => {
   assert.equal(extraction.payload, payload);
   const clean = fileDetect.extractZeroWidthFromText('no zero width here');
   assert.equal(clean.zeroWidthCount, 0);
+});
+
+// ---- 零宽多进制制式（330k misc_tools 口径，黄金向量锚定祥云杯2021-鸣雏恋 key.txt）----
+
+describe('零宽字符多进制制式', () => {
+  const goldenPath = path.join(projectRoot, 'tests', 'real-challenges', 'xctf-misc', '25-祥云杯2021-鸣雏恋', 'key.txt');
+  const golden = fs.readFileSync(goldenPath, 'utf8');
+  const goldenPayload = 'Because I like naruto best';
+  const sample = 'flag{零宽 stego, mixed!}';
+
+  it('黄金向量：key.txt 判为四元制且按 quaternary text 精确解出', () => {
+    const detection = detectZeroWidthScheme(golden);
+    assert.equal(detection.scheme, 'quaternary');
+    assert.equal(zeroWidthSchemeDecode(golden, 'quaternary', 'text'), goldenPayload);
+  });
+
+  it('extractZeroWidthFromText 对 key.txt 走多进制自动路径并回填 scheme/mode', () => {
+    const extraction = fileDetect.extractZeroWidthFromText(golden);
+    assert.equal(extraction.payload, goldenPayload);
+    assert.equal(extraction.scheme, 'quaternary');
+    assert.equal(extraction.mode, 'text');
+  });
+
+  it('quaternary 编码→解码恒等（text 与 binary 模式）', () => {
+    for (const mode of ['text', 'binary']) {
+      const encoded = zeroWidthSchemeEncode(sample, 'quaternary', mode);
+      assert.equal(zeroWidthSchemeDecode(encoded, 'quaternary', mode), sample, `quaternary ${mode} round-trip 失败`);
+    }
+  });
+
+  it('ternary 编码→解码恒等（text 与 binary 模式）', () => {
+    for (const mode of ['text', 'binary']) {
+      const encoded = zeroWidthSchemeEncode(sample, 'ternary', mode);
+      assert.equal(zeroWidthSchemeDecode(encoded, 'ternary', mode), sample, `ternary ${mode} round-trip 失败`);
+    }
+  });
+
+  it('detectZeroWidthScheme 识别存量二元形态', () => {
+    assert.equal(detectZeroWidthScheme(`cover${zeroWidthEncode('hi')}tail`).scheme, 'binary');
+  });
+
+  it('zeroWidthDecodeAuto 对混合形态按 radix2-text 解出（200C→0/200D→1，16 符号/codeUnit）', () => {
+    let radix2 = '';
+    for (const unit of 'AB') {
+      radix2 += unit.charCodeAt(0).toString(2).padStart(16, '0').replace(/0/g, '\u200c').replace(/1/g, '\u200d');
+    }
+    const auto = zeroWidthDecodeAuto(radix2);
+    assert.ok(auto, 'radix2-text 流应有候选命中');
+    assert.equal(auto.scheme, 'mixed');
+    assert.equal(auto.mode, 'text');
+    assert.equal(auto.payload, 'AB');
+  });
+
+  it('zeroWidthDecodeAuto 对 quaternary binary 载荷自动选对模式', () => {
+    const encoded = zeroWidthSchemeEncode('flag{auto}', 'quaternary', 'binary');
+    const auto = zeroWidthDecodeAuto(encoded);
+    assert.ok(auto, 'quaternary binary 流应有候选命中');
+    assert.equal(auto.payload, 'flag{auto}');
+    assert.equal(auto.scheme, 'quaternary');
+    assert.equal(auto.mode, 'binary');
+  });
 });
 
 // ---- 上限常量 ----
@@ -368,6 +459,59 @@ test('findJpegTrailer 解析 marker 链到 EOI 且不误判 FF00 填充', () => 
   assert.equal(hit.trailing.length, trailer.length);
   assert.equal(embedScan.findJpegTrailer(Uint8Array.from(jpeg)), null, '无尾附 JPEG 返回 null');
   assert.equal(embedScan.findJpegTrailer(Uint8Array.from(Buffer.from('not jpeg'))), null, '非 JPEG 返回 null');
+});
+
+realTest('09_trailing_zip/epic-floss-meme.jpg', 'findJpegTrailer 渐进式多 scan JPEG：scan 间 DHT/SOS 段后继续到 EOI（真题 09_trailing_zip）', () => {
+  // 真题：9 个 SOS 的渐进式 JPEG，EOI 后尾附 zip——修复前在第二个 scan 的 FFDA 处误判结构异常返回 null。
+  const real = Uint8Array.from(
+    fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', '09_trailing_zip', 'epic-floss-meme.jpg')),
+  );
+  const hit = embedScan.findJpegTrailer(real);
+  assert.ok(hit, '渐进式 JPEG 应检出 EOI 后尾附');
+  assert.equal(hit.offset, real.length - hit.trailing.length);
+  assert.equal(hit.trailing.length, 352, `尾附长度应为 352（PK zip），实际 ${hit.trailing.length}`);
+  assert.equal(hit.trailing[0], 0x50);
+  assert.equal(hit.trailing[1], 0x4b);
+
+  // 手造双 scan 基线：SOS1 → 熵编码 → DHT → SOS2 → 熵编码 → EOI + 尾附
+  const seg = (marker, payload) => {
+    const out = Buffer.alloc(4 + payload.length);
+    out[0] = 0xff;
+    out[1] = marker;
+    out.writeUInt16BE(payload.length + 2, 2);
+    payload.copy(out, 4);
+    return out;
+  };
+  const progressive = Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    seg(0xda, Buffer.from([1, 1, 0, 0, 0x3f, 0])),
+    Buffer.from('AB\xff\x00CD\xff\xd0EF'),
+    seg(0xc4, Buffer.alloc(20)),
+    seg(0xda, Buffer.from([1, 1, 0, 0, 0x3f, 0])),
+    Buffer.from('XY\xff\x00ZW'),
+    Buffer.from([0xff, 0xd9]),
+    Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  ]);
+  const progressiveHit = embedScan.findJpegTrailer(Uint8Array.from(progressive));
+  assert.ok(progressiveHit, '双 scan 手造向量应走到 EOI');
+  assert.equal(progressiveHit.offset, progressive.length - 4);
+  assert.equal(embedScan.findJpegTrailer(Uint8Array.from(progressive.subarray(0, progressive.length - 4))), null, '无尾附返回 null');
+  // 熵区伪 marker（带合法长度）后仍能回到段链走到 EOI
+  const junk = Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    seg(0xda, Buffer.from([1, 1, 0, 0, 0x3f, 0])),
+    Buffer.from([0x11, 0x22, 0xff, 0xe0, 0x00, 0x04, 0xde, 0xad]),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+  assert.equal(embedScan.findJpegTrailer(Uint8Array.from(junk)), null, '伪 marker 段链走到 EOI 无尾附返回 null');
+  // 段长度非法（越界巨大）仍按结构损坏返回 null
+  const corrupt = Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    seg(0xda, Buffer.from([1, 1, 0, 0, 0x3f, 0])),
+    Buffer.from([0x11, 0xff, 0xe0, 0xde, 0xad]),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+  assert.equal(embedScan.findJpegTrailer(Uint8Array.from(corrupt)), null, '伪 marker 段长度非法返回 null');
 });
 
 test('enumeratePngChunks 列出 tEXt/zTXt/iTXt 内容与 CRC 状态', () => {

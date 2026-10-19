@@ -1,6 +1,6 @@
 // CODEC-IMPORTS
-import { base64ToBytes, bytesToBase64, bytesToBuffer, bytesToHex, hexToBytes } from './bases';
-import { isNobleAeadOperation, utf8Decoder, utf8Encoder } from './alphabets';
+import { base64ToBytes, bytesToBase64, bytesToBuffer, bytesToHex, bytesToFidelityText, decodeBytesToFidelityText, hexToBytes } from './bases';
+import { isNobleAeadOperation, utf8Encoder } from './alphabets';
 import { adler32, crc16, crc32 } from './textEncodings';
 import { parseFunctionLikeCall, parsePythonByteLikeValue, parsePythonTextLikeValue } from './textUtils';
 import { defaultParams } from './operations';
@@ -335,7 +335,8 @@ export const aesDecrypt = async (value: string, secret: string) => {
   const ciphertext = base64ToBytes(payload.ciphertext);
   const key = await deriveAesKey(secret, salt, Number(payload.iterations) || 120000);
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytesToBuffer(iv) }, key, bytesToBuffer(ciphertext));
-  return utf8Decoder.decode(new Uint8Array(plaintext));
+  // 字节保真出口（B4-3）：GCM 认证通过不代表明文是文本——二进制附件场景按 \xNN 呈现，不再 U+FFFD 丢字节。
+  return decodeBytesToFidelityText(new Uint8Array(plaintext));
 };
 
 export const aesEncryptCbc = async (value: string, secret: string, iterations: string) => {
@@ -377,7 +378,8 @@ export const aesDecryptCbc = async (value: string, secret: string) => {
     ['encrypt', 'decrypt'],
   );
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: bytesToBuffer(iv) }, key, bytesToBuffer(ciphertext));
-  return utf8Decoder.decode(new Uint8Array(plaintext));
+  // 字节保真出口（B4-3）：同 GCM——CBC 解出的二进制载荷按 \xNN 呈现。
+  return decodeBytesToFidelityText(new Uint8Array(plaintext));
 };
 
 
@@ -468,7 +470,8 @@ export const openSslAes256CbcTransform = async (direction: Direction, value: str
     bytesToBuffer(parsed.ciphertext),
   ));
   return JSON.stringify({
-    plaintext: utf8Decoder.decode(plaintext),
+    // 字节保真出口（B4-3）：plaintext 字段 \xNN 呈现，plaintextHex 伴生不变（JSON 内不追加页脚行）。
+    plaintext: bytesToFidelityText(plaintext).text,
     plaintextHex: bytesToHex(plaintext),
     format: 'OpenSSL enc Salted__',
     alg: 'AES-256-CBC',
@@ -506,7 +509,8 @@ export const aesDecryptCtr = async (value: string, secret: string) => {
   const ciphertext = base64ToBytes(payload.ciphertext);
   const key = await deriveAesKeyForMode(secret, salt, Number(payload.iterations) || 120000, 'AES-CTR');
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-CTR', counter: bytesToBuffer(counter), length: Number(payload.length) || 64 }, key, bytesToBuffer(ciphertext));
-  return utf8Decoder.decode(new Uint8Array(plaintext));
+  // 字节保真出口（B4-3）：CTR 是流模式，明文常是任意字节——按 \xNN 呈现。
+  return decodeBytesToFidelityText(new Uint8Array(plaintext));
 };
 
 export const loadCryptoJs = async () => (await import('crypto-js')).default;
@@ -719,6 +723,12 @@ export const symmetricFieldAliases: Record<string, string> = {
   cipher: 'ciphertext',
   ciphertext: 'ciphertext',
   ciphertexthex: 'ciphertext',
+  // 编码注解变体（审计 BUG-03）：CTF 题面常写 ciphertext(base64)=…，normalizeCtfFieldName
+  // 剥掉括号/连字符后落到这些键；没有别名时整段粘贴的 prose 一键路径会拿不到 ciphertext。
+  ciphertextbase64: 'ciphertext',
+  ciphertextb64: 'ciphertext',
+  ctbase64: 'ciphertext',
+  ctb64: 'ciphertext',
   counter: 'iv',
   ct: 'ciphertext',
   data: 'ciphertext',
@@ -1107,9 +1117,13 @@ export const prepareSymmetricDecodeInput = (
   ? inferSymmetricCryptoFromText(value, operationId, params)
   : { operationId, input: value, params, fields: {}, confidence: 0, notes: [] };
 
+// UTF-8 严格探测解码器（审计 BUG-02/P1-2）：共享的 utf8Decoder 是 non-fatal 的，
+// 非法字节会被替换成 U+FFFD 而不抛错——hex 回退分支因此成了死代码，二进制明文被永久损毁。
+const strictUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
 export const bytesToUtf8OrHexJson = (bytes: Uint8Array) => {
   try {
-    return utf8Decoder.decode(bytes);
+    return strictUtf8Decoder.decode(bytes);
   } catch {
     return JSON.stringify({
       plaintextHex: bytesToHex(bytes),
@@ -1524,7 +1538,8 @@ export const aesKeyWrapTransform = async (operationId: OperationId, direction: D
       unwrappedEncoding: 'hex',
       unwrappedHex: bytesToHex(output),
       unwrappedBase64: bytesToBase64(output),
-      unwrappedUtf8: utf8Decoder.decode(output),
+      // 字节保真出口（B4-3）：unwrappedUtf8 字段 \xNN 呈现（unwrappedHex 伴生不变）。
+      unwrappedUtf8: bytesToFidelityText(output).text,
     }, null, 2);
   }
   return JSON.stringify({
@@ -1621,7 +1636,8 @@ export const rc4Transform = (value: string, secret: string, decode = false, drop
   for (let index = 0; index < inputBytes.length; index += 1) {
     output[index] = inputBytes[index] ^ nextKeyByte();
   }
-  return decode ? utf8Decoder.decode(output) : bytesToHex(output);
+  // 字节保真出口（B4-3）：RC4 明文常是任意字节（CTF 破密首选），\xNN 呈现不再 U+FFFD 丢字节。
+  return decode ? decodeBytesToFidelityText(output) : bytesToHex(output);
 };
 
 export const blockCipherKeyWords = (secret: string) => {
@@ -1644,10 +1660,12 @@ export const pkcs7Pad = (bytes: Uint8Array, blockSize: number) => {
   return output;
 };
 
-export const pkcs7Unpad = (bytes: Uint8Array) => {
+export const pkcs7Unpad = (bytes: Uint8Array, blockSize = 8) => {
   if (!bytes.length) return bytes;
   const pad = bytes[bytes.length - 1];
-  if (pad <= 0 || pad > 8 || pad > bytes.length) throw new Error('PKCS#7 padding 不合法');
+  // blockSize 参数化（审计 BUG-05/16）：pad≤8 硬上限让 AES 等 16 字节块算法无法复用本函数；
+  // 默认仍为 8，TEA/XTEA 系调用不传参行为不变。
+  if (pad <= 0 || pad > blockSize || pad > bytes.length) throw new Error('PKCS#7 padding 不合法');
   for (let index = bytes.length - pad; index < bytes.length; index += 1) {
     if (bytes[index] !== pad) throw new Error('PKCS#7 padding 不合法');
   }
@@ -1719,7 +1737,21 @@ export const teaTransform = (value: string, secret: string, decode = false, xtea
     const [nextLeft, nextRight] = xtea ? xteaBlock(left, right, key, decode) : teaBlock(left, right, key, decode);
     writeUint32Pair(output, offset, nextLeft, nextRight);
   }
-  return decode ? utf8Decoder.decode(pkcs7Unpad(output)) : bytesToHex(output);
+  return decode
+    ? teaDecodeToText(output)
+    : bytesToHex(output);
+};
+
+// TEA/XTEA 解码出口（审计 BUG-05）：逆向题常见零填充/无填充/二进制负载，强校验 PKCS#7 会
+// 直接抛错把数据扔掉——校验失败改为按无填充原样输出并附注，不再抛错。
+// 字节保真（B4-3）：两条路径都走 \xNN 呈现（原先 padding 成功但内容非法 UTF-8 时静默 U+FFFD）。
+const teaDecodeToText = (output: Uint8Array) => {
+  try {
+    return decodeBytesToFidelityText(pkcs7Unpad(output, 8));
+  } catch {
+    const raw = decodeBytesToFidelityText(output);
+    return `${raw}\n\n（注意：PKCS#7 padding 校验失败，已按无填充输出原始解密结果——零填充/无填充/二进制负载的逆向题常见此形态）`;
+  }
 };
 
 export const bytesToUint32Words = (bytes: Uint8Array, includeLength = false) => {
@@ -1786,6 +1818,191 @@ export const xxteaTransform = (value: string, secret: string, decode = false) =>
     return bytesToHex(uint32WordsToBytes(xxteaWords(words, key), false));
   }
   const words = bytesToUint32Words(hexToBytes(value), false);
-  return utf8Decoder.decode(uint32WordsToBytes(xxteaWords(words, key, true), true));
+  // 字节保真出口（B4-3）：XXTEA 常用于二进制负载逆向，\xNN 呈现不再 U+FFFD 丢字节。
+  return decodeBytesToFidelityText(uint32WordsToBytes(xxteaWords(words, key, true), true));
+};
+
+// ==================== 2DES 中间相遇攻击 ====================
+// 算法出处：Diffie & Hellman 对 NBS-DES 双重加密的 Meet-in-the-Middle 已知明文攻击
+// （1977）；教材规范见 Stinson《Cryptography: Theory and Practice》与 Menezes 等
+// 《Handbook of Applied Cryptography》§7.4（Multiple Encryption）。
+// 原理：C = DES_k2(DES_k1(P))。对每个 k1 候选记录前向中间值 DES_k1(P0) → k1；对每个
+// k2 候选计算反向值 DES_k2⁻¹(C0) 查前向表，命中即得 (k1,k2) join 候选；候选再用全部
+// 已知 (P,C) 对做全链路 ECB 加解密双向复核，把只对首块凑巧一致的结果挡在报告之外。
+// 密钥空间护栏：两把各 ≤10 位、合计 ≤20 位；超限明示不可行（2^56 全空间需要
+// 2^56 量级存储与计算，工具环境不可行）。
+// 权威对拍锚点（单块 DES 原语级，见 tests/crypto-mitm-solitaire.test.mjs）：
+//   key=133457799BBCDFF1 / PT=0123456789ABCDEF → CT=85E813540F0AB405
+//   （Seberry & Pieprzyk《Cryptography: An Introduction to Computer Security》附录 /
+//   J. Orlin Grabbe "The DES Algorithm Illustrated"）
+//   key=0123456789abcdef / "Now is t" → 3FA40E8A984D4815（FIPS PUB 81 附录 ECB 样例首块）
+// 注意：DES 每字节仅高 7 位参与密钥编排（最低位是奇偶校验位），因此仅奇偶位不同的两个
+// 索引（如 0x0041 与 0x0040）给出同一 DES 函数——join 命中可能包含等价密钥，属预期现象，
+// 全链路复核对它们全部放行（它们对任意明文都成立，不是假命中）。
+
+export const TWO_DES_MITM_MAX_KEY_BITS = 10;
+export const TWO_DES_MITM_MAX_TOTAL_BITS = 20;
+
+export type TwoDesMitmPair = { plaintextHex: string; ciphertextHex: string };
+export type TwoDesMitmOptions = { k1Bits?: number; k2Bits?: number };
+export type TwoDesMitmCandidate = {
+  k1Index: number;
+  k2Index: number;
+  k1Hex: string;
+  k2Hex: string;
+  verified: boolean;
+  verifiedPairCount: number;
+};
+
+// 位索引按 8 字节大端整数填充为 DES 密钥（即高位补零 || 索引的 8 字节大端表示）。
+// BigInt 做精确整数运算，避免 >32 位索引的浮点丢精度；运行时同时兼容 number/bigint 入参。
+export const desKeyBytesFromIndex = (index: number): Uint8Array => {
+  let value: bigint;
+  try {
+    value = BigInt(index);
+  } catch {
+    throw new Error(`2DES 密钥索引必须是非负整数，收到 ${String(index)}`);
+  }
+  if (value < 0n) throw new Error(`2DES 密钥索引必须是非负整数，收到 ${String(index)}`);
+  const bytes = new Uint8Array(8);
+  for (let offset = 7; offset >= 0 && value > 0n; offset -= 1) {
+    bytes[offset] = Number(value & 0xffn);
+    value >>= 8n;
+  }
+  if (value > 0n) throw new Error(`2DES 密钥索引超出 8 字节 DES 密钥范围：${String(index)}`);
+  return bytes;
+};
+
+// 单块 DES-ECB 原语（CryptoJS 为标准 DES 实现，key 传 WordArray 时走裸密钥不走 EVP 口令派生）。
+export const desEcbBlock = async (keyHex: string, blockHex: string, decode = false): Promise<string> => {
+  const keyText = String(keyHex || '').trim().replace(/^0x/i, '').toLowerCase();
+  const blockText = String(blockHex || '').trim().replace(/^0x/i, '').toLowerCase();
+  if (!/^[0-9a-f]{16}$/.test(keyText)) throw new Error(`DES key 必须是 16 位 hex（8 字节），收到 ${JSON.stringify(String(keyHex || ''))}`);
+  if (!/^[0-9a-f]{16}$/.test(blockText)) throw new Error(`DES 数据块必须是 16 位 hex（8 字节），收到 ${JSON.stringify(String(blockHex || ''))}`);
+  const CryptoJS = await loadCryptoJs();
+  const keyWord = CryptoJS.enc.Hex.parse(keyText);
+  const blockWord = CryptoJS.enc.Hex.parse(blockText);
+  const config = { mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.NoPadding };
+  if (!decode) {
+    const encrypted = CryptoJS.DES.encrypt(blockWord, keyWord, config);
+    return CryptoJS.enc.Hex.stringify(encrypted.ciphertext).toLowerCase();
+  }
+  const decrypted = CryptoJS.DES.decrypt(CryptoJS.lib.CipherParams.create({ ciphertext: blockWord }), keyWord, config);
+  return CryptoJS.enc.Hex.stringify(decrypted).toLowerCase();
+};
+
+const parseTwoDesMitmPair = (pair: TwoDesMitmPair, index: number) => {
+  const clean = (text: string, label: string) => {
+    const compact = String(text || '').replace(/^0x/i, '').replace(/[\s:_-]/g, '').toLowerCase();
+    if (!/^[0-9a-f]+$/.test(compact) || compact.length < 16 || compact.length % 16 !== 0) {
+      throw new Error(`第 ${index + 1} 组已知数据的 ${label} 必须是 8 字节对齐的 hex（DES 块的整数倍），收到 ${JSON.stringify(String(text || ''))}`);
+    }
+    return compact;
+  };
+  const plaintextHex = clean(pair?.plaintextHex ?? '', 'plaintextHex');
+  const ciphertextHex = clean(pair?.ciphertextHex ?? '', 'ciphertextHex');
+  if (plaintextHex.length !== ciphertextHex.length) {
+    throw new Error(`第 ${index + 1} 组已知数据的明文/密文长度不一致（${plaintextHex.length / 2} 字节 vs ${ciphertextHex.length / 2} 字节）`);
+  }
+  return { plaintextHex, ciphertextHex };
+};
+
+// 2DES 全链路：ECB 逐块 DES_k2(DES_k1(block))（decode 反向）。
+const twoDesChainHex = async (k1Index: number, k2Index: number, dataHex: string, decode = false) => {
+  const k1Hex = bytesToHex(desKeyBytesFromIndex(k1Index));
+  const k2Hex = bytesToHex(desKeyBytesFromIndex(k2Index));
+  const blocks: string[] = [];
+  for (let offset = 0; offset < dataHex.length; offset += 16) {
+    const block = dataHex.slice(offset, offset + 16);
+    blocks.push(decode
+      ? await desEcbBlock(k1Hex, await desEcbBlock(k2Hex, block, true), true)
+      : await desEcbBlock(k2Hex, await desEcbBlock(k1Hex, block)));
+  }
+  return blocks.join('');
+};
+
+// 2DES 中间相遇攻击入口。pairs 至少一组；只有一组时首块做 join、全链路做自洽复核；
+// 提供第二组及以上时，候选必须同时满足全部已知对（第二把尺子筛掉不一致的 join 命中）。
+export const twoDesMeetInTheMiddle = async (pairs: TwoDesMitmPair[], options: TwoDesMitmOptions = {}): Promise<string> => {
+  if (!Array.isArray(pairs) || !pairs.length) throw new Error('2DES 中间相遇至少需要一组已知 (明文, 密文) 对');
+  const k1Bits = options.k1Bits ?? 10;
+  const k2Bits = options.k2Bits ?? 10;
+  for (const [label, bits] of [['k1Bits', k1Bits], ['k2Bits', k2Bits]] as const) {
+    if (!Number.isInteger(bits) || bits < 1 || bits > TWO_DES_MITM_MAX_KEY_BITS) {
+      throw new Error(`2DES 中间相遇要求每把密钥 1-${TWO_DES_MITM_MAX_KEY_BITS} 位（收到 ${label}=${bits}）；超过 ${TWO_DES_MITM_MAX_KEY_BITS} 位后单侧空间 2^${bits} 起步、全密钥 2DES 中间相遇需 2^56 量级存储与计算，本工具明示不可行`);
+    }
+  }
+  if (k1Bits + k2Bits > TWO_DES_MITM_MAX_TOTAL_BITS) {
+    throw new Error(`2DES 中间相遇密钥空间合计 ≤${TWO_DES_MITM_MAX_TOTAL_BITS} 位（收到 ${k1Bits}+${k2Bits}=${k1Bits + k2Bits} 位）；2^${k1Bits + k2Bits} 组合超出本工具可行域，明示不可行`);
+  }
+  const parsed = pairs.map(parseTwoDesMitmPair);
+  const firstPlainBlock = parsed[0].plaintextHex.slice(0, 16);
+  const firstCipherBlock = parsed[0].ciphertextHex.slice(0, 16);
+
+  // 前向表：{DES_k1(P0) → [k1]}。
+  const forwardTable = new Map<string, number[]>();
+  for (let k1 = 0; k1 < 2 ** k1Bits; k1 += 1) {
+    const intermediate = await desEcbBlock(bytesToHex(desKeyBytesFromIndex(k1)), firstPlainBlock);
+    const bucket = forwardTable.get(intermediate);
+    if (bucket) bucket.push(k1);
+    else forwardTable.set(intermediate, [k1]);
+  }
+  // 反向扫描：DES_k2⁻¹(C0) 查前向表 → join 候选。
+  const joinHits: TwoDesMitmCandidate[] = [];
+  for (let k2 = 0; k2 < 2 ** k2Bits; k2 += 1) {
+    const backward = await desEcbBlock(bytesToHex(desKeyBytesFromIndex(k2)), firstCipherBlock, true);
+    const bucket = forwardTable.get(backward);
+    if (!bucket) continue;
+    for (const k1 of bucket) {
+      joinHits.push({
+        k1Index: k1,
+        k2Index: k2,
+        k1Hex: bytesToHex(desKeyBytesFromIndex(k1)),
+        k2Hex: bytesToHex(desKeyBytesFromIndex(k2)),
+        verified: false,
+        verifiedPairCount: 0,
+      });
+    }
+  }
+  // 全链路复核：候选要对全部已知对做"正向加密一致 + 反向解密一致"双向验证。
+  const verified: TwoDesMitmCandidate[] = [];
+  for (const candidate of joinHits) {
+    let pairCount = 0;
+    for (const pair of parsed) {
+      const reEncrypted = await twoDesChainHex(candidate.k1Index, candidate.k2Index, pair.plaintextHex);
+      const reDecrypted = await twoDesChainHex(candidate.k1Index, candidate.k2Index, pair.ciphertextHex, true);
+      if (reEncrypted !== pair.ciphertextHex || reDecrypted !== pair.plaintextHex) {
+        pairCount = 0;
+        break;
+      }
+      pairCount += 1;
+    }
+    candidate.verified = pairCount > 0;
+    candidate.verifiedPairCount = pairCount;
+    if (candidate.verified) verified.push(candidate);
+  }
+  return JSON.stringify({
+    attack: '2DES meet-in-the-middle (C = DES_k2(DES_k1(P)), ECB)',
+    keySpace: {
+      k1Bits,
+      k2Bits,
+      k1Candidates: 2 ** k1Bits,
+      k2Candidates: 2 ** k2Bits,
+    },
+    knownPairCount: parsed.length,
+    firstBlock: { plaintextHex: firstPlainBlock, ciphertextHex: firstCipherBlock },
+    forwardTableEntries: forwardTable.size,
+    joinHits: joinHits.length,
+    verifiedCount: verified.length,
+    verifiedCandidates: verified,
+    rejectedJoinHits: joinHits.length - verified.length,
+    notes: [
+      '候选经全链路双向复核（全部已知对的正向加密与反向解密都要一致）。',
+      parsed.length < 2
+        ? '只提供了一组已知对：join 命中对首块必然自洽（DES 是置换），建议补充第二组 (P,C) 做第二把尺子。'
+        : '多组已知对下，仅满足全部对数的候选会保留在 verifiedCandidates。',
+      'DES 每字节最低位是奇偶校验位、不参与密钥编排：仅奇偶位不同的索引（如 …41 与 …40）是等价密钥，可能同时出现在候选里，属预期现象。',
+    ],
+  }, null, 2);
 };
 

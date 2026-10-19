@@ -1,16 +1,18 @@
 // 公开 API 路由（自 admin-server.mjs 注册表化）：健康/就绪/项目跳转/公开数据/客户端构建。
 // 依赖经工厂注入；publicProjectRoute 与官方跳转目标来自 project-attribution（不透明路由）。
 
-import { json, text } from './http-helpers.mjs';
+import { jsonWithEtag, json, text } from './http-helpers.mjs';
 
 export const createPublicRoutes = ({
   publicDataResponder,
+  payloadSearchCorpusResponder,
   ensureApplicationReady,
   officialProjectUrl,
   publicProjectRoute,
   getPublicClientBuildInfo,
   clientBuildDownload,
   getPublicData,
+  getPayloadDetail,
   baseResponseHeaders,
 }) => {
   const sendDownload = (response, download) => {
@@ -37,6 +39,7 @@ export const createPublicRoutes = ({
         entry(`${origin}/`),
         ...(data.payloads || []).map(p => entry(`${origin}/#/payload/${encodeURIComponent(p.id)}`)),
         ...(data.tools || []).map(t => entry(`${origin}/#/tool/${encodeURIComponent(t.id)}`)),
+        ...(data.exploits || []).map(e => entry(`${origin}/#/exploit/${encodeURIComponent(e.id)}`)),
       ];
       const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
       response.writeHead(200, { ...baseResponseHeaders, 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' });
@@ -84,6 +87,23 @@ export const createPublicRoutes = ({
 
     router.route(['GET'], '/api/public-data', async (request, response) => {
       await publicDataResponder.respond(request, response);
+    }, { group: 'public' });
+
+    // 搜索语料（P1-2）：命令文本独立端点，前端空闲/首次搜索时延迟拉取，保证
+    // public-data 首屏 gzip ≤700KB 的同时命令内容搜索不回归。ETag/压缩同 public-data。
+    router.route(['GET'], '/api/payload-search-corpus', async (request, response) => {
+      await payloadSearchCorpusResponder.respond(request, response);
+    }, { group: 'public' });
+
+    // payload 详情（P1-2）：完整条目按需下发（内存缓存同源，ETag 同 public-data 口径）。
+    // 单条 ~10KB，gzip 按请求即时压缩；404 表示 ID 不存在或未启用。
+    router.route(['GET'], '/api/payloads/:id/detail', async (request, response, { params }) => {
+      const item = await getPayloadDetail(params.id);
+      if (!item) {
+        json(response, 404, { error: 'Payload not found' });
+        return;
+      }
+      await jsonWithEtag(request, response, item, { gzip: true });
     }, { group: 'public' });
 
     router.route(['GET'], '/api/client-build', async (request, response) => {

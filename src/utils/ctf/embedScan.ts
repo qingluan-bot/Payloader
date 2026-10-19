@@ -100,7 +100,9 @@ export const findPngTrailer = (bytes: Uint8Array): TrailerHit | null => {
 };
 
 // JPEG 尾附检测：marker 链解析。段 marker 带 2B 大端长度；SOS(FFDA) 后进入熵编码，
-// 逐字节跳过填充 FF00 与重启标记 FFD0-D7，遇到 FFD9 即 EOI。
+// 逐字节跳过填充 FF00 与重启标记 FFD0-D7，遇到 FFD9 即 EOI。渐进式 JPEG 有多个 scan，
+// scan 之间夹 DHT/DA 等段 marker——熵编码区遇到其他 FFxx 时退出熵编码态回到 marker 链
+// 解析（FFDA 跳段后重新进入），仅结构损坏（段长度非法/流截断）才返回 null。
 export const findJpegTrailer = (bytes: Uint8Array): TrailerHit | null => {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   let position = 2;
@@ -121,8 +123,10 @@ export const findJpegTrailer = (bytes: Uint8Array): TrailerHit | null => {
         const eoiEnd = position + 2;
         return eoiEnd < bytes.length ? { offset: eoiEnd, trailing: bytes.subarray(eoiEnd) } : null;
       }
-      // 熵编码区出现其他 FFxx 属于结构异常；保守终止，不误报尾附。
-      return null;
+      // 其余 FFxx 是下一个段 marker（渐进式多 scan 的 DHT/SOS 等）：退出熵编码态，
+      // 停在 FF 上交回 marker 链解析；position 不动，外层负责跳填充与段长。
+      inScan = false;
+      continue;
     }
     if (bytes[position] !== 0xff) {
       position += 1;
@@ -153,6 +157,52 @@ export const findJpegTrailer = (bytes: Uint8Array): TrailerHit | null => {
     const segmentLength = (bytes[position] << 8) | bytes[position + 1];
     if (segmentLength < 2) return null;
     position += segmentLength;
+  }
+  return null;
+};
+
+// GIF 尾附检测：块结构遍历（只跳块边界，不解码 LZW）。头 13B（6B 签名 GIF8xa + 7B 逻辑屏幕
+// 描述符，packed 0x80 位挂全局色表 3×2^(n+1) 字节）；随后块序列：0x21 扩展块（1B label +
+// sub-block 链）、0x2C 图像描述符（9B + packed 0x80 可选局部色表 + 1B LZW 最小码长 +
+// sub-block 链）、0x3B trailer。trailer 之后仍有剩余即为尾附数据（Aesop 型 IEND 后 base64）；
+// 结构损坏（越界/非法块引入字节）返回 null，交人工判断。
+export const findGifTrailer = (bytes: Uint8Array): TrailerHit | null => {
+  if (bytes.length < 14 || bytes[0] !== 0x47 || bytes[1] !== 0x49 || bytes[2] !== 0x46) return null;
+  let position = 13;
+  const screenPacked = bytes[10];
+  if (screenPacked & 0x80) position += 3 * (1 << ((screenPacked & 0x07) + 1));
+  if (position >= bytes.length) return null;
+  const skipSubBlocks = () => {
+    while (position < bytes.length) {
+      const size = bytes[position];
+      position += 1 + size;
+      if (size === 0) return true;
+    }
+    return false;
+  };
+  let guard = 0;
+  while (position < bytes.length && guard <= 200000) {
+    guard += 1;
+    const introducer = bytes[position];
+    if (introducer === 0x3b) {
+      const end = position + 1;
+      return end < bytes.length ? { offset: end, trailing: bytes.subarray(end) } : null;
+    }
+    if (introducer === 0x21) {
+      position += 2; // label
+      if (!skipSubBlocks()) return null;
+      continue;
+    }
+    if (introducer === 0x2c) {
+      if (position + 10 > bytes.length) return null;
+      const imagePacked = bytes[position + 9];
+      position += 10;
+      if (imagePacked & 0x80) position += 3 * (1 << ((imagePacked & 0x07) + 1));
+      position += 1; // LZW min code size
+      if (!skipSubBlocks()) return null;
+      continue;
+    }
+    return null;
   }
   return null;
 };

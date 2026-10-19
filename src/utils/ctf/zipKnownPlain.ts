@@ -4,7 +4,10 @@
 // 算法阶段：①z[10,32) 候选枚举（末位 keystream 反查 2^22 空间）→ ②逐字节回推缩减
 // → ③z[2,32) 根扩展（升序）→ ④8 字节窗口递归（z 链 + y/x 链重建，与 bkcrack Attack.cpp 逐语句对应）
 // → ⑤窗口前后已知明文与可选 header[10]/[11] 校验字节终验。
-// 性能约束（node 单线程实测）：缩减阶段约 1-2s；攻击耗时 ≈ 真根在升序根表中的位次 × 单根成本（毫秒级）。
+// 性能约束（node 单线程实测）：阶段①②缩减约 1-2s；根扫描单根（2^24 量级 y7 叶枚举 + z/y/x 链重建）约 55-70ms，
+// 攻击耗时 ≈ 根表规模 × 单根成本——根表大小由已知明文字节数决定（12 字节 ~140 万根需小时级、
+// 24 字节 ~数万根需十分钟级、512 字节 ~1.7 万根需 15 分钟上下）。预算耗尽未及真根返回 null
+// （结果带 rootsTotal/rootsScanned 位次），可加大 timeBudgetMs 重试。
 // 已知明文每多 1 字节根表约 ×0.93 收缩（12 字节→~140 万根，88 字节→~10 万根，16K 字节→数千根）；
 // 8-11 字节走启发式路径（秒级、多解取结构最优、不保证唯一），≥12 字节（含校验字节折算）走精确路径。
 // 默认预算 20s 内未及真根则预算截断返回 null，可加大 timeBudgetMs 重试。
@@ -16,6 +19,10 @@ export interface KnownPlainResult {
   plaintext: Uint8Array | null;
   tried: number;
   elapsedMs: number;
+  // 根扫描进度（预算截断/未命中时供调用方回报位次）：rootsTotal=升序根表总数，
+  // rootsScanned=已扫到第几个根；阶段①②预算内未完成时两字段缺省（根表尚未建成）。
+  rootsTotal?: number;
+  rootsScanned?: number;
 }
 
 export interface KnownPlainOptions {
@@ -502,20 +509,23 @@ export const knownPlainTextAttack = (
       roots.sort((a, b) => a - b);
     }
 
-    // 阶段④⑤：根扫描递归攻击
+    // 阶段④⑤：根扫描递归攻击（记录扫描位次，预算截断时随结果回报）
+    let rootsScanned = 0;
     for (let r = 0; r < roots.length && !ctxEarlyExit; r += 1) {
       zlist[7] = roots[r];
       exploreZlists(7);
       ctxTried += 1;
+      rootsScanned = r + 1;
       if ((r & 0xf) === 0) {
         if (!checkDeadline()) break;
         onProgress?.(ctxTried);
       }
     }
+    const rootProgress = { rootsTotal: roots.length, rootsScanned };
 
     if (ctxSolutions.length === 0) {
       onProgress?.(ctxTried);
-      return { keys: null, plaintext: null, tried: ctxTried, elapsedMs: Date.now() - startedAt };
+      return { keys: null, plaintext: null, tried: ctxTried, elapsedMs: Date.now() - startedAt, ...rootProgress };
     }
     if (ctxExactMode) {
       const best = ctxSolutions[0];
@@ -524,6 +534,7 @@ export const knownPlainTextAttack = (
         plaintext: decryptFromWindow(best),
         tried: ctxTried,
         elapsedMs: Date.now() - startedAt,
+        ...rootProgress,
       };
     }
     // 启发式模式（8-11 字节）：按解密结构评分取最优，结果不保证唯一
@@ -542,6 +553,7 @@ export const knownPlainTextAttack = (
       plaintext: decryptFromWindow(bestKeys),
       tried: ctxTried,
       elapsedMs: Date.now() - startedAt,
+      ...rootProgress,
     };
   } finally {
     inAttack = false;

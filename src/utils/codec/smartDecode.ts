@@ -6,13 +6,13 @@ import { canRabinRawDecryptFromText, canRsaRawDecryptFromText, canSmartRsaHelper
 import { SMART_DECODE_ADOPT_FLOOR, canSmartSymmetricDecryptFromText, printableRatio, smartDecodeOutputScore, smartTextScore, tryDecode, trySmartSymmetricDecrypt, trySmartXorDecrypt } from './smartBase';
 import { trySmartClassicDecrypt, trySmartVigenereBruteforce, validAffineMultipliers } from './smartClassical';
 import { a1z26Decode, affineTransform, atbashTransform, baudotDecode, binaryDecode, bubbleBabbleDecode, caesar, decodeUtf16Bytes, dnaDecode, htmlDecode, keyboardShift, morseDecode, natoDecode, octalDecode, polluxDecode, quotedPrintableDecode, rot47, unicodeDecode, utf7Decode, yEncDecode, zeroWidthDecode } from './textEncodings';
-import { base64ToText, decodeAscii85, decodeBase32, decodeBase32768, decodeBase36, decodeBase45, decodeBase58, decodeBase58Check, decodeBase62, decodeBase91, decodeBech32, decodeXxencode, decodeZBase32, hexToBytes, looksLikeBase32768 } from './bases';
+import { base64ToBytes, base64ToText, decodeAscii85, decodeBase32, decodeBase32768, decodeBase36, decodeBase45, decodeBase58, decodeBase58Check, decodeBase62, decodeBase91, decodeBech32, decodeXxencode, decodeZBase32, hexToBytes, looksLikeBase32768 } from './bases';
 import { alphabet, utf8Decoder, zeroWidthOne, zeroWidthZero } from './alphabets';
 import { baconDecode, polybiusDecode } from './classical';
 import { runBrainfuck } from './attacks';
 import { parseFernetRaw } from './tokens';
 import { looksLikeBson, looksLikeProtobufWire, looksLikeSmsPdu } from './binaryFormats';
-import { baijiaxingDecode, bearDecode, buddhaDecode, buddhaV2Decode, hexagramDecode, looksLikeBaijiaxing, looksLikeCloudShadow, looksLikeHexagramNames, looksLikeHexagramSymbols, looksLikeSexagesimal, sexagesimalDecode } from './chineseCiphers';
+import { baijiaxingDecode, bearDecode, buddhaDecode, buddhaV2Decode, cloudShadowDecode, hexagramDecode, looksLikeBaijiaxing, looksLikeCloudShadow, looksLikeHexagramNames, looksLikeHexagramSymbols, looksLikeSexagesimal, sexagesimalDecode } from './chineseCiphers';
 import { looksLikeCetaceanShape, looksLikeCiscoType7Shape, looksLikeDecabitShape, looksLikePizziniShape } from './mapCiphers';
 import { parityBaseLooksLike, parityBaseOperations, parityBaseTransform } from './parityBases';
 import { parityCharLooksLike, parityCharOperations, parityCharTransform } from './parityCharCodes';
@@ -48,6 +48,36 @@ const parityDispatchById = (() => {
   }
   return byId;
 })();
+
+// 审计 BUG-06 配套门控：Base91/Base62/Ascii85/Z85 直连工具解码已改 latin1 无损输出（二进制
+// 载荷不再被 utf8 替换损毁），副作用是垃圾输入也能"解码成功"。智能解码是文本解析器——
+// 沿用旧 utf8 时代的隐式语义：latin1 形态的输出若其字节不是合法 UTF-8，视为解码失败跳过
+//（旧实现产出 U+FFFD 会被评分层拦下）。直连工具路径不受此门控影响。
+const strictUtf8ProbeDecoder = new TextDecoder('utf-8', { fatal: true });
+const isTextualProbeOutput = (output: string) => {
+  let latin1Shaped = true;
+  for (let index = 0; index < output.length; index += 1) {
+    if (output.charCodeAt(index) > 0xff) {
+      latin1Shaped = false;
+      break;
+    }
+  }
+  if (!latin1Shaped) return true;
+  const bytes = new Uint8Array(output.length);
+  for (let index = 0; index < output.length; index += 1) bytes[index] = output.charCodeAt(index);
+  try {
+    strictUtf8ProbeDecoder.decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+};
+// latin1 家族（Base91/Base62/Ascii85/Z85）候选的门控版 tryDecode：非 UTF-8 载荷按解码失败处理
+const tryDecodeTextual = (name: string, input: string, decoder: (value: string) => string) => {
+  const result = tryDecode(name, input, decoder);
+  if (!result || !isTextualProbeOutput(result.output)) return null;
+  return result;
+};
 // 完整 flag 格式清单（前缀{4+位内容}）：智能解码强信号判定与 flag 徽标展示共用同一清单。
 // 带 g 标志，只能用于 matchAll（内部克隆正则）；.test() 场景用 flagFormatPattern() 克隆，避免 lastIndex 漂移。
 const FLAG_FORMAT_PATTERN = /\b(?:flag|ctf|picoctf|htb|thm|key|crypto|dice|wctf|utflag|sekai|actf|seccon|ritsec|lactf|crew|nahamcon|hsctf|justctf|b01lers|wanictf|jerseyctf|mapna)\{[A-Za-z0-9_!@#$%^&*.-]{4,}\}/gi;
@@ -59,6 +89,296 @@ const flagFormatPattern = () => new RegExp(FLAG_FORMAT_PATTERN.source, FLAG_FORM
 const FLAG_KEYWORD_PATTERN = /\b(?:flag|ctf|key)s?\b/gi;
 
 const flagKeywordPattern = () => new RegExp(FLAG_KEYWORD_PATTERN.source, FLAG_KEYWORD_PATTERN.flags);
+
+// ===== B4-1 结构化有效信息加权与封顶 =====
+// 在 smartDecodeOutputScore（基础质量分，0-100）之上叠加带权信号集，供候选层排序使用。
+// 分层：flagStrong（完整 xxx{...} 状态机解析成功）> flagKeyword（flag/ctf/key 独立词）
+//       > structure（URL/JSON/JWT/凭证前缀 ghp_/AKIA_/xox/PEM 头/成功文本）> weakSymbol。
+// 封顶：普通信号（structure + weakSymbol）合计 ≤32，防单信号刷分；adjust 区间 [-120, 40]；
+//       flag 信号不进封顶与区间——flag/目标特征权重恒高于普通信号，不被弱符号刷分翻转。
+// 采纳底线（SMART_DECODE_ADOPT_FLOOR）仍按基础分判定：增强分只改"谁排前"，不改"谁过线"。
+export const SMART_DECODE_SIGNAL_WEIGHTS = {
+  flagStrong: 100,          // 完整格式（前缀{4+位内容}）命中，FLAG_FORMAT_PATTERN 解析成功
+  flagKeyword: 45,          // flag/ctf/key 独立成词且无完整格式（与 strong 互斥不叠加）
+  structureJson: 12,        // 整段 JSON.parse 成功（{...} 或 [...]）
+  structureJwt: 12,         // 三段式 base64url 形状（header.payload.signature）
+  structureCredential: 12,  // 凭证前缀：ghp_/gho_/github_pat_/AKIA/xox[bpsa]-/sk_live_
+  structurePem: 10,         // -----BEGIN ... ----- PEM 头
+  structureUrl: 8,          // http(s):// URL
+  structureSuccess: 6,      // success/welcome/congratulations 类成功文本
+  weakSymbolBraces: 3,      // {} 花括号成对出现（flag{...}/JSON 骨架）
+  weakSymbolUnderscore: 2,  // _ CTF 风格分隔
+  weakSymbolHyphen: 1,      // - 连字符
+  weakSymbolCap: 6,         // weakSymbol 单层封顶（只认"有没有"，不按数量计分）
+  normalSignalCap: 32,      // 普通信号（structure+weakSymbol）合计上限
+  adjustMin: -120,          // adjust 区间下界
+  adjustMax: 40,            // adjust 区间上界
+  soupPenaltyLight: -30,    // 符号汤惩罚（无 flag/结构信号且符号占比 ≥0.5）
+  soupPenaltyMid: -60,      // 符号占比 ≥0.7
+  soupPenaltyHeavy: -100,   // 符号占比 ≥0.9
+  soupMinSample: 12,        // 触发符号汤惩罚的最短非空白样本
+} as const;
+
+export interface SmartDecodeSignalBreakdown {
+  flagTier: 'none' | 'keyword' | 'strong';
+  flagBonus: number;
+  structureHits: string[];
+  structureSum: number;
+  weakSymbolSum: number;
+  normalTotal: number;
+  soupPenalty: number;
+  adjust: number;
+  baseScore: number;
+  total: number;
+}
+
+// 凭证前缀（目标特征）：GitHub PAT / AWS AccessKey / Slack token / Stripe live key
+const SMART_DECODE_CREDENTIAL_PATTERN = /\b(?:ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[bpsa]-[A-Za-z0-9-]{10,}|sk_live_[A-Za-z0-9]{16,})/;
+// JWT 三段式形状：header.payload.signature（段长足以排除普通文件名）
+const SMART_DECODE_JWT_SHAPE_PATTERN = /\b[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/;
+// 成功文本：解码命中后常见的"成功"语义词
+const SMART_DECODE_SUCCESS_PATTERN = /\b(?:success|successful|succeeded|welcome|congratulations|congrats|access granted)\b/i;
+
+// 结构化信号分解：纯函数，只读文本形状。flag 分层互斥（strong 命中时 keyword 不叠加）；
+// weakSymbol 只按"出现与否"计一分档并封顶；符号汤惩罚仅在零 flag、零结构信号时生效。
+export const smartDecodeSignalBreakdown = (text: string, input?: string): SmartDecodeSignalBreakdown => {
+  const weights = SMART_DECODE_SIGNAL_WEIGHTS;
+  const empty: SmartDecodeSignalBreakdown = {
+    flagTier: 'none', flagBonus: 0, structureHits: [], structureSum: 0,
+    weakSymbolSum: 0, normalTotal: 0, soupPenalty: 0, adjust: 0, baseScore: 0, total: 0,
+  };
+  if (!text) return empty;
+  const strong = flagFormatPattern().test(text);
+  const keyword = !strong && flagKeywordPattern().test(text);
+  const flagTier: SmartDecodeSignalBreakdown['flagTier'] = strong ? 'strong' : keyword ? 'keyword' : 'none';
+  const flagBonus = strong ? weights.flagStrong : keyword ? weights.flagKeyword : 0;
+
+  const structureHits: string[] = [];
+  let structureSum = 0;
+  const addStructure = (hit: string, weight: number) => {
+    structureHits.push(hit);
+    structureSum += weight;
+  };
+  const trimmed = text.trim();
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      JSON.parse(trimmed);
+      addStructure('json', weights.structureJson);
+    } catch {
+      // 括号形状但非合法 JSON：不计结构分
+    }
+  }
+  if (SMART_DECODE_JWT_SHAPE_PATTERN.test(text)) addStructure('jwt', weights.structureJwt);
+  if (SMART_DECODE_CREDENTIAL_PATTERN.test(text)) addStructure('credential', weights.structureCredential);
+  if (/-----BEGIN [A-Z ]+-----/.test(text)) addStructure('pem', weights.structurePem);
+  if (/https?:\/\/\S+/i.test(text)) addStructure('url', weights.structureUrl);
+  if (SMART_DECODE_SUCCESS_PATTERN.test(text)) addStructure('success', weights.structureSuccess);
+
+  let weakSymbolSum = 0;
+  if (text.includes('{') && text.includes('}')) weakSymbolSum += weights.weakSymbolBraces;
+  if (text.includes('_')) weakSymbolSum += weights.weakSymbolUnderscore;
+  if (text.includes('-')) weakSymbolSum += weights.weakSymbolHyphen;
+  weakSymbolSum = Math.min(weights.weakSymbolCap, weakSymbolSum);
+
+  // 符号汤惩罚：无 flag/结构信号、非空白样本足够长、可打印非字母数字符号占比过高时压分
+  //（弱符号刷分场景的第二道闸：刷不进结构分桶，还要吃密度惩罚）
+  let soupPenalty = 0;
+  if (flagTier === 'none' && structureSum === 0 && trimmed.length >= weights.soupMinSample) {
+    let wordChars = 0;
+    let symbolChars = 0;
+    for (const char of Array.from(trimmed)) {
+      if (/\s/u.test(char)) continue;
+      const code = char.codePointAt(0) ?? 0;
+      if ((code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a) || code >= 0x80) wordChars += 1;
+      else symbolChars += 1;
+    }
+    const density = symbolChars / Math.max(1, wordChars + symbolChars);
+    if (density >= 0.9) soupPenalty = weights.soupPenaltyHeavy;
+    else if (density >= 0.7) soupPenalty = weights.soupPenaltyMid;
+    else if (density >= 0.5) soupPenalty = weights.soupPenaltyLight;
+  }
+
+  const normalTotal = Math.min(weights.normalSignalCap, structureSum + weakSymbolSum);
+  const adjust = Math.max(weights.adjustMin, Math.min(weights.adjustMax, normalTotal + soupPenalty));
+  const baseScore = smartDecodeOutputScore(text, input);
+  return {
+    flagTier, flagBonus, structureHits, structureSum, weakSymbolSum,
+    normalTotal, soupPenalty, adjust, baseScore,
+    total: Math.max(0, baseScore + flagBonus + adjust),
+  };
+};
+
+// 增强总分 = 基础质量分 + flag 加成（不封顶、不进区间）+ clamp(普通信号 − 符号汤惩罚, -120, +40)。
+// 与基础分同语义的恒等短路：输出与输入空白归一后相同 → 0（沿用 smartDecodeOutputScore 口径）。
+export const smartDecodeStructuredScore = (text: string, input?: string) => {
+  if (!text) return 0;
+  if (input) {
+    const normalize = (v: string) => v.replace(/\s+/g, '');
+    if (normalize(text) === normalize(input)) return 0;
+  }
+  const breakdown = smartDecodeSignalBreakdown(text, input);
+  return Math.max(0, breakdown.total);
+};
+
+// ===== B4-2 宽松字符种类准入档 =====
+// 现有探针全是严格形状门（喵呜表 0/1、emoji 表二进制等变体字符表被形状检查拒绝）。
+// 宽松档按"不同字符（码点）种类数"准入，仅在整条常规链路失败后的兜底位置调用：
+//   BINARY ≤2 / DIGIT ≤10 / HEX ≤17 / BASE64ISH ≤70 种符号。
+// 映射规则：分隔符（空白与 ,;|）原样保留，其余符号按首现顺序映射进对应字母表；
+// 候选结果必须过可打印率门槛（≥0.9）且增强分过采纳底线才呈现——纯垃圾映射自然被拦。
+export const SMART_DECODE_LENIENT_LIMITS = {
+  binary: 2,
+  digit: 10,
+  hex: 17,
+  base64ish: 70,
+} as const;
+
+export const SMART_DECODE_LENIENT_PRINTABLE_FLOOR = 0.9;
+export const SMART_DECODE_LENIENT_MIN_SYMBOLS = 16;
+const SMART_DECODE_LENIENT_SEPARATOR_PATTERN = /[\s,;|]/;
+const SMART_DECODE_LENIENT_BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+// 可打印率（宽松档口径）：可打印 ASCII/常用空白 + 非 Latin 真文本（CJK 等）都算可读；
+// 控制字符与 U+FFFD 替换符算不可读——utf8Decoder 的非致命替换正好在此被拦下。
+const lenientPrintableRatio = (text: string) => {
+  if (!text) return 0;
+  let readable = 0;
+  let total = 0;
+  for (const char of Array.from(text)) {
+    const code = char.codePointAt(0) ?? 0;
+    total += 1;
+    if ((code >= 0x20 && code <= 0x7e) || code === 9 || code === 10 || code === 13) readable += 1;
+    else if (code >= 0xa0 && code !== 0xfffd) readable += 1;
+  }
+  return readable / total;
+};
+
+export interface SmartDecodeLenientHit {
+  tier: 'binary' | 'digit' | 'hex' | 'base64ish';
+  label: string;
+  output: string;
+  kinds: number;
+  mapping: Array<{ from: string; to: string }>;
+  printable: number;
+  score: number;
+}
+
+// 宽松档分析：返回通过全部门槛的最优命中；无命中返回 null。纯函数、无副作用。
+export const analyzeSmartDecodeLenient = (value: string): SmartDecodeLenientHit | null => {
+  if (!value || value.length > 65536) return null;
+  // 已可判定为" resolved 明文"的输入不再宽松探测（普通可读文本不该被映射成垃圾）
+  if (looksLikeResolvedSmartDecodeText(value)) return null;
+  const distinct: string[] = [];
+  let symbolCount = 0;
+  const seen = new Set<string>();
+  for (const char of Array.from(value)) {
+    if (SMART_DECODE_LENIENT_SEPARATOR_PATTERN.test(char)) continue;
+    symbolCount += 1;
+    if (!seen.has(char)) {
+      seen.add(char);
+      distinct.push(char);
+    }
+  }
+  const kinds = distinct.length;
+  if (kinds < 2 || kinds > SMART_DECODE_LENIENT_LIMITS.base64ish) return null;
+  if (symbolCount < SMART_DECODE_LENIENT_MIN_SYMBOLS) return null;
+
+  // 各档解码器：全部走原始字节 → utf8Decoder（非致命替换）路径，输出不含任何附注文本，
+  // 可打印率门槛评估的是解码本体而非展示层装饰。
+  const attempts: Array<{ tier: SmartDecodeLenientHit['tier']; alphabet: string; run: (mapped: string) => string }> = [];
+  if (kinds <= SMART_DECODE_LENIENT_LIMITS.binary) {
+    for (const binaryAlphabet of ['01', '10']) {
+      attempts.push({
+        tier: 'binary',
+        alphabet: binaryAlphabet,
+        run: mapped => {
+          if (symbolCount % 8 !== 0) throw new Error('宽松二进制：符号总数不是 8 的倍数');
+          return binaryDecode(mapped);
+        },
+      });
+    }
+  }
+  if (kinds <= SMART_DECODE_LENIENT_LIMITS.digit) {
+    attempts.push({
+      tier: 'digit',
+      alphabet: '0123456789',
+      run: mapped => {
+        if (!/^[0-7\s,;|]*$/.test(mapped)) throw new Error('宽松数字系：映射后出现 0-7 之外字符');
+        return octalDecode(mapped);
+      },
+    });
+  }
+  if (kinds <= SMART_DECODE_LENIENT_LIMITS.hex) {
+    attempts.push({
+      tier: 'hex',
+      alphabet: '0123456789abcdef',
+      run: mapped => {
+        const compact = mapped.replace(/[\s,;|]+/g, '');
+        if (compact.length % 2 !== 0) throw new Error('宽松 hex：映射后长度为奇数');
+        return utf8Decoder.decode(hexToBytes(compact));
+      },
+    });
+  }
+  if (kinds <= SMART_DECODE_LENIENT_LIMITS.base64ish) {
+    attempts.push({
+      tier: 'base64ish',
+      alphabet: SMART_DECODE_LENIENT_BASE64_ALPHABET,
+      run: mapped => utf8Decoder.decode(base64ToBytes(mapped.replace(/[\s,;|]+/g, ''))),
+    });
+  }
+
+  let best: SmartDecodeLenientHit | null = null;
+  for (const attempt of attempts) {
+    if (kinds > attempt.alphabet.length) continue;
+    // 首现序映射：第 i 个不同符号 → attempt.alphabet[i]；分隔符位置原样保留
+    const mapping = new Map<string, string>();
+    let next = 0;
+    let mapped = '';
+    for (const char of Array.from(value)) {
+      if (SMART_DECODE_LENIENT_SEPARATOR_PATTERN.test(char)) {
+        mapped += char;
+        continue;
+      }
+      let to = mapping.get(char);
+      if (to === undefined) {
+        to = attempt.alphabet[next];
+        mapping.set(char, to);
+        next += 1;
+      }
+      mapped += to;
+    }
+    try {
+      const output = attempt.run(mapped);
+      if (!output || output === value) continue;
+      const printable = lenientPrintableRatio(output);
+      if (printable < SMART_DECODE_LENIENT_PRINTABLE_FLOOR) continue;
+      const score = smartDecodeStructuredScore(output, value);
+      if (score < SMART_DECODE_ADOPT_FLOOR) continue;
+      if (!best || score > best.score) {
+        const mappingText = distinct.map(from => `${from}→${mapping.get(from) ?? ''}`).join('，');
+        const label = attempt.tier === 'binary'
+          ? `宽松档二进制（${mappingText}）`
+          : attempt.tier === 'digit'
+            ? `宽松档数字系 octal（${kinds} 种符号首现序映射 0-9：${mappingText}）`
+            : attempt.tier === 'hex'
+              ? `宽松档 hex（${kinds} 种符号首现序映射 0-f）`
+              : `宽松档 BASE64（${kinds} 种符号首现序映射标准字母表）`;
+        best = {
+          tier: attempt.tier,
+          label,
+          output,
+          kinds,
+          mapping: distinct.map(from => ({ from, to: mapping.get(from) ?? '' })),
+          printable: Math.round(printable * 1000) / 1000,
+          score,
+        };
+      }
+    } catch {
+      // 该档映射解码失败：跳过（形状命中≠必然可解）
+    }
+  }
+  return best;
+};
 
 export interface FlagAutoRange {
   start: number;
@@ -152,7 +472,7 @@ export const smartDecode = async (value: string): Promise<string> => {
     if (!dispatch) continue;
     try {
       const output = await dispatch(probe.id, 'decode', input, defaultParams);
-      if (output && output !== input) return `识别链路: ${probe.label}\n\n${output}`;
+      if (output && output !== input && isTextualProbeOutput(output)) return `识别链路: ${probe.label}\n\n${output}`;
     } catch {
       // 形状命中但解码失败：继续尝试其它探针与泛化路径
     }
@@ -165,6 +485,25 @@ export const smartDecode = async (value: string): Promise<string> => {
   if (smartSubstitution) return smartSubstitution;
   const smartClassic = trySmartClassicDecrypt(input);
   if (smartClassic) return smartClassic;
+  // 云影优先（审计 BUG-14）：0/1/2/4/8 数字串（0 为分隔）是云影密码的强特征，Pollux 的
+  // "数字→摩斯"路径对这类输入也能凑出字母结果并抢占 top1（C08 实测 NRSNN… 乱码）——
+  // 形状命中云影时先解云影，解出字母才返回；否则把云影可能性附注在 Pollux 结果里。
+  // 二进制形状（0/1 八位组）仍归 Binary 解码器，与下方 Pollux 的排除口径一致。
+  const cloudShadowResult = (() => {
+    const digits = input.trim().replace(/\s+/g, '');
+    if (!/^[01248]+$/.test(digits) || digits.length < 4) return null;
+    const rawTrimmed = input.trim();
+    if (/^[01\s,;|]+$/.test(rawTrimmed) && (rawTrimmed.match(/[01]{8}/g) || []).length > 0) return null;
+    if (!looksLikeCloudShadow(digits)) return null;
+    try {
+      const decoded = cloudShadowDecode(digits);
+      if (!decoded || !/[a-z]/i.test(decoded)) return null;
+      return `智能识别: 云影密码\n\n${JSON.stringify({ decoded, note: 'Digits 0/1/2/4/8: 0=separator, each segment sums (1/2/4/8) to A-Z.' }, null, 2)}`;
+    } catch {
+      return null;
+    }
+  })();
+  if (cloudShadowResult) return cloudShadowResult;
   // Pollux: digit-only string → Morse via digit-to-dot/dash mapping
   const polluxResult = (() => {
     const digits = input.trim().replace(/\s+/g, '');
@@ -178,7 +517,10 @@ export const smartDecode = async (value: string): Promise<string> => {
     if (rawTokens.length >= 4 && rawTokens.every(token => /^\d{1,3}$/.test(token))) return null;
     const decoded = polluxDecode(input);
     const letters = decoded.replace(/[^a-z]/gi, '');
-    if (letters.length >= 3 && /[a-z]{2,}/i.test(decoded)) return `智能识别: Pollux cipher\n\n${JSON.stringify({ decoded, note: 'Digits mapped to Morse: evens=dot, odds=dash, 6-9=separator. Result may need further flag extraction.' }, null, 2)}`;
+    if (letters.length >= 3 && /[a-z]{2,}/i.test(decoded)) {
+      const cloudHint = looksLikeCloudShadow(digits) ? '\n该数字串同时符合云影密码形状（0 分隔、1/2/4/8 段内求和），建议先用「云影密码」工具再试。' : '';
+      return `智能识别: Pollux cipher\n\n${JSON.stringify({ decoded, note: 'Digits mapped to Morse: evens=dot, odds=dash, 6-9=separator. Result may need further flag extraction.' + cloudHint }, null, 2)}`;
+    }
     return null;
   })();
   if (polluxResult) return polluxResult;
@@ -306,7 +648,7 @@ export const smartDecode = async (value: string): Promise<string> => {
       /^[a-z0-9]{1,83}1[02-9ac-hj-np-z]{6,}$/i.test(current) ? tryDecode('Bech32', current, decodeBech32) : null,
       /^[0-9A-Z $%*+\-./:]+$/i.test(current) && current.replace(/\s+/g, '').length >= 4 ? tryDecode('Base45', current, decodeBase45) : null,
       /^[0-9A-Z\s]+$/i.test(current) && /[A-Z]/i.test(current) && /\d/.test(current) && current.replace(/\s+/g, '').length >= 6 && !/^[0-9a-f\s]+$/i.test(current) ? tryDecode('Base36', current, decodeBase36) : null,
-      /^[A-Za-z0-9!#$%&()*+,./:;<=>?@[\]^_`{|}~"\s]+$/.test(current) && /[!#$%&()*+,./:;<=>?@[\]^_`{|}~"]/.test(current) && current.length >= 8 ? tryDecode('Base91', current, decodeBase91) : null,
+      /^[A-Za-z0-9!#$%&()*+,./:;<=>?@[\]^_`{|}~"\s]+$/.test(current) && /[!#$%&()*+,./:;<=>?@[\]^_`{|}~"]/.test(current) && current.length >= 8 ? tryDecodeTextual('Base91', current, decodeBase91) : null,
       // Base32768 —— 码点表含大量常用 CJK，用 looksLikeBase32768 收窄后再交给严格解码（未知字符/填充校验）
       looksLikeBase32768(current, false) ? tryDecode('Base32768', current, decodeBase32768) : null,
       /^[01\s,;|]+$/.test(current) && (current.match(/[01]{8}/g) || []).length > 0 ? tryDecode('Binary', current, binaryDecode) : null,
@@ -383,7 +725,7 @@ export const smartDecode = async (value: string): Promise<string> => {
         const clean = current.replace(/\s+/g, '');
         if (!/^[0-9A-Za-z]+$/.test(clean) || clean.length < 8 || clean.length > 4096) return null;
         const output = decodeBase62(clean);
-        if (!output || output === current || smartDecodeOutputScore(output, current) < 60) return null;
+        if (!output || output === current || !isTextualProbeOutput(output) || smartDecodeOutputScore(output, current) < 60) return null;
         return { name: 'Base62', output };
       })(),
       // ASCII decimal codes (space/comma separated codepoints, including tab/LF/CR)
@@ -459,7 +801,7 @@ export const smartDecode = async (value: string): Promise<string> => {
       // Quoted-Printable
       /=\r?\n|=[0-9A-F]{2}/i.test(current) ? tryDecode('Quoted-Printable', current, quotedPrintableDecode) : null,
       // Ascii85
-      /^<~/.test(current.trim()) || /~>$/.test(current.trim()) ? tryDecode('Ascii85', current, decodeAscii85) : null,
+      /^<~/.test(current.trim()) || /~>$/.test(current.trim()) ? tryDecodeTextual('Ascii85', current, decodeAscii85) : null,
       // Bacon cipher (A/B or 0/1 groups of 5) — checked before Baudot to avoid 0/1 conflict
       (() => {
         const stripped = current.replace(/[\s,]/g, '');
@@ -583,18 +925,25 @@ export const smartDecode = async (value: string): Promise<string> => {
       if (!dispatch) continue;
       try {
         const output = await dispatch(probe.id, 'decode', current, defaultParams);
-        if (output && output !== current) candidates.push({ name: probe.label, output, bonus: 25 });
+        if (output && output !== current && isTextualProbeOutput(output)) candidates.push({ name: probe.label, output, bonus: 25 });
       } catch {
         // 形状命中但解码失败：跳过该候选
       }
     }
 
     // Rank every candidate by output quality and adopt only the best; never settle for the first non-empty decode.
+    // B4-1：排序主键为增强分（结构化信号加权，rankScore），次键保持基础分与原始顺序；
+    // score（基础分）仍是唯一采纳口径——增强分只在多个过线候选之间改变谁排前（正确结果排前），
+    // find 首个过线者保证"增强分首选未过线时不吞掉基础分过线候选"（采纳集合与旧口径完全一致）。
     const ranked = candidates
-      .map((candidate, index) => ({ ...candidate, index, score: smartDecodeOutputScore(candidate.output, current) + (candidate.bonus ?? 0) }))
-      .sort((left, right) => right.score - left.score || left.index - right.index);
-    const best = ranked[0];
-    if (!best || best.score < SMART_DECODE_ADOPT_FLOOR) break;
+      .map((candidate, index) => {
+        const score = smartDecodeOutputScore(candidate.output, current) + (candidate.bonus ?? 0);
+        const rankScore = smartDecodeStructuredScore(candidate.output, current) + (candidate.bonus ?? 0);
+        return { ...candidate, index, score, rankScore };
+      })
+      .sort((left, right) => right.rankScore - left.rankScore || right.score - left.score || left.index - right.index);
+    const best = ranked.find(candidate => candidate.score >= SMART_DECODE_ADOPT_FLOOR);
+    if (!best) break;
     // Top-N 多候选：该层全部过线候选 top-5（不足 2 个时补上次优），列表展示相对分数，best 不变
     const closeOnes = ranked
       .filter(candidate => candidate.score >= SMART_DECODE_ADOPT_FLOOR)
@@ -626,11 +975,32 @@ export const smartDecode = async (value: string): Promise<string> => {
   }
 
   if (steps.length) {
+    // B4-2×B4-1 交叉闸：链路终点若不是 resolved 明文（字节保真转义/符号记法类的垃圾链），
+    // 而原始输入在宽松档能解出"resolved 级"明文且增强分显著更高（+5 余量），则按
+    // "正确结果排前"让宽松档胜出。resolved 链路一律不受影响（宽松档绝不抢占自信解码）。
+    if (!looksLikeResolvedSmartDecodeText(current)) {
+      const lenientOnInput = analyzeSmartDecodeLenient(input);
+      if (lenientOnInput
+        && looksLikeResolvedSmartDecodeText(lenientOnInput.output)
+        && lenientOnInput.score > smartDecodeStructuredScore(current, input) + 5) {
+        return appendCandidatesSection(`识别链路: ${lenientOnInput.label}\n\n${lenientOnInput.output}`);
+      }
+    }
     // 链路已有产出时不进入古典破译（破译只兜底完全无命中的输入）
     return appendCandidatesSection(`识别链路: ${steps.join(' -> ')}\n\n${current}`);
   }
   const keylessBreak = await trySmartClassicalKeylessBreak(current);
   if (keylessBreak) return keylessBreak;
+  // B4-2 宽松档：常规探针全失败后的最后兜底（走到这里即全链路未采纳任何候选）。
+  // 按字符种类数准入 + 首现序映射，命中须过可打印率门槛与增强分底线才呈现；
+  // 优先探原始 input，预处理产物（hexdump 清洗/Python 字节剥离等）不同时再探一次。
+  const lenientSources = input !== current ? [input, current] : [input];
+  for (const source of lenientSources) {
+    const lenient = analyzeSmartDecodeLenient(source);
+    if (lenient) {
+      return appendCandidatesSection(`识别链路: ${lenient.label}\n\n${lenient.output}`);
+    }
+  }
   return '没有识别到可安全自动解码的格式。可以手动选择具体算法继续转换。';
 };
 

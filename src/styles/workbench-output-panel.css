@@ -45,7 +45,7 @@
           padding: 5px 9px;
           border: 1px solid var(--border-color);
           border-radius: 6px;
-          background: rgba(255, 255, 255, 0.035);
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
           color: var(--text-secondary);
           font-size: 12px;
           font-weight: 700;
@@ -60,7 +60,7 @@
 
         .wb-out-panel .copy-btn.copied {
           border-color: var(--neon-green);
-          background: rgba(0, 255, 136, 0.1);
+          background: color-mix(in srgb, var(--state-success) 10%, transparent);
           color: var(--neon-green);
         }
 
@@ -102,7 +102,7 @@
 
         .wb-out-search-row input:focus {
           border-color: var(--neon-cyan);
-          box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.12);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
         }
 
         .wb-out-search-meta {
@@ -116,7 +116,7 @@
           min-height: 32px;
           border: 1px solid var(--border-color);
           border-radius: 6px;
-          background: rgba(255, 255, 255, 0.035);
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
           color: var(--text-secondary);
           font-size: 13px;
           font-weight: 800;
@@ -156,7 +156,7 @@
           max-height: 480px;
           overflow: auto;
           border: 1px solid var(--border-color);
-          border-radius: 8px;
+          border-radius: 6px;
           background: var(--bg-secondary);
           color: var(--text-primary);
           padding: 13px;
@@ -171,7 +171,7 @@
 
         .wb-out-rich:focus-visible {
           border-color: var(--neon-cyan);
-          box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.12);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
           outline: none;
         }
 
@@ -182,40 +182,40 @@
         }
 
         .wb-out-search-hit {
-          background: rgba(255, 214, 0, 0.28) !important;
-          box-shadow: 0 0 0 1px rgba(255, 214, 0, 0.35);
-          border-radius: 2px;
+          background: color-mix(in srgb, var(--sev-medium) 28%, transparent) !important;
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-medium) 35%, transparent);
+          border-radius: 4px;
         }
 
         .wb-out-search-hit[data-current="true"] {
-          background: rgba(255, 106, 0, 0.55) !important;
-          box-shadow: 0 0 0 1px rgba(255, 106, 0, 0.7);
+          background: color-mix(in srgb, var(--sev-high) 55%, transparent) !important;
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-high) 70%, transparent);
         }
 
         /* 红区内的搜索命中：黄描边环；当前导航目标橙环，红底保留 */
         .wb-out-search-ring {
-          box-shadow: 0 0 0 1px rgba(255, 214, 0, 0.85);
-          border-radius: 2px;
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-medium) 85%, transparent);
+          border-radius: 4px;
         }
 
         .wb-out-search-ring[data-current="true"] {
-          box-shadow: 0 0 0 2px rgba(255, 106, 0, 0.9);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--sev-high) 90%, transparent);
         }
 
         /* flag 自动标红：完整格式（前缀{...}）深红、flag/ctf/key 关键词红 */
         .wb-out-flag-hit {
-          background: rgba(255, 61, 61, 0.24) !important;
-          color: #ff7b7b;
-          box-shadow: 0 0 0 1px rgba(255, 61, 61, 0.5);
-          border-radius: 2px;
+          background: color-mix(in srgb, var(--sev-critical) 24%, transparent) !important;
+          color: var(--sev-critical);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-critical) 50%, transparent);
+          border-radius: 4px;
           font-weight: 700;
         }
 
         .wb-out-kw-hit {
-          background: rgba(255, 61, 61, 0.13) !important;
-          color: #ff9b9b;
-          box-shadow: 0 0 0 1px rgba(255, 61, 61, 0.28);
-          border-radius: 2px;
+          background: color-mix(in srgb, var(--sev-critical) 13%, transparent) !important;
+          color: var(--sev-critical);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--sev-critical) 28%, transparent);
+          border-radius: 4px;
           font-weight: 600;
         }
 
@@ -225,7 +225,7 @@
           min-height: 110px;
           resize: vertical;
           border: 1px solid var(--border-color);
-          border-radius: 8px;
+          border-radius: 6px;
           background: var(--bg-secondary);
           color: var(--text-primary);
           padding: 13px;
@@ -257,7 +257,7 @@
 
         .wb-out-panel .candidate-option.candidate-current {
           outline: 1px solid var(--neon-cyan);
-          background: rgba(0, 240, 255, 0.12);
+          background: color-mix(in srgb, var(--accent) 12%, transparent);
         }
 
         @media (max-width: 680px) {

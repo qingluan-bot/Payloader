@@ -30,26 +30,36 @@ function ExecutionItem({ exec, index, language, copiedKey, onCopy, onSelectSynta
             <span className="item-index">{String(index + 1).padStart(2, '0')}</span>
             <h4 className="execution-title">{getText(exec.title, language)}</h4>
           </div>
-          <div className="execution-badges">
-            <span className={`badge platform-${exec.platform || 'all'}`}>{platformLabel(exec.platform)}</span>
-            {exec.requiresAdmin && <span className="badge admin">{label('admin', language)}</span>}
-          </div>
+          {exec.requiresAdmin && (
+            <div className="execution-badges">
+              <span className="badge admin">{label('admin', language)}</span>
+            </div>
+          )}
         </div>
         {exec.description && <p className="execution-desc">{getText(exec.description, language)}</p>}
         <div className="code-block-wrapper">
-          <pre className="code-block">{renderCommand(exec.command)}</pre>
-          <div className="code-actions">
-            {exec.syntaxBreakdown?.length ? (
+          {/* E-13：语法解析按钮移入代码块头部，与「复制」并排（原区块分隔线间的 code-actions 退役） */}
+          <div className="code-block">
+            <div className="code-block-head">
+              <span className="code-lang">{platformLabel(exec.platform)}</span>
+              {exec.syntaxBreakdown?.length ? (
+                <button
+                  type="button"
+                  className="syntax-btn"
+                  onClick={() => onSelectSyntax({ syntax: exec.syntaxBreakdown!, title: exec.title })}
+                >
+                  {label('syntax', language)}
+                </button>
+              ) : null}
               <button
-                className="syntax-btn"
-                onClick={() => onSelectSyntax({ syntax: exec.syntaxBreakdown!, title: exec.title })}
+                type="button"
+                className={`copy-btn ${copiedKey === copyId ? 'copied' : ''}`}
+                onClick={() => onCopy(exec.command, copyId)}
               >
-                {label('syntax', language)}
+                {copiedKey === copyId ? label('copied', language) : label('copy', language)}
               </button>
-            ) : null}
-            <button className={`copy-btn ${copiedKey === copyId ? 'copied' : ''}`} onClick={() => onCopy(exec.command, copyId)}>
-              {copiedKey === copyId ? label('copied', language) : label('copy', language)}
-            </button>
+            </div>
+            <pre className="code-block-pre">{renderCommand(exec.command)}</pre>
           </div>
         </div>
       </div>

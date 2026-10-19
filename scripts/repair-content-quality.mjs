@@ -359,7 +359,7 @@ export const repairDatabase = async (file, options = {}) => {
   };
 };
 
-const seedTables = ['metadata', 'navigation_nodes', 'payloads', 'tools'];
+const seedTables = ['exploit_nodes', 'exploits', 'metadata', 'navigation_nodes', 'payloads', 'tools']; // 与 ORDER BY name 字母序一致
 const seedMetadataKeys = ['content_kind', 'generated_at', 'seed_schema_version', 'source'];
 
 const writeCleanSeedDatabase = async (content, file, source) => {
@@ -395,6 +395,22 @@ const writeCleanSeedDatabase = async (content, file, source) => {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE exploits (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE exploit_nodes (
+        id TEXT PRIMARY KEY,
+        tree TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       BEGIN IMMEDIATE;
     `);
     const insertItem = (table, column, items) => {
@@ -406,6 +422,8 @@ const writeCleanSeedDatabase = async (content, file, source) => {
     };
     insertItem('payloads', 'data', content.payloads);
     insertItem('tools', 'data', content.tools);
+    // 治理 B：种子 EXP 域 = 精选层（content.exploits 已在 refreshSeedFromRuntime 过滤）
+    insertItem('exploits', 'data', content.exploits);
     const insertNavigation = database.prepare(`
       INSERT INTO navigation_nodes (id, tree, kind, sort_order, enabled, created_at, updated_at)
       VALUES (?, ?, ?, ?, 1, ?, ?)
@@ -418,6 +436,14 @@ const writeCleanSeedDatabase = async (content, file, source) => {
     });
     addNavigation(content.navigation, 'payloads');
     addNavigation(content.toolNavigation, 'tools');
+    // EXP 分类树（根节点行）
+    const insertExploitNode = database.prepare(`
+      INSERT INTO exploit_nodes (id, tree, sort_order, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?)
+    `);
+    asList(content.exploitNavigation).forEach((item, index) => {
+      insertExploitNode.run(item.id, JSON.stringify(item), index, createdAt, createdAt);
+    });
     const insertMetadata = database.prepare('INSERT INTO metadata (key, value) VALUES (?, ?)');
     insertMetadata.run('seed_schema_version', '1');
     insertMetadata.run('content_kind', 'curated-defaults');
@@ -474,6 +500,9 @@ export const refreshSeedFromRuntime = async (runtimeFile, seedFile, options = {}
   await mkdir(dirname(seed), { recursive: true });
   const temporarySeed = join(dirname(seed), `.content-seed-${randomUUID()}.sqlite`);
   const content = loadContentDataFromDatabase(runtime);
+  // 治理 B 种子纯度：EXP 域只带精选层（source 缺省或 curated）——万级聚合数据留部署实例本地，
+  // 种子进仓库，与 build-exp-seed 的种子过滤同规则（两条种子生成通道口径必须一致）。
+  content.exploits = (content.exploits || []).filter(item => !item.source || item.source === 'curated');
   const writeSeedDatabase = options.writeSeedDatabase || writeCleanSeedDatabase;
   const publishSeed = options.publishSeed || rename;
   let published = false;

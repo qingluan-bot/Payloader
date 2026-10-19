@@ -5,6 +5,7 @@ import { findFlagAutoRanges } from '../../utils/codec/smartDecode';
 import type { FlagAutoRange } from '../../utils/codec/smartDecode';
 import { candidateHighlightKey, formatTextStats, parseCandidateLayers } from './outputPanelUtils';
 import { CodecCandidateList } from './CodecCandidates';
+import { Icon } from '../Icon';
 import '../../styles/workbench-output-panel.css';
 
 // 批次 M 富输出面板：工作台与智能识别 hero 共用。
@@ -123,6 +124,8 @@ export interface WorkbenchOutputPanelProps {
   value: string;
   rawOutput: string;
   error: string;
+  // 原始异常文本（F-07）：error 是映射后的中文提示时，原文收进可展开「详情」；空串 = 无 details。
+  errorDetail?: string;
   running: boolean;
   minHeight?: 'compact' | 'normal';
   onUseAsInput: () => void;
@@ -130,7 +133,7 @@ export interface WorkbenchOutputPanelProps {
   onClear?: () => void;
 }
 
-export const WorkbenchOutputPanel = memo(function WorkbenchOutputPanel({ value, rawOutput, error, running, minHeight = 'normal', onUseAsInput, useAsInputDisabled, onClear }: WorkbenchOutputPanelProps) {
+export const WorkbenchOutputPanel = memo(function WorkbenchOutputPanel({ value, rawOutput, error, errorDetail = '', running, minHeight = 'normal', onUseAsInput, useAsInputDisabled, onClear }: WorkbenchOutputPanelProps) {
   const { language } = useLanguage();
   const [query, setQuery] = useState('');
   const [hitIndex, setHitIndex] = useState(0);
@@ -198,7 +201,8 @@ export const WorkbenchOutputPanel = memo(function WorkbenchOutputPanel({ value, 
   };
 
   const currentCandidate = candidateIndex >= 0 ? flatCandidates[candidateIndex] : null;
-  const statsText = useMemo(() => formatTextStats(error || value, language), [error, value, language]);
+  // F-10：错误不计输出统计——统计只对真实结果计数，错误态显示占位符
+  const statsText = useMemo(() => (error ? '—' : formatTextStats(value, language)), [error, value, language]);
   const searchModeLabel = search.mode === 're' ? (language === 'zh' ? '正则' : 'regex') : search.mode === 'text' ? (language === 'zh' ? '字面' : 'literal') : '';
 
   return (
@@ -240,7 +244,7 @@ export const WorkbenchOutputPanel = memo(function WorkbenchOutputPanel({ value, 
 
       {!error ? (
         <div className="wb-out-search-row">
-          <span aria-hidden="true">🔍</span>
+          <Icon name="search" size={14} />
           <input
             value={query}
             onChange={event => setQuery(event.target.value)}
@@ -267,7 +271,18 @@ export const WorkbenchOutputPanel = memo(function WorkbenchOutputPanel({ value, 
 
       <div className="wb-out-view-wrap" ref={viewRef}>
         {error ? (
-          <textarea className="wb-out-raw error" value={error} readOnly aria-label={language === 'zh' ? '错误信息' : 'Error'} />
+          <div className="wb-out-error" role="alert">
+            <Icon name="alert-triangle" size={15} />
+            <div className="wb-out-error-body">
+              <span className="wb-out-error-text">{error}</span>
+              {errorDetail ? (
+                <details className="wb-out-error-details">
+                  <summary>{language === 'zh' ? '详情' : 'Details'}</summary>
+                  <pre>{errorDetail}</pre>
+                </details>
+              ) : null}
+            </div>
+          </div>
         ) : segments ? (
           <div className="wb-out-rich" role="document" aria-label={language === 'zh' ? '解码结果' : 'Decoded result'} tabIndex={0}>
             {segments.map((atom, index) => {

@@ -16,6 +16,7 @@ test('public runtime endpoints and admin boundary are available', async t => {
   process.env.PAYLOADER_TRUSTED_PROXIES = 'loopback';
   process.env.PAYLOADER_UPDATE_CHECK_DISABLED = 'true';
   process.env.PAYLOADER_CLIENT_SHELLS_REMOTE_DISABLED = 'true';
+  process.env.PAYLOADER_CAPTCHA_ECHO_ANSWER = '1';
 
   const [{ createAdminServer, __adminSecurityTest }, { closeStore }] = await Promise.all([
     import(`../server/admin-server.mjs?api-smoke=${Date.now()}`),
@@ -132,6 +133,13 @@ test('public runtime endpoints and admin boundary are available', async t => {
   }), '127.0.0.1');
 
   const userAgent = 'payloader-api-smoke';
+  const fetchCaptcha = async () => {
+    const response = await fetch(`${baseUrl}/api/admin/captcha`);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    return body;
+  };
+  const loginCaptcha = await fetchCaptcha();
   const login = await fetch(`${baseUrl}/api/admin/login`, {
     method: 'POST',
     headers: {
@@ -141,6 +149,8 @@ test('public runtime endpoints and admin boundary are available', async t => {
     body: JSON.stringify({
       username: process.env.PAYLOADER_ADMIN_USER,
       password: process.env.PAYLOADER_ADMIN_PASSWORD,
+      captchaToken: loginCaptcha.token,
+      captchaAnswer: loginCaptcha.answer,
     }),
   });
   assert.equal(login.status, 200);
@@ -251,6 +261,7 @@ test('public runtime endpoints and admin boundary are available', async t => {
 
   const failedStatuses = [];
   for (let index = 0; index < 8; index += 1) {
+    const failedCaptcha = await fetchCaptcha();
     const failedLogin = await fetch(`${baseUrl}/api/admin/login`, {
       method: 'POST',
       headers: {
@@ -261,12 +272,15 @@ test('public runtime endpoints and admin boundary are available', async t => {
       body: JSON.stringify({
         username: process.env.PAYLOADER_ADMIN_USER,
         password: `Wrong-Smoke-Password-${index}!`,
+        captchaToken: failedCaptcha.token,
+        captchaAnswer: failedCaptcha.answer,
       }),
     });
     failedStatuses.push(failedLogin.status);
   }
   assert.deepEqual(failedStatuses, Array(8).fill(401));
 
+  const recoveredCaptcha = await fetchCaptcha();
   const recoveredLogin = await fetch(`${baseUrl}/api/admin/login`, {
     method: 'POST',
     headers: {
@@ -277,10 +291,13 @@ test('public runtime endpoints and admin boundary are available', async t => {
     body: JSON.stringify({
       username: process.env.PAYLOADER_ADMIN_USER,
       password: process.env.PAYLOADER_ADMIN_PASSWORD,
+      captchaToken: recoveredCaptcha.token,
+      captchaAnswer: recoveredCaptcha.answer,
     }),
   });
   assert.equal(recoveredLogin.status, 200);
 
+  const isolatedCaptcha = await fetchCaptcha();
   const isolatedClientLogin = await fetch(`${baseUrl}/api/admin/login`, {
     method: 'POST',
     headers: {
@@ -291,6 +308,8 @@ test('public runtime endpoints and admin boundary are available', async t => {
     body: JSON.stringify({
       username: process.env.PAYLOADER_ADMIN_USER,
       password: process.env.PAYLOADER_ADMIN_PASSWORD,
+      captchaToken: isolatedCaptcha.token,
+      captchaAnswer: isolatedCaptcha.answer,
     }),
   });
   assert.equal(isolatedClientLogin.status, 200);
@@ -309,9 +328,11 @@ test('public runtime endpoints and admin boundary are available', async t => {
         password: 'Invalid-Anonymous-Password-2026!',
       }),
     });
-    assert.ok([401, 429].includes(anonymousLogin.status));
+    // 匿名洪水不带验证码：先吃 400（验证码即焚拒绝），烧满失败限流后 429
+    assert.ok([400, 401, 429].includes(anonymousLogin.status));
   }
 
+  const afterFloodCaptcha = await fetchCaptcha();
   const loginAfterAnonymousFlood = await fetch(`${baseUrl}/api/admin/login`, {
     method: 'POST',
     headers: {
@@ -322,6 +343,8 @@ test('public runtime endpoints and admin boundary are available', async t => {
     body: JSON.stringify({
       username: process.env.PAYLOADER_ADMIN_USER,
       password: process.env.PAYLOADER_ADMIN_PASSWORD,
+      captchaToken: afterFloodCaptcha.token,
+      captchaAnswer: afterFloodCaptcha.answer,
     }),
   });
   assert.equal(loginAfterAnonymousFlood.status, 200);

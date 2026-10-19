@@ -25,12 +25,18 @@ function AttackChainPanel({ steps, language, copiedKey, onCopy, renderCommand }:
                 <p>{getText(step.description, language)}</p>
                 {step.payload ? (
                   <div className="code-block-wrapper chain-payload">
-                    <span>{label('chainPayload', language)}</span>
-                    <pre className="code-block">{renderCommand(step.payload)}</pre>
-                    <div className="code-actions">
-                      <button className={`copy-btn ${copiedKey === copyId ? 'copied' : ''}`} onClick={() => onCopy(step.payload!, copyId)}>
-                        {copiedKey === copyId ? label('copied', language) : label('copy', language)}
-                      </button>
+                    <div className="code-block">
+                      <div className="code-block-head">
+                        <span className="code-block-title">{label('chainPayload', language)}</span>
+                        <button
+                          type="button"
+                          className={`copy-btn ${copiedKey === copyId ? 'copied' : ''}`}
+                          onClick={() => onCopy(step.payload!, copyId)}
+                        >
+                          {copiedKey === copyId ? label('copied', language) : label('copy', language)}
+                        </button>
+                      </div>
+                      <pre className="code-block-pre">{renderCommand(step.payload)}</pre>
                     </div>
                   </div>
                 ) : null}

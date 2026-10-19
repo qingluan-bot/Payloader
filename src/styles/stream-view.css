@@ -28,7 +28,7 @@
         .pw-stream-item:hover { border-color: var(--neon-cyan); }
         .pw-stream-item-active {
           border-color: var(--neon-cyan);
-          background: rgba(0, 240, 255, 0.06);
+          background: color-mix(in srgb, var(--accent) 6%, transparent);
         }
         .pw-stream-id {
           font-family: var(--font-mono, monospace);
@@ -56,8 +56,8 @@
           color: var(--neon-cyan);
         }
         .pw-badge-warn {
-          border-color: rgba(255, 190, 70, 0.55);
-          color: rgb(255, 205, 100);
+          border-color: color-mix(in srgb, var(--sev-medium) 55%, transparent);
+          color: var(--sev-medium);
         }
         .pw-stream-detail {
           display: grid;
@@ -79,7 +79,7 @@
           padding: 5px 11px;
           border: 1px solid var(--border-color);
           border-radius: 6px;
-          background: rgba(255, 255, 255, 0.035);
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
           color: var(--text-secondary);
           font-size: 12px;
           font-weight: 700;

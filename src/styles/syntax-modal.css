@@ -21,12 +21,12 @@
           .modal-content {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
+            border-radius: 6px;
             width: 90%;
             max-width: 700px;
             max-height: 80vh;
             overflow: hidden;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--shadow-md);
             animation: slideUp 0.3s ease;
           }
 
@@ -45,7 +45,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 24px;
+            padding: 14px 16px;
             border-bottom: 1px solid var(--border-color);
           }
 
@@ -78,7 +78,7 @@
           }
 
           .modal-body {
-            padding: 24px;
+            padding: 16px;
             overflow-y: auto;
             max-height: calc(80vh - 80px);
           }
@@ -118,9 +118,11 @@
             gap: 16px;
             padding: 12px;
             background: var(--bg-tertiary);
-            border-radius: 8px;
+            border-radius: 6px;
             align-items: flex-start;
             min-width: 0;
+            /* E-13：解析条目限宽，长解释文本保持可读行长 */
+            max-width: 520px;
           }
 
           .syntax-part-wrapper {
@@ -145,7 +147,7 @@
           .syntax-type {
             font-size: 10px;
             padding: 2px 6px;
-            border-radius: 3px;
+            border-radius: 4px;
             color: var(--bg-primary);
             font-weight: 600;
             text-transform: uppercase;
@@ -172,7 +174,7 @@
               width: 100%;
               max-width: none;
               max-height: calc(100dvh - 16px);
-              border-radius: 8px;
+              border-radius: 6px;
             }
 
             .modal-header {

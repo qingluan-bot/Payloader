@@ -1,0 +1,668 @@
+{
+ "roots": [
+  {
+   "id": "web-app",
+   "name": {
+    "zh": "Web 应用",
+    "en": "Web Applications"
+   },
+   "children": [
+    {
+     "id": "web-app-rce",
+     "name": {
+      "zh": "远程代码执行",
+      "en": "Remote Code Execution"
+     },
+     "children": [
+      {
+       "id": "web-app-rce-log4shell",
+       "name": {
+        "zh": "Log4j2 (Log4Shell)",
+        "en": "Log4j2 (Log4Shell)"
+       }
+      },
+      {
+       "id": "web-app-rce-thinkphp",
+       "name": {
+        "zh": "ThinkPHP",
+        "en": "ThinkPHP"
+       }
+      },
+      {
+       "id": "web-app-rce-struts2",
+       "name": {
+        "zh": "Struts2",
+        "en": "Struts2"
+       }
+      },
+      {
+       "id": "web-app-rce-confluence",
+       "name": {
+        "zh": "Confluence",
+        "en": "Confluence"
+       }
+      },
+      {
+       "id": "web-app-rce-drupalgeddon2",
+       "name": {
+        "zh": "Drupal (Drupalgeddon2)",
+        "en": "Drupal (Drupalgeddon2)"
+       }
+      }
+     ]
+    },
+    {
+     "id": "web-app-deserialization",
+     "name": {
+      "zh": "反序列化",
+      "en": "Deserialization"
+     },
+     "children": [
+      {
+       "id": "web-app-deserialization-shiro",
+       "name": {
+        "zh": "Shiro",
+        "en": "Shiro"
+       }
+      },
+      {
+       "id": "web-app-deserialization-fastjson",
+       "name": {
+        "zh": "Fastjson",
+        "en": "Fastjson"
+       }
+      }
+     ]
+    },
+    {
+     "id": "web-app-file-upload",
+     "name": {
+      "zh": "文件上传",
+      "en": "File Upload"
+     },
+     "children": [
+      {
+       "id": "web-app-file-upload-tomcat-put",
+       "name": {
+        "zh": "Tomcat PUT",
+        "en": "Tomcat PUT"
+       }
+      }
+     ]
+    },
+    {
+     "id": "web-app-path-traversal",
+     "name": {
+      "zh": "路径穿越",
+      "en": "Path Traversal"
+     },
+     "children": [
+      {
+       "id": "web-app-path-traversal-nginx-alias",
+       "name": {
+        "zh": "Nginx alias",
+        "en": "Nginx alias"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "system-network",
+   "name": {
+    "zh": "系统与网络",
+    "en": "Systems & Network"
+   },
+   "children": [
+    {
+     "id": "system-network-rce",
+     "name": {
+      "zh": "远程代码执行",
+      "en": "Remote Code Execution"
+     },
+     "children": [
+      {
+       "id": "system-network-rce-eternalblue",
+       "name": {
+        "zh": "SMB (EternalBlue)",
+        "en": "SMB (EternalBlue)"
+       }
+      },
+      {
+       "id": "system-network-rce-bluekeep",
+       "name": {
+        "zh": "RDP (BlueKeep)",
+        "en": "RDP (BlueKeep)"
+       }
+      },
+      {
+       "id": "system-network-rce-sambacry",
+       "name": {
+        "zh": "Samba (SambaCry)",
+        "en": "Samba (SambaCry)"
+       }
+      },
+      {
+       "id": "system-network-rce-exchange",
+       "name": {
+        "zh": "Exchange (ProxyLogon)",
+        "en": "Exchange (ProxyLogon)"
+       }
+      }
+     ]
+    },
+    {
+     "id": "system-network-info-disclosure",
+     "name": {
+      "zh": "信息泄露",
+      "en": "Information Disclosure"
+     },
+     "children": [
+      {
+       "id": "system-network-info-disclosure-heartbleed",
+       "name": {
+        "zh": "OpenSSL (Heartbleed)",
+        "en": "OpenSSL (Heartbleed)"
+       }
+      }
+     ]
+    },
+    {
+     "id": "system-network-memory-corruption",
+     "name": {
+      "zh": "内存破坏",
+      "en": "Memory Corruption"
+     },
+     "children": [
+      {
+       "id": "system-network-memory-corruption-smbghost",
+       "name": {
+        "zh": "SMB (SMBGhost)",
+        "en": "SMB (SMBGhost)"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "privilege-escalation",
+   "name": {
+    "zh": "权限提升",
+    "en": "Privilege Escalation"
+   },
+   "children": [
+    {
+     "id": "privilege-escalation-lpe",
+     "name": {
+      "zh": "本地提权",
+      "en": "Local Privilege Escalation"
+     },
+     "children": [
+      {
+       "id": "privilege-escalation-lpe-dirtycow",
+       "name": {
+        "zh": "Linux 内核 (Dirty COW)",
+        "en": "Linux kernel (Dirty COW)"
+       }
+      },
+      {
+       "id": "privilege-escalation-lpe-dirtypipe",
+       "name": {
+        "zh": "Linux 内核 (Dirty Pipe)",
+        "en": "Linux kernel (Dirty Pipe)"
+       }
+      },
+      {
+       "id": "privilege-escalation-lpe-pwnkit",
+       "name": {
+        "zh": "polkit (PwnKit)",
+        "en": "polkit (PwnKit)"
+       }
+      },
+      {
+       "id": "privilege-escalation-lpe-sudo-baron-samedit",
+       "name": {
+        "zh": "sudo (Baron Samedit)",
+        "en": "sudo (Baron Samedit)"
+       }
+      },
+      {
+       "id": "privilege-escalation-lpe-netfilter-oob",
+       "name": {
+        "zh": "Linux 内核 (Netfilter OOB)",
+        "en": "Linux kernel (Netfilter OOB)"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "auth-session",
+   "name": {
+    "zh": "认证与会话",
+    "en": "Authentication & Session"
+   },
+   "children": [
+    {
+     "id": "auth-session-auth-bypass",
+     "name": {
+      "zh": "认证绕过",
+      "en": "Authentication Bypass"
+     },
+     "children": [
+      {
+       "id": "auth-session-auth-bypass-shiro-key",
+       "name": {
+        "zh": "Shiro 硬编码密钥",
+        "en": "Shiro hardcoded key"
+       }
+      },
+      {
+       "id": "auth-session-auth-bypass-jwt-none",
+       "name": {
+        "zh": "JWT none 算法",
+        "en": "JWT none algorithm"
+       }
+      },
+      {
+       "id": "auth-session-auth-bypass-vpn-ssl",
+       "name": {
+        "zh": "SSL VPN",
+        "en": "SSL VPN"
+       }
+      },
+      {
+       "id": "auth-session-auth-bypass-zabbix-saml",
+       "name": {
+        "zh": "Zabbix SAML 认证绕过",
+        "en": "Zabbix SAML Auth Bypass"
+       }
+      }
+     ]
+    },
+    {
+     "id": "auth-session-default-credentials",
+     "name": {
+      "zh": "默认与弱凭据",
+      "en": "Default & Weak Credentials"
+     },
+     "children": [
+      {
+       "id": "auth-session-default-credentials-tomcat-manager",
+       "name": {
+        "zh": "Tomcat Manager",
+        "en": "Tomcat Manager"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "database",
+   "name": {
+    "zh": "数据库",
+    "en": "Database"
+   },
+   "children": [
+    {
+     "id": "database-access-control",
+     "name": {
+      "zh": "越权与未授权",
+      "en": "Access Control"
+     },
+     "children": [
+      {
+       "id": "database-access-control-redis-unauth",
+       "name": {
+        "zh": "Redis 未授权",
+        "en": "Redis unauthorized"
+       }
+      },
+      {
+       "id": "database-access-control-mongodb-unauth",
+       "name": {
+        "zh": "MongoDB 未授权",
+        "en": "MongoDB unauthorized"
+       }
+      }
+     ]
+    },
+    {
+     "id": "database-rce",
+     "name": {
+      "zh": "远程代码执行",
+      "en": "Remote Code Execution"
+     },
+     "children": [
+      {
+       "id": "database-rce-redis-lua",
+       "name": {
+        "zh": "Redis Lua 沙箱逃逸",
+        "en": "Redis Lua Sandbox Escape"
+       }
+      },
+      {
+       "id": "database-rce-postgresql-copy",
+       "name": {
+        "zh": "PostgreSQL COPY FROM PROGRAM",
+        "en": "PostgreSQL COPY FROM PROGRAM"
+       }
+      },
+      {
+       "id": "database-rce-mssql-xp-cmdshell",
+       "name": {
+        "zh": "MSSQL xp_cmdshell",
+        "en": "MSSQL xp_cmdshell"
+       }
+      },
+      {
+       "id": "database-rce-mysql-udf",
+       "name": {
+        "zh": "MySQL UDF",
+        "en": "MySQL UDF"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "middleware",
+   "name": {
+    "zh": "中间件",
+    "en": "Middleware"
+   },
+   "children": [
+    {
+     "id": "middleware-deserialization",
+     "name": {
+      "zh": "反序列化",
+      "en": "Deserialization"
+     },
+     "children": [
+      {
+       "id": "middleware-deserialization-weblogic",
+       "name": {
+        "zh": "WebLogic",
+        "en": "WebLogic"
+       }
+      },
+      {
+       "id": "middleware-deserialization-jboss",
+       "name": {
+        "zh": "JBoss",
+        "en": "JBoss"
+       }
+      },
+      {
+       "id": "middleware-deserialization-jenkins-cli",
+       "name": {
+        "zh": "Jenkins",
+        "en": "Jenkins"
+       }
+      }
+     ]
+    },
+    {
+     "id": "middleware-rce",
+     "name": {
+      "zh": "远程代码执行",
+      "en": "Remote Code Execution"
+     },
+     "children": [
+      {
+       "id": "middleware-rce-spring4shell",
+       "name": {
+        "zh": "Spring (Spring4Shell)",
+        "en": "Spring (Spring4Shell)"
+       }
+      },
+      {
+       "id": "middleware-rce-weblogic-iiop",
+       "name": {
+        "zh": "WebLogic IIOP",
+        "en": "WebLogic IIOP"
+       }
+      },
+      {
+       "id": "middleware-rce-weblogic-console-jndi",
+       "name": {
+        "zh": "WebLogic Console JNDI 注入",
+        "en": "WebLogic Console JNDI Injection"
+       }
+      },
+      {
+       "id": "middleware-rce-zimbra-mboximport",
+       "name": {
+        "zh": "Zimbra mboximport 任意文件写入",
+        "en": "Zimbra mboximport Arbitrary File Write"
+       }
+      },
+      {
+       "id": "middleware-rce-apisix-dashboard",
+       "name": {
+        "zh": "APISIX Dashboard 未授权 RCE",
+        "en": "APISIX Dashboard Unauthenticated RCE"
+       }
+      },
+      {
+       "id": "middleware-rce-gitlab-exiftool",
+       "name": {
+        "zh": "GitLab exiftool 未授权 RCE",
+        "en": "GitLab exiftool Unauthenticated RCE"
+       }
+      },
+      {
+       "id": "middleware-rce-f5-icontrol",
+       "name": {
+        "zh": "F5 BIG-IP iControl REST",
+        "en": "F5 BIG-IP iControl REST"
+       }
+      }
+     ]
+    },
+    {
+     "id": "middleware-file-upload",
+     "name": {
+      "zh": "文件上传与部署",
+      "en": "File Upload & Deployment"
+     },
+     "children": [
+      {
+       "id": "middleware-file-upload-tomcat-war",
+       "name": {
+        "zh": "Tomcat WAR 部署",
+        "en": "Tomcat WAR deployment"
+       }
+      }
+     ]
+    },
+    {
+     "id": "middleware-access-control",
+     "name": {
+      "zh": "越权与未授权",
+      "en": "Access Control"
+     },
+     "children": [
+      {
+       "id": "middleware-access-control-apisix-batch",
+       "name": {
+        "zh": "APISIX batch-requests 保护绕过",
+        "en": "APISIX batch-requests Bypass"
+       }
+      },
+      {
+       "id": "middleware-access-control-harbor-unauth",
+       "name": {
+        "zh": "Harbor 未授权",
+        "en": "Harbor Unauthorized"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "iot",
+   "name": {
+    "zh": "IoT 与嵌入式",
+    "en": "IoT & Embedded"
+   },
+   "children": [
+    {
+     "id": "iot-rce",
+     "name": {
+      "zh": "远程代码执行",
+      "en": "Remote Code Execution"
+     },
+     "children": [
+      {
+       "id": "iot-rce-huawei-router",
+       "name": {
+        "zh": "华为路由器 (CVE-2017-17215)",
+        "en": "Huawei router (CVE-2017-17215)"
+       }
+      },
+      {
+       "id": "iot-rce-netgear",
+       "name": {
+        "zh": "NETGEAR 路由器",
+        "en": "NETGEAR router"
+       }
+      },
+      {
+       "id": "iot-rce-realtek-sdk",
+       "name": {
+        "zh": "Realtek 路由 SDK",
+        "en": "Realtek router SDK"
+       }
+      }
+     ]
+    },
+    {
+     "id": "iot-default-credentials",
+     "name": {
+      "zh": "默认与弱凭据",
+      "en": "Default & Weak Credentials"
+     },
+     "children": [
+      {
+       "id": "iot-default-credentials-mirai-targets",
+       "name": {
+        "zh": "Mirai 传播目标凭据",
+        "en": "Mirai target credentials"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "app-systems",
+   "name": {
+    "zh": "应用系统",
+    "en": "Application Systems"
+   },
+   "children": [
+    {
+     "id": "app-systems-rce",
+     "name": {
+      "zh": "远程代码执行",
+      "en": "Remote Code Execution"
+     },
+     "children": [
+      {
+       "id": "app-systems-rce-yonyou-nc",
+       "name": {
+        "zh": "用友 NC 反序列化",
+        "en": "Yonyou NC Deserialization"
+       }
+      },
+      {
+       "id": "app-systems-rce-eyoumail",
+       "name": {
+        "zh": "亿邮 EyouMail 命令执行",
+        "en": "EyouMail Command Execution"
+       }
+      }
+     ]
+    },
+    {
+     "id": "app-systems-file-upload",
+     "name": {
+      "zh": "任意文件上传",
+      "en": "Arbitrary File Upload"
+     },
+     "children": [
+      {
+       "id": "app-systems-file-upload-weaver-eoffice",
+       "name": {
+        "zh": "泛微 e-office UploadFile.php",
+        "en": "Weaver e-office UploadFile.php"
+       }
+      },
+      {
+       "id": "app-systems-file-upload-seeyon-htmloffice",
+       "name": {
+        "zh": "致远 OA htmlofficeservlet",
+        "en": "Seeyon htmlofficeservlet"
+       }
+      }
+     ]
+    },
+    {
+     "id": "app-systems-ssrf",
+     "name": {
+      "zh": "SSRF 组合链",
+      "en": "SSRF Chains"
+     },
+     "children": [
+      {
+       "id": "app-systems-ssrf-landray-treexml",
+       "name": {
+        "zh": "蓝凌 OA treexml.tmpl",
+        "en": "Landray treexml.tmpl"
+       }
+      }
+     ]
+    },
+    {
+     "id": "app-systems-auth-bypass",
+     "name": {
+      "zh": "认证绕过",
+      "en": "Auth Bypass"
+     },
+     "children": [
+      {
+       "id": "app-systems-auth-bypass-tongda",
+       "name": {
+        "zh": "通达 OA 任意用户登录",
+        "en": "Tongda OA Any-User Login"
+       }
+      }
+     ]
+    },
+    {
+     "id": "app-systems-path-traversal",
+     "name": {
+      "zh": "任意文件读取",
+      "en": "Arbitrary File Read"
+     },
+     "children": [
+      {
+       "id": "app-systems-path-traversal-finareport",
+       "name": {
+        "zh": "帆软 FineReport V9",
+        "en": "FineReport V9"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

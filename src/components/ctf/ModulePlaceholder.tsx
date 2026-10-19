@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useLanguage } from '../../appContext';
+import { Icon } from '../Icon';
 import type { CtfWorkspaceProps } from '../../utils/ctf/moduleContracts';
 import '../../styles/module-placeholder.css';
 
@@ -8,7 +9,8 @@ const ModulePlaceholder = memo(function ModulePlaceholder({ module }: CtfWorkspa
   const { language } = useLanguage();
   return (
     <section className="ctf-module-placeholder" aria-label={module.name[language]}>
-      <div className="ctf-module-placeholder-icon" aria-hidden="true">{module.icon}</div>
+      {/* module.icon 已从 emoji 改为 IconName：占位大图随域契约走统一 SVG 图标。 */}
+      <div className="ctf-module-placeholder-icon" aria-hidden="true"><Icon name={module.icon} size={34} /></div>
       <h3>{module.name[language]}</h3>
       <p>
         {language === 'zh'

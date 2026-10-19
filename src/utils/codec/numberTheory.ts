@@ -312,6 +312,11 @@ export const pollardRho = (n: bigint): bigint | null => {
 /**
  * Pollard p-1：某因子 p 满足 p-1 为 B-光滑时，a^(≤B 的素数幂全积) ≡ 1 (mod p)，
  * gcd(a-1, n) 即暴露 p。a 自 2 起对每个 ≤B 素数的最大幂逐次做模幂。
+ * 分阶段 gcd（审计 BUG-13，RsaCtfTool 语义）：每个素数幂乘入后立即算 gcd——
+ * 一次性 gcd 只在末尾看结果，两因子同时被素数幂积覆盖时 gcd=n 直接失败
+ * （如 1031×65537：65537-1=2^16，而 ord(2) mod 65537=32，2^13 就已覆盖，gcd 恒为 n）；
+ * 逐素数即时 gcd 在第一个覆盖点就能拿到非平凡因子。gcd 命中 n 时回退上一个 a
+ * 改逐素数乘并逐步 gcd，仍无法分离才继续主循环。
  */
 export const pollardPMinus1 = (n: bigint, bound = 10_000): bigint | null => {
   if (n <= 1n) return null;
@@ -320,9 +325,24 @@ export const pollardPMinus1 = (n: bigint, bound = 10_000): bigint | null => {
   const limit = Math.max(2, Math.floor(bound));
   let a = 2n;
   for (const p of sievePrimesUpTo(limit)) {
-    let primePower = BigInt(p);
-    while (primePower * BigInt(p) <= BigInt(limit)) primePower *= BigInt(p);
+    const base = BigInt(p);
+    let primePower = base;
+    while (primePower * base <= BigInt(limit)) primePower *= base;
+    const previous = a;
     a = bigintModPow(a, primePower, n);
+    const g = bigintGcd(a - 1n, n);
+    if (g <= 1n) continue;
+    if (g < n) return g;
+    // 全覆盖回退：该素数幂一步到位把所有素因子都盖住 → 回退上一个 a，按单次 p 幂
+    // 逐级乘入并逐步 gcd，先命中的非平凡因子即返回；逐级也直接命中 n 则无法分离，继续主循环。
+    let stepped = previous;
+    for (let power = base; power <= primePower; power *= base) {
+      stepped = bigintModPow(stepped, base, n);
+      const stepG = bigintGcd(stepped - 1n, n);
+      if (stepG > 1n && stepG < n) return stepG;
+      if (stepG === n) break;
+      a = stepped;
+    }
   }
   const g = bigintGcd(a - 1n, n);
   return g > 1n && g < n ? g : null;

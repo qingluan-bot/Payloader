@@ -1,3 +1,4 @@
+/* global requestConfirm */
 document.addEventListener('DOMContentLoaded', () => {
   const workspace = document.querySelector('.workspace');
   let panel = null;
@@ -233,7 +234,13 @@ document.addEventListener('DOMContentLoaded', () => {
       showMessage('会话已过期，请重新登录', false);
       return;
     }
-    if (!confirm('确认删除这条自定义内容？')) return;
+    const esc = value => String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+    if (!(await requestConfirm({
+      title: '删除自定义内容',
+      messageHtml: `将删除记录 <code>${esc(record.id)}</code>（目标 ${esc(record.destination)}），此操作不可恢复。`,
+      confirmLabel: '删除',
+      danger: true,
+    }))) return;
     try {
       const response = await authorizedFetch(`/api/admin/custom-content/${encodeURIComponent(record.id)}?destination=${encodeURIComponent(record.destination)}`, {
         method: 'DELETE',

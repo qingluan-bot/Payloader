@@ -18,7 +18,7 @@ db.close();
 const byId = new Map(all.map(p => [p.id, p]));
 
 // 1) 收集产出
-const packs = ['out-pack1', 'out-pack2', 'out-pack3', 'out-pack4b', 'out-ai', 'out-rest'];
+const packs = ['out-pack1', 'out-pack2', 'out-pack3', 'out-pack4b', 'out-ai', 'out-rest', 'out-sbfix'];
 const patchesById = new Map();
 let dropped = [];
 for (const pack of packs) {

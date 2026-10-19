@@ -1,15 +1,10 @@
 import type { RefObject } from 'react';
 import { useLanguage, useNav, useSession } from '../appContext';
 import { t } from '../i18n';
+import { formatDownloadSize } from '../utils/format';
 import type { PublicClientBuildInfo } from '../types';
 import VariablesMenu from './VariablesMenu';
-
-const formatDownloadSize = (size: number) => {
-  if (!Number.isFinite(size) || size <= 0) return '';
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
-  if (size >= 1024) return `${(size / 1024).toFixed(0)} KB`;
-  return `${Math.round(size)} B`;
-};
+import { Icon } from './Icon';
 
 interface HeaderActionsProps {
   clientBuildInfo: PublicClientBuildInfo | null;
@@ -65,7 +60,7 @@ function HeaderActions({
         title={theme === 'dark' ? t('header.themeToggleDark', language) : t('header.themeToggleLight', language)}
         aria-label={theme === 'dark' ? t('header.themeToggleDark', language) : t('header.themeToggleLight', language)}
       >
-        <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
+        <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
       </button>
 
       <button
@@ -77,7 +72,7 @@ function HeaderActions({
         aria-controls="mobile-utilities-menu"
         aria-expanded={mobileUtilitiesOpen}
       >
-        <span aria-hidden="true">⋮</span>
+        <Icon name="more-horizontal" size={18} />
       </button>
 
       {activeTab !== 'ctf' && (

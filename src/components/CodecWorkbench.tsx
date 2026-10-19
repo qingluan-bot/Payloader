@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { SegmentedControl } from '@mantine/core';
 import { useLanguage, useSession } from '../appContext';
 import {
   buildCtfMenus,
@@ -21,13 +22,16 @@ import type {
 import { DetectStrip } from './codec/DetectStrip';
 import { GlobalSecretBar } from './codec/GlobalSecretBar';
 import { OperationParamsPanel } from './codec/OperationParamsPanel';
+import { SearchableSelect } from './codec/SearchableSelect';
 import { SmartDetectBar } from './codec/SmartDetectBar';
+import { describeEngineError } from './codec/engineErrorMessages';
 import { formatTextStats } from './codec/outputPanelUtils';
 import { WorkbenchMenuBar } from './codec/WorkbenchMenuBar';
 import { actionsOfOperation, hashAlgorithmValueOf, primaryActionOfOperation, variantValueOf } from './codec/workbenchActions';
 import type { WorkbenchAction } from './codec/workbenchActions';
 import type { WorkbenchMenuDef, WorkbenchMenuEntry } from './codec/WorkbenchMenuBar';
 import { WorkbenchOutputPanel } from './codec/WorkbenchOutputPanel';
+import { MOBILE_BREAKPOINT, useMediaQuery } from './useMediaQuery';
 import '../styles/codec-workbench.css';
 
 export interface CodecWorkbenchHandle {
@@ -54,15 +58,42 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
   const [activeGroupId, setActiveGroupId] = useState<string>(() => groups[0]?.id ?? '');
   const [activeOperationId, setActiveOperationId] = useState<OperationId | null>(null);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
+  // 最近一次执行的方向（F-04）：菜单点【…解密】等动作携带方向语义，执行时同步到这里，
+  // 工具栏"编码/解码"高亮跟随——不再把 primary 硬编码在编码按钮上；null = 初始态（编码高亮）。
+  const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [params, setParams] = useState<Record<ParamKey, string>>(defaultParams);
-  const [error, setError] = useState('');
+  // F-07：错误存"映射后双语提示 + 原始异常"，渲染层按当前语言取文案；null = 无错误。
+  const [errorCopy, setErrorCopy] = useState<{ zh: string; en: string } | null>(null);
+  const [errorDetail, setErrorDetail] = useState('');
   const [running, setRunning] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  // F-11：参数缺失报错时"展开参数"按钮红描边提示一次（2s 后消退）
+  const [optionsPulse, setOptionsPulse] = useState(false);
+  const optionsPulseTimerRef = useRef<number | null>(null);
+  // 移动端三 tab（M4，仅 CTF 态）：输入 / 参数与执行 / 输出 全屏切换，窄屏禁多栏并排。
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
+  const [mobilePanel, setMobilePanel] = useState<'input' | 'ops' | 'output'>('input');
   const workbenchRef = useRef<HTMLDivElement>(null);
 
   const activeGroup = groups.find(group => group.id === activeGroupId) ?? groups[0];
   const groupOperations = useMemo(() => activeGroup?.operations ?? [], [activeGroup]);
   const operation = groupOperations.find(item => item.id === activeOperationId) ?? groupOperations[0];
+  // F-08：可搜索 combobox 的选项数据（分组结构不变），与原 select 的 optgroup/option 一一对应。
+  const operationSelectGroups = useMemo(() => {
+    if (!activeGroup) return [];
+    if (activeGroup.subgroups) {
+      return activeGroup.subgroups.filter(subgroup => subgroup.operations.length).map(subgroup => ({
+        key: subgroup.name.zh,
+        label: label(subgroup.name, language) as string | null,
+        options: subgroup.operations.map(item => ({ value: item.id as string, text: label(item.name, language) })),
+      }));
+    }
+    return [{
+      key: activeGroup.id,
+      label: null,
+      options: groupOperations.map(item => ({ value: item.id as string, text: label(item.name, language) })),
+    }];
+  }, [activeGroup, groupOperations, language]);
   const visibleOperationIds = useMemo(
     () => new Set<OperationId>(groups.flatMap(group => group.operations.map(item => item.id))),
     [groups],
@@ -111,7 +142,8 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
     setActiveGroupId(groupId);
     setActiveActionKey(null);
     if (group?.operations[0]) setActiveOperationId(group.operations[0].id);
-    setError('');
+    setErrorCopy(null);
+    setErrorDetail('');
     setOutput('');
   };
 
@@ -124,7 +156,9 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
   // inputOverride：focusOperation 携带 seed 直跑时用（setInput 是异步的，闭包 input 还是旧值）。
   const run = useCallback(async (direction: Direction, operationId: OperationId = activeOperationIdForTest, inputOverride?: string) => {
     if (!operationId) return;
-    setError('');
+    setActiveDirection(direction);
+    setErrorCopy(null);
+    setErrorDetail('');
     setRunning(true);
     try {
       // 古典密码评分表（609KB 异步 chunk）就绪后再执行：幂等，mount 预热后此处几乎总是立即返回。
@@ -133,11 +167,26 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
       setOutput(result);
     } catch (reason) {
       setOutput('');
-      setError(reason instanceof Error ? reason.message : String(reason));
+      // F-07：按错误类型映射中文提示（渲染层不改引擎契约），原始文本进「详情」；
+      // F-11：参数缺失类错误联动展开参数面板 + 红描边提示一次。
+      const described = describeEngineError(reason instanceof Error ? reason.message : String(reason));
+      setErrorCopy(described.hint);
+      setErrorDetail(described.detail ?? '');
+      if (described.missingParam) {
+        setShowOptions(true);
+        setOptionsPulse(true);
+        if (optionsPulseTimerRef.current !== null) window.clearTimeout(optionsPulseTimerRef.current);
+        optionsPulseTimerRef.current = window.setTimeout(() => setOptionsPulse(false), 2000);
+      }
     } finally {
       setRunning(false);
     }
   }, [input, effectiveParams, activeOperationIdForTest]);
+
+  // 卸载清理红描边计时器（仅清理副作用，无同步 setState）
+  useEffect(() => () => {
+    if (optionsPulseTimerRef.current !== null) window.clearTimeout(optionsPulseTimerRef.current);
+  }, []);
 
   // 动作入口：一次点击 = 选中操作（含所属分类同步）+ 立即执行（显式传 id，不受 setState 异步影响）。
   // 菜单栏跨分类直达时同步 activeGroupId，保证工具栏下拉/摘要/参数区与当前操作一致。
@@ -146,13 +195,16 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
     if (group) setActiveGroupId(group.id);
     setActiveOperationId(action.id);
     setActiveActionKey(`${action.id}-${action.direction}`);
+    // 移动三 tab：执行后直接看结果
+    if (isMobile) setMobilePanel('output');
     void run(action.direction, action.id);
   };
 
   const clearAll = () => {
     setInput('');
     setOutput('');
-    setError('');
+    setErrorCopy(null);
+    setErrorDetail('');
   };
 
   const applyDetection = (operationId: OperationId) => {
@@ -163,7 +215,8 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
     setActiveGroupId(group.id);
     setActiveOperationId(operationId);
     setActiveActionKey(autoRun ? `${operationId}-decode` : null);
-    setError('');
+    setErrorCopy(null);
+    setErrorDetail('');
     setOutput('');
     // 识别芯片与菜单条目行为对齐：点击即执行解密方向，即时出结果。
     if (autoRun) void run('decode', operationId);
@@ -179,12 +232,15 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
     setActiveOperationId(id);
     setActiveActionKey(autoRun ? `${id}-decode` : null);
     if (seedInput !== undefined) setInput(seedInput);
-    setError('');
+    setErrorCopy(null);
+    setErrorDetail('');
     setOutput('');
     workbenchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // 移动三 tab：识别/菜单联动进工作台后直接展示结果
+    if (isMobile) setMobilePanel('output');
     // 芯片点击 = 聚焦 + 立即执行（与菜单 runAction 对齐）；带 seed 以 seed 为输入（闭包 input 是旧值）。
     if (autoRun) void run('decode', id, seedInput);
-  }, [groups, run]);
+  }, [groups, run, isMobile]);
 
   useImperativeHandle(ref, () => ({
     focusOperation,
@@ -214,6 +270,8 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
     : [];
 
   // 分类内（操作 × 方向）动作区：仅渗透编解码模态使用平铺网格；CTF 态操作导航一律走顶部菜单栏。
+  // 移动三 tab（M4）：仅 CTF 态启用——输入 / 参数与执行 / 输出全屏切换，窄屏禁多栏并排。
+  const mobileOnly = isCtfMode && isMobile;
   const actionPanel = (
     <div className="action-panel" aria-label={language === 'zh' ? '操作动作列表' : 'Operation actions'}>
       {activeGroup?.subgroups ? (
@@ -300,59 +358,49 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
             />
           ) : null}
 
+          {(!mobileOnly || mobilePanel === 'ops') && (
           <div className="codec-toolbar">
-            <label className="operation-select-field">
+            <div className="operation-select-field">
               <span>{language === 'zh' ? '算法 / 场景' : 'Operation'}</span>
-              <select
+              <SearchableSelect
                 value={operation.id}
-                onChange={event => {
-                  setActiveOperationId(event.target.value as OperationId);
-                  setError('');
+                groups={operationSelectGroups}
+                fieldLabel={language === 'zh' ? '算法 / 场景' : 'Operation'}
+                onChange={value => {
+                  setActiveOperationId(value as OperationId);
+                  setErrorCopy(null);
+                  setErrorDetail('');
                   setOutput('');
                 }}
-              >
-                {activeGroup?.subgroups ? (
-                  activeGroup.subgroups.map(subgroup => (
-                    subgroup.operations.length ? (
-                      <optgroup key={subgroup.name.zh} label={label(subgroup.name, language)}>
-                        {subgroup.operations.map(item => (
-                          <option key={item.id} value={item.id}>{label(item.name, language)}</option>
-                        ))}
-                      </optgroup>
-                    ) : null
-                  ))
-                ) : (
-                  groupOperations.map(item => (
-                    <option key={item.id} value={item.id}>{label(item.name, language)}</option>
-                  ))
-                )}
-              </select>
-            </label>
+              />
+            </div>
 
             <div className="mode-actions" aria-label={language === 'zh' ? '执行操作' : 'Actions'}>
               <button
                 type="button"
-                className="mode-btn primary"
-                onClick={() => run('encode')}
+                className={`mode-btn${activeDirection === 'decode' ? '' : ' primary'}`}
+                onClick={() => { if (mobileOnly) setMobilePanel('output'); run('encode'); }}
                 disabled={running || operation.supportsEncode === false}
               >
                 {label(operation.encodeLabel || { zh: '编码/生成', en: 'Encode / Generate' }, language)}
               </button>
               <button
                 type="button"
-                className="mode-btn"
-                onClick={() => run('decode')}
+                className={`mode-btn${activeDirection === 'decode' ? ' primary' : ''}`}
+                onClick={() => { if (mobileOnly) setMobilePanel('output'); run('decode'); }}
                 disabled={running || operation.supportsDecode === false}
               >
                 {label(operation.decodeLabel || { zh: '解码/解析', en: 'Decode / Parse' }, language)}
               </button>
-              <button type="button" className="mode-btn subtle" onClick={() => run('decode')} disabled={running || operation.id === 'smart-decode'}>
+              <button type="button" className="mode-btn subtle" onClick={() => { if (mobileOnly) setMobilePanel('output'); run('decode'); }} disabled={running || operation.id === 'smart-decode'}>
                 {language === 'zh' ? '快速解码' : 'Quick decode'}
               </button>
             </div>
           </div>
+          )}
 
           {/* 全局密钥栏：hero 退役后 CTF 视图也在此常驻（多步解密共用一把钥匙）；渗透视图保持原位。 */}
+          {(!mobileOnly || mobilePanel === 'ops') && (
           <GlobalSecretBar
             value={globalSecret}
             onChange={setGlobalSecret}
@@ -361,9 +409,11 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
               en: isCtfMode ? 'Global key: shared across steps; per-operation keys take precedence' : 'One key for the whole chain; a per-operation key in the options takes precedence',
             }}
           />
+          )}
 
           {isCtfMode ? null : actionPanel}
 
+          {(!mobileOnly || mobilePanel === 'ops') && (
           <OperationParamsPanel
             operation={operation}
             language={language}
@@ -373,22 +423,27 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
             setParams={setParams}
             variantValue={variantValue}
             hashAlgorithmValue={hashAlgorithmValue}
+            optionsPulse={optionsPulse}
           />
+          )}
 
           {/* 智能识别条（UI 编排优化批）：CTF 态识别能力内嵌输入区上方（CyberChef Magic 模式），
-              取代独立 hero；渗透态保留原识别芯片条。 */}
+              取代独立 hero；渗透态保留原识别芯片条。移动三 tab 下随输入页（识别消费输入）。 */}
           {isCtfMode ? (
-            <SmartDetectBar
-              input={input}
-              onDetection={id => { focusOperation(id, input || undefined); }}
-              onUseAsInput={pure => { setInput(pure); setOutput(''); setError(''); }}
-              onClear={clearAll}
-            />
+            (!mobileOnly || mobilePanel === 'input') ? (
+              <SmartDetectBar
+                input={input}
+                onDetection={id => { focusOperation(id, input || undefined); }}
+                onUseAsInput={pure => { setInput(pure); setOutput(''); setErrorCopy(null); setErrorDetail(''); }}
+                onClear={clearAll}
+              />
+            ) : null
           ) : (
             <DetectStrip detections={detections} onDetect={applyDetection} />
           )}
 
           <div className="encoding-content">
+            {(!mobileOnly || mobilePanel === 'input') && (
             <div className="encoding-panel">
               <div className="panel-header">
                 <label>{language === 'zh' ? '输入' : 'Input'}</label>
@@ -404,19 +459,39 @@ function CodecWorkbench({ ref, groups, heading, description, registerTestApi = f
                 spellCheck={false}
               />
             </div>
+            )}
 
+            {(!mobileOnly || mobilePanel === 'output') && (
             <div className="encoding-panel">
               <WorkbenchOutputPanel
-                value={error ? '' : stripCandidateSection(output)}
+                value={errorCopy ? '' : stripCandidateSection(output)}
                 rawOutput={output}
-                error={error}
+                error={errorCopy ? label(errorCopy, language) : ''}
+                errorDetail={errorDetail}
                 running={running}
                 minHeight="normal"
-                onUseAsInput={() => { setInput(extractPureDecodeResult(output)); setOutput(''); setError(''); }}
+                onUseAsInput={() => { setInput(extractPureDecodeResult(output)); setOutput(''); setErrorCopy(null); setErrorDetail(''); }}
                 onClear={clearAll}
               />
             </div>
+            )}
           </div>
+
+          {mobileOnly && (
+            <nav className="mobile-workbench-tabs" aria-label={language === 'zh' ? '工作台分区' : 'Workbench sections'}>
+              <SegmentedControl
+                fullWidth
+                value={mobilePanel}
+                onChange={value => setMobilePanel(value as 'input' | 'ops' | 'output')}
+                data={[
+                  { value: 'input', label: language === 'zh' ? '输入' : 'Input' },
+                  { value: 'ops', label: language === 'zh' ? '参数执行' : 'Options & Run' },
+                  { value: 'output', label: language === 'zh' ? '输出' : 'Output' },
+                ]}
+                aria-label={language === 'zh' ? '工作台分区' : 'Workbench sections'}
+              />
+            </nav>
+          )}
         </section>
       </div>
     </div>

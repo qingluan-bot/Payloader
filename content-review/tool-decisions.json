@@ -1961,7 +1961,11 @@
     {
       "sourceId": "xss-beef",
       "retainExecutionIndexes": [],
-      "retainWafBypassIndexes": [],
+      "retainWafBypassIndexes": [
+        0,
+        1,
+        2
+      ],
       "retainCommands": [
         {
           "title": {
@@ -2131,7 +2135,11 @@
     {
       "sourceId": "auth2-redis-webshell",
       "retainExecutionIndexes": [],
-      "retainWafBypassIndexes": [],
+      "retainWafBypassIndexes": [
+        0,
+        1,
+        2
+      ],
       "retainCommands": [
         {
           "title": {
@@ -2211,7 +2219,11 @@
     {
       "sourceId": "auth2-redis-crontab",
       "retainExecutionIndexes": [],
-      "retainWafBypassIndexes": [],
+      "retainWafBypassIndexes": [
+        0,
+        1,
+        2
+      ],
       "retainCommands": [
         {
           "title": {
@@ -3770,11 +3782,11 @@
     },
     {
       "sourceId": "sqli2-tricks-web-pentest-sql",
-      "targetPayloadId": "sqli2-"
+      "targetPayloadId": "sqli2-quick-reference"
     },
     {
       "sourceId": "custom-sql注入速查表",
-      "targetPayloadId": "sqli2-"
+      "targetPayloadId": "sqli2-quick-reference"
     },
     {
       "sourceId": "sqli2-union",
@@ -3882,7 +3894,7 @@
     },
     {
       "sourceId": "httpbypass-evil-com",
-      "targetPayloadId": "inject2--ext"
+      "targetPayloadId": "inject2-parser-differential-ext"
     },
     {
       "sourceId": "redirect-bypass",
@@ -4122,7 +4134,7 @@
     },
     {
       "sourceId": "auth2-401-403-bypass-techniques",
-      "targetPayloadId": "httpbypass-"
+      "targetPayloadId": "httpbypass-admin-path-normalization"
     },
     {
       "sourceId": "inject2-type-juggling-type-juggling-29",
@@ -4154,7 +4166,7 @@
     },
     {
       "sourceId": "graphql-schema-exposure-boundary",
-      "targetPayloadId": "inject2-"
+      "targetPayloadId": "inject2-graphql-introspection"
     },
     {
       "sourceId": "httpbypass-cl-te-cl-te",

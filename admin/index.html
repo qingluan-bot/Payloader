@@ -24,6 +24,7 @@
             <option value="payloads">Payload 管理</option>
             <option value="tools">工具命令</option>
             <option value="navigation">导航树</option>
+            <option value="exploits">EXP 管理</option>
             <option value="clientBuilds">客户端生成</option>
             <option value="updates">系统更新</option>
             <option value="account">账号安全</option>
@@ -31,33 +32,36 @@
           </select>
         </label>
 
-        <nav class="module-nav" aria-label="后台模块">
-          <button class="module-btn active" data-module="settings" type="button">
-            <span>站点设置</span>
-          </button>
-          <button class="module-btn" data-module="payloads" type="button">
-            <span>Payload</span>
-          </button>
-          <button class="module-btn" data-module="tools" type="button">
-            <span>工具命令</span>
-          </button>
-          <button class="module-btn" data-module="navigation" type="button">
-            <span>导航树</span>
-          </button>
-          <button class="module-btn" data-module="clientBuilds" type="button">
-            <span>客户端生成</span>
-          </button>
-          <button class="module-btn" data-module="updates" type="button">
-            <span>系统更新</span>
-            <strong class="module-update-badge hidden" id="update-nav-badge">更新</strong>
-          </button>
-          <button class="module-btn" data-module="account" type="button">
-            <span>账号安全</span>
-          </button>
-          <button class="module-btn" data-module="custom" type="button">
-            <span>自定义内容</span>
-          </button>
-        </nav>
+          <nav class="module-nav" aria-label="后台模块">
+            <button class="module-btn active" data-module="settings" type="button">
+              <span>站点设置</span>
+            </button>
+            <button class="module-btn" data-module="payloads" type="button">
+              <span>Payload</span>
+            </button>
+            <button class="module-btn" data-module="tools" type="button">
+              <span>工具命令</span>
+            </button>
+            <button class="module-btn" data-module="navigation" type="button">
+              <span>导航树</span>
+            </button>
+            <button class="module-btn" data-module="exploits" type="button">
+              <span>EXP 管理</span>
+            </button>
+            <button class="module-btn" data-module="clientBuilds" type="button">
+              <span>客户端生成</span>
+            </button>
+            <button class="module-btn" data-module="updates" type="button">
+              <span>系统更新</span>
+              <strong class="module-update-badge hidden" id="update-nav-badge">更新</strong>
+            </button>
+            <button class="module-btn" data-module="account" type="button">
+              <span>账号安全</span>
+            </button>
+            <button class="module-btn" data-module="custom" type="button">
+              <span>自定义内容</span>
+            </button>
+          </nav>
 
       </aside>
 
@@ -102,6 +106,11 @@
         <div class="mobile-view-switch" id="mobile-view-switch" aria-label="移动端后台视图">
           <button class="view-btn active" type="button" data-view="list">列表</button>
           <button class="view-btn" type="button" data-view="editor">编辑</button>
+        </div>
+
+        <div class="exp-section-bar hidden" id="exp-section-bar" role="tablist" aria-label="EXP 管理分区">
+          <button class="exp-section-btn active" data-section="items" type="button" role="tab" aria-pressed="true">条目管理</button>
+          <button class="exp-section-btn" data-section="tree" type="button" role="tab" aria-pressed="false">分类树</button>
         </div>
 
         <section class="workspace">
@@ -172,7 +181,7 @@
           <div>
             <span>后台数据维护</span>
             <h2 id="import-title">导入数据</h2>
-            <p>下载模板后按 JSON 结构填写，再回到这里预览和导入。导入只处理 Payload、工具命令和导航数据。</p>
+            <p>下载模板后按 JSON 结构填写，再回到这里预览和导入。导入支持 Payload、工具命令、导航和 EXP（漏洞利用）四类数据。</p>
           </div>
           <button class="icon-btn" id="close-import" type="button" aria-label="关闭导入弹窗">×</button>
         </header>
@@ -181,7 +190,7 @@
           <section class="import-panel import-template-panel">
             <div>
               <h3>1. 下载模板</h3>
-              <p>模板包含可直接填写的完整示例、字段说明和常见错误提醒。JSON 里只有 payloads、tools、navigation、toolNavigation 会真正导入。</p>
+              <p>模板包含可直接填写的完整示例、字段说明和常见错误提醒。JSON 里 payloads、tools、navigation、toolNavigation、exploits、exploitNavigation 六个数组会真正导入，其余说明字段自动忽略。</p>
             </div>
             <button class="btn" id="download-template" type="button">下载导入模板</button>
             <div class="import-note">
@@ -252,6 +261,25 @@
             </div>
           </section>
         </div>
+      </section>
+    </div>
+
+    <div class="import-modal-backdrop hidden" id="confirm-modal" aria-hidden="true">
+      <section class="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+        <header class="confirm-modal-head">
+          <h2 id="confirm-modal-title">确认操作</h2>
+        </header>
+        <div class="confirm-modal-body">
+          <p id="confirm-modal-message"></p>
+          <div class="confirm-modal-gate hidden" id="confirm-modal-gate">
+            <label for="confirm-modal-gate-input">这是破坏性操作：请输入 <code id="confirm-modal-gate-keyword"></code> 后再点确认</label>
+            <input id="confirm-modal-gate-input" type="text" autocomplete="off" spellcheck="false" placeholder="输入上方关键词" />
+          </div>
+        </div>
+        <footer class="confirm-modal-foot">
+          <button class="btn" id="confirm-modal-cancel" type="button">取消</button>
+          <button class="btn danger-solid" id="confirm-modal-confirm" type="button">确认</button>
+        </footer>
       </section>
     </div>
 

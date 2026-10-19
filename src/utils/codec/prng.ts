@@ -912,6 +912,132 @@ export const trySmartSignatureNonceReuseAsync = async (value: string) => {
   return `智能识别: Signature nonce reuse analysis\n\n${await signatureNonceReuseHelper(value)}`;
 };
 
+// ---- EC ±s 符号消歧：SEC1 域参数 + 雅可比坐标点乘 ----
+// 曲线参数出处：SEC 2 v2（secp256k1 / secp256r1 推荐域参数）；点乘为标准雅可比坐标
+// double-and-add（FIPS 186-4 仿射回转 X=x/Z², Y=y/Z³），全程 BigInt 精确整数运算。
+
+export type EcCurveDomainParams = { p: bigint; a: bigint; b: bigint; gx: bigint; gy: bigint; n: bigint };
+
+export const ecSec1CurveParams: Record<string, EcCurveDomainParams> = {
+  secp256k1: {
+    p: BigInt('0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f'),
+    a: 0n,
+    b: 7n,
+    gx: BigInt('0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'),
+    gy: BigInt('0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8'),
+    n: signatureCurveOrders.secp256k1,
+  },
+  secp256r1: {
+    p: BigInt('0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff'),
+    a: BigInt('0xffffffff00000001000000000000000000000000fffffffffffffffffffffffc'),
+    b: BigInt('0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b'),
+    gx: BigInt('0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296'),
+    gy: BigInt('0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5'),
+    n: signatureCurveOrders.secp256r1,
+  },
+};
+
+type EcJacobianPoint = { x: bigint; y: bigint; z: bigint }; // z=0 表示无穷远点
+
+const ecJacobianInfinity = (): EcJacobianPoint => ({ x: 1n, y: 1n, z: 0n });
+
+const ecJacobianDouble = (point: EcJacobianPoint, params: EcCurveDomainParams): EcJacobianPoint => {
+  const { p, a } = params;
+  if (point.z === 0n || point.y === 0n) return ecJacobianInfinity();
+  // 通用雅可比倍点（不依赖 a=-3 特化）：S=4XY², M=3X²+aZ⁴
+  const ySq = (point.y * point.y) % p;
+  const s = (4n * point.x * ySq) % p;
+  const zSq = (point.z * point.z) % p;
+  const m = (3n * point.x * point.x + a * (zSq * zSq) % p) % p;
+  const x3 = (m * m - 2n * s) % p;
+  const y3 = (m * (s - x3) - 8n * (ySq * ySq) % p) % p;
+  const z3 = (2n * point.y * point.z) % p;
+  return { x: (x3 % p + p) % p, y: (y3 % p + p) % p, z: (z3 % p + p) % p };
+};
+
+const ecJacobianAdd = (left: EcJacobianPoint, right: EcJacobianPoint, params: EcCurveDomainParams): EcJacobianPoint => {
+  const { p } = params;
+  if (left.z === 0n) return right;
+  if (right.z === 0n) return left;
+  const z1Sq = (left.z * left.z) % p;
+  const z2Sq = (right.z * right.z) % p;
+  const u1 = (left.x * z2Sq) % p;
+  const u2 = (right.x * z1Sq) % p;
+  const s1 = (left.y * z2Sq % p * right.z) % p; // y1·z2³
+  const s2 = (right.y * z1Sq % p * left.z) % p; // y2·z1³
+  if (u1 === u2) {
+    if (s1 !== s2) return ecJacobianInfinity();
+    return ecJacobianDouble(left, params);
+  }
+  const h = ((u2 - u1) % p + p) % p;
+  const r = ((s2 - s1) % p + p) % p;
+  const hSq = (h * h) % p;
+  const hCubed = (hSq * h) % p;
+  const u1HSq = (u1 * hSq) % p;
+  const x3 = (r * r - hCubed - 2n * u1HSq) % p;
+  const y3 = (r * (u1HSq - x3) - s1 * hCubed) % p;
+  const z3 = (h * left.z % p * right.z) % p;
+  return { x: (x3 % p + p) % p, y: (y3 % p + p) % p, z: (z3 % p + p) % p };
+};
+
+const ecJacobianScalarMultiply = (scalar: bigint, params: EcCurveDomainParams): EcJacobianPoint => {
+  let result = ecJacobianInfinity();
+  let base: EcJacobianPoint = { x: params.gx, y: params.gy, z: 1n };
+  let remaining = scalar;
+  while (remaining > 0n) {
+    if (remaining & 1n) result = ecJacobianAdd(result, base, params);
+    base = ecJacobianDouble(base, params);
+    remaining >>= 1n;
+  }
+  return result;
+};
+
+// d·G == (Qx, Qy) 校验（±s 枚举后锁定正确符号组合）：先做曲线方程粗检，再雅可比点乘回转仿射比对 x
+export const ecPublicKeyMatchesPrivateKey = (
+  privateKey: bigint,
+  qx: bigint,
+  qy: bigint,
+  curveName: 'secp256k1' | 'secp256r1',
+): boolean => {
+  const params = ecSec1CurveParams[curveName];
+  if (!params) return false;
+  if (privateKey <= 0n || privateKey >= params.n) return false;
+  if (qx <= 0n || qx >= params.p || qy <= 0n || qy >= params.p) return false;
+  const lhs = (qy * qy) % params.p;
+  const rhs = (((qx * qx % params.p * qx + params.a * qx + params.b) % params.p) + params.p) % params.p;
+  if (lhs !== rhs) return false;
+  const point = ecJacobianScalarMultiply(privateKey % params.n, params);
+  if (point.z === 0n) return false;
+  // 费马小定理求 Z⁻¹，仿射 x = X/Z²
+  const zInv = bigintModPow(point.z, params.p - 2n, params.p);
+  const x = (point.x * zInv % params.p * zInv) % params.p;
+  return x === qx % params.p;
+};
+
+const inferEcCurveNameFromOrder = (order: bigint | null): 'secp256k1' | 'secp256r1' | null => {
+  if (order == null) return null;
+  if (order === signatureCurveOrders.secp256k1) return 'secp256k1';
+  if (order === signatureCurveOrders.secp256r1) return 'secp256r1';
+  return null;
+};
+
+// 公钥坐标字段别名（looseField 归一化名匹配，避免裸 'x'/'y' 误吃消息字段）
+const signaturePubKeyPointAliases = {
+  qx: ['qx', 'pubx', 'publicx', 'publickeyx', 'pubkeyx', 'q_x', 'pubkey_x', 'public_x'],
+  qy: ['qy', 'puby', 'publicy', 'publickeyy', 'pubkeyy', 'q_y', 'pubkey_y', 'public_y'],
+};
+
+// ±s 符号组合：low-s 归一化（BIP62/RFC6979 口径）会把签名 s 翻号入库，朴素 (s1,s2) 公式
+// 恢复出错误 d——四组合枚举 + 公钥校验锁定。(+s1,+s2) 与 (−s1,−s2) 数学上同解 d（k 互为相反数）。
+const SIGN_SYMBOL_COMBOS: ReadonlyArray<readonly [bigint, bigint, string]> = [
+  [1n, 1n, '(+s1,+s2)'],
+  [-1n, 1n, '(-s1,+s2)'],
+  [1n, -1n, '(+s1,-s2)'],
+  [-1n, -1n, '(-s1,-s2)'],
+];
+
+const modOrder = (value: bigint, order: bigint): bigint => ((value % order) + order) % order;
+
 export const signatureNonceReuseHelper = async (value: string) => {
   const { fields, records } = parseSignatureNonceRecords(value);
   const globalOrder = inferSignatureOrder(fields);
@@ -959,43 +1085,97 @@ export const signatureNonceReuseHelper = async (value: string) => {
     if (pairOrder == null || left.r == null || left.s == null || right.s == null || left.z == null || right.z == null) {
       return { left: left.index, right: right.index, repeatedR: left.r?.toString() || null, recoverable: false };
     }
-    if (scheme === 'schnorr') {
-      const challengeDelta = ((left.z - right.z) % pairOrder + pairOrder) % pairOrder;
-      const challengeInv = bigintModInverse(challengeDelta, pairOrder);
-      if (!challengeInv) {
-        return { left: left.index, right: right.index, repeatedR: left.r.toString(), recoverable: false, reason: 'non-invertible challenge delta', scheme };
+
+    // 公钥坐标（可选输入）：全局面板字段优先，其次左右签名各自的 raw 字段
+    const qxText = looseField(fields, signaturePubKeyPointAliases.qx) || looseField(left.raw, signaturePubKeyPointAliases.qx) || looseField(right.raw, signaturePubKeyPointAliases.qx);
+    const qyText = looseField(fields, signaturePubKeyPointAliases.qy) || looseField(left.raw, signaturePubKeyPointAliases.qy) || looseField(right.raw, signaturePubKeyPointAliases.qy);
+    const qx = qxText ? parseNumericValue(qxText) : null;
+    const qy = qyText ? parseNumericValue(qyText) : null;
+    const curveName = inferEcCurveNameFromOrder(pairOrder);
+    const publicKeyChecked = curveName != null && qx != null && qy != null;
+
+    // 四符号组合枚举（含朴素主路径 (+s1,+s2)）：按私钥去重；公钥可用时 d·G==Q 锁定正确组合。
+    // 注意 (−s1,+s2) 与 (+s1,−s2) 方程同解（k 互反、d 相同），去重后至多两组候选。
+    const candidates: Array<{ signs: string; nonceK: bigint; privateKey: bigint; verified: boolean }> = [];
+    const seenPrivateKeys = new Set<string>();
+    const orderValue = pairOrder;
+    const rMod = modOrder(left.r, orderValue);
+    const rInv = bigintModInverse(rMod, orderValue);
+    const challengeDelta = modOrder(left.z - right.z, orderValue);
+    let naivePathDegenerate = false;
+    for (const [sign1, sign2, label] of SIGN_SYMBOL_COMBOS) {
+      const s1Signed = modOrder(left.s * sign1, orderValue);
+      const s2Signed = modOrder(right.s * sign2, orderValue);
+      const sDelta = modOrder(s1Signed - s2Signed, orderValue);
+      if (sign1 === 1n && sign2 === 1n && sDelta === 0n) naivePathDegenerate = true;
+      const sDeltaInv = bigintModInverse(sDelta, orderValue);
+      if (!sDeltaInv || !rInv) continue;
+      if (scheme === 'schnorr') {
+        // Schnorr: s = k + e·x → x=(s1−s2)/(e1−e2)，k=s1−e1·x
+        const challengeInv = bigintModInverse(challengeDelta, orderValue);
+        if (!challengeInv) continue;
+        const privateKey = (s1Signed - s2Signed + orderValue) % orderValue * challengeInv % orderValue;
+        const nonceK = modOrder(s1Signed - left.z * privateKey, orderValue);
+        const dedupeKey = privateKey.toString();
+        if (!seenPrivateKeys.has(dedupeKey)) {
+          seenPrivateKeys.add(dedupeKey);
+          candidates.push({ signs: label, nonceK, privateKey, verified: false });
+        }
+        continue;
       }
-      const privateKey = (((left.s - right.s) % pairOrder + pairOrder) * challengeInv) % pairOrder;
-      const nonceK = ((left.s - left.z * privateKey) % pairOrder + pairOrder) % pairOrder;
-      return {
-        left: left.index,
-        right: right.index,
-        repeatedR: left.r.toString(),
-        recoverable: true,
-        scheme,
-        nonceK: nonceK.toString(),
-        privateKey: privateKey.toString(),
-        privateKeyHex: `0x${privateKey.toString(16)}`,
-      };
+      // ECDSA/DSA: k=(z1−z2)/(s1−s2)，d=(s1·k−z1)/r
+      const nonceK = challengeDelta * sDeltaInv % orderValue;
+      const privateKey = modOrder(s1Signed * nonceK - left.z, orderValue) * rInv % orderValue;
+      const dedupeKey = privateKey.toString();
+      if (!seenPrivateKeys.has(dedupeKey)) {
+        seenPrivateKeys.add(dedupeKey);
+        candidates.push({ signs: label, nonceK, privateKey, verified: false });
+      }
     }
-    const sDelta = ((left.s - right.s) % pairOrder + pairOrder) % pairOrder;
-    const zDelta = ((left.z - right.z) % pairOrder + pairOrder) % pairOrder;
-    const sDeltaInv = bigintModInverse(sDelta, pairOrder);
-    const rInv = bigintModInverse(left.r, pairOrder);
-    if (!sDeltaInv || !rInv) {
-      return { left: left.index, right: right.index, repeatedR: left.r.toString(), recoverable: false, reason: 'non-invertible denominator or r', scheme };
+    if (candidates.length === 0) {
+      return { left: left.index, right: right.index, repeatedR: left.r.toString(), recoverable: false, reason: 'non-invertible denominator or challenge delta', scheme };
     }
-    const k = (zDelta * sDeltaInv) % pairOrder;
-    const privateKey = (((left.s * k - left.z) % pairOrder + pairOrder) * rInv) % pairOrder;
+
+    let primary = candidates[0];
+    let verifiedByPublicKey = false;
+    if (publicKeyChecked && curveName) {
+      for (const candidate of candidates) {
+        if (ecPublicKeyMatchesPrivateKey(candidate.privateKey, qx as bigint, qy as bigint, curveName)) {
+          candidate.verified = true;
+          if (!verifiedByPublicKey) {
+            primary = candidate;
+            verifiedByPublicKey = true;
+          }
+        }
+      }
+    }
+    const comboNote = verifiedByPublicKey
+      ? `±s 歧义已由公钥锁定：正确组合 ${primary.signs}（d·G==Q 雅可比点乘校验通过）`
+      : publicKeyChecked
+        ? '±s 四组合公钥校验均未命中——公钥/曲线/阶不匹配，结果未消歧'
+        : '未提供公钥（qx/qy）——low-s 归一化签名的 ±s 歧义无法自动锁定，以下为全部候选';
     return {
       left: left.index,
       right: right.index,
       repeatedR: left.r.toString(),
       recoverable: true,
       scheme,
-      nonceK: k.toString(),
-      privateKey: privateKey.toString(),
-      privateKeyHex: `0x${privateKey.toString(16)}`,
+      nonceK: primary.nonceK.toString(),
+      privateKey: primary.privateKey.toString(),
+      privateKeyHex: `0x${primary.privateKey.toString(16)}`,
+      signCombo: primary.signs,
+      verifiedByPublicKey,
+      publicKeyChecked,
+      naivePathDegenerate,
+      curve: curveName,
+      note: naivePathDegenerate ? `${comboNote}；朴素 (s1,s2) 分母为零（s1==s2）主路径退化——候选全部来自 ±s 组合，务必公钥校验` : comboNote,
+      candidates: candidates.map(candidate => ({
+        signs: candidate.signs,
+        nonceK: candidate.nonceK.toString(),
+        privateKey: candidate.privateKey.toString(),
+        privateKeyHex: `0x${candidate.privateKey.toString(16)}`,
+        verified: candidate.verified,
+      })),
     };
   });
   return JSON.stringify({
@@ -1021,6 +1201,8 @@ export const signatureNonceReuseHelper = async (value: string) => {
     inferredFields: fields,
     notes: [
       'Supports repeated-r recovery for both ECDSA/DSA and Schnorr-style signatures.',
+      'Each repeated pair enumerates all four ±s sign combinations ((+s1,+s2)/(-s1,+s2)/(+s1,-s2)/(-s1,-s2)); low-s normalized signatures make the naive pair recover a wrong private key.',
+      'Provide the public key (qx/qy) with a secp256k1/secp256r1 order so d*G==Q (Jacobian coordinates) can lock the correct sign combination.',
       'When z is missing but message text is present, the helper hashes the message locally with the inferred digest algorithm.',
       'If only partial nonce bits are known, this still needs HNP/lattice tooling rather than direct algebra.',
       partialConstraints.length ? 'The helper extracted partial nonce / biased nonce constraints so you can feed them into Sage/fpylll/crypto-attacks HNP workflows.' : '',
@@ -1431,4 +1613,4 @@ export const canSmartPrngAnalyze = (value: string) => {
   if (lfsr.confidence >= 8 && lfsr.bits.length >= 16) return true;
   return inferMt19937FromText(value).confidence >= 8;
 };
-
+

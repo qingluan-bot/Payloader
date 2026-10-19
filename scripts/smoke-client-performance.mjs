@@ -263,14 +263,21 @@ try {
       await waitForReadyMetrics();
       await new Promise(resolve => setTimeout(resolve, 500));
       const initialMetrics = await readMetrics();
+      // 顶栏搜索自「防抖下拉」改版后，键入只进本地 draft（不下拉选中项时），
+      // 回车才提交整页搜索——这里逐次补 Enter 与真实用户路径对齐
+      const pressEnter = element => {
+        element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      };
       const searchStarted = performance.now();
       setter.call(input, 'SQL');
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      pressEnter(input);
       await waitFor(() => document.querySelectorAll('.result-item').length > 0);
       const searchSettledMs = performance.now() - searchStarted;
       for (const query of ['Windows', 'Linux', 'XSS', 'JWT', 'PowerShell', 'SQL']) {
         setter.call(input, query);
         input.dispatchEvent(new Event('input', { bubbles: true }));
+        pressEnter(input);
         await new Promise(resolve => setTimeout(resolve, 180));
       }
       await waitFor(() => document.querySelectorAll('.result-item').length > 0);

@@ -1,16 +1,19 @@
-import { useCallback, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useLanguage, useNav, useSearch, useStaticData } from '../appContext';
+import { useLanguage, useNav, useStaticData } from '../appContext';
 import type { ActiveTab } from '../appContext';
 import { t, getText } from '../i18n';
 import { protectedExternalLinks } from '../protectedLinks';
 import type { PublicClientBuildInfo } from '../types';
+import { Icon } from './Icon';
 import { useDismissable } from './useDismissable';
 import { useFocusTrap } from './useFocusTrap';
 import HeaderSearch from './HeaderSearch';
 import HeaderActions from './HeaderActions';
 import MobileUtilitiesMenu from './MobileUtilitiesMenu';
 import '../styles/header.css';
+// 须位于 header.css 之后：下拉预览样式依赖同 specificity 的后加载覆盖（.search-box 定位等）
+import '../styles/header-search.css';
 
 interface HeaderProps {
   sidebarCollapsed: boolean;
@@ -22,8 +25,7 @@ interface HeaderProps {
 }
 
 function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showClientDownloads = true, encodingTools, onOpenClientDownloads }: HeaderProps) {
-  const { activeTab, setActiveView, setActiveTab, setSelectedPayloadId, setSelectedToolId } = useNav();
-  const { searchQuery, setSearchQuery } = useSearch();
+  const { activeTab, setActiveView, setActiveTab, setSelectedPayloadId, setSelectedToolId, setSelectedExploitId, setMobileCategoryId } = useNav();
   const { settings } = useStaticData();
   const { language } = useLanguage();
   const [showVariables, setShowVariables] = useState(false);
@@ -42,6 +44,8 @@ function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showCl
     setActiveTab(tab);
     setSelectedPayloadId(null);
     setSelectedToolId(null);
+    setSelectedExploitId(null);
+    setMobileCategoryId(null);
   };
 
   // WAI-ARIA tabs 模式：roving tabindex + 左右方向键在内容 tab 间移动并激活
@@ -49,6 +53,7 @@ function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showCl
   const contentTabs: ActiveTab[] = [
     'payloads',
     'tools',
+    'exploits',
     ...(settings.ctfEnabled !== false ? (['ctf'] as const) : []),
   ];
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, tab: ActiveTab) => {
@@ -102,13 +107,6 @@ function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showCl
     onClose: () => setShowEncoding(false),
   });
 
-  const handleSearchChange = useCallback((value: string) => {
-    setActiveView('workspace');
-    setSearchQuery(value);
-  }, [setActiveView, setSearchQuery]);
-
-  const handleSearchClear = useCallback(() => setSearchQuery(''), [setSearchQuery]);
-
   return (
     <>
       <header className="header">
@@ -122,7 +120,7 @@ function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showCl
               aria-controls="primary-navigation"
               aria-expanded={!sidebarCollapsed}
             >
-              <span aria-hidden="true">☰</span>
+              <Icon name="menu" size={20} />
             </button>
           )}
           <div className="logo">
@@ -161,7 +159,7 @@ function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showCl
         </div>
 
         <div className="header-center">
-          <HeaderSearch value={searchQuery} onChange={handleSearchChange} onClear={handleSearchClear} />
+          <HeaderSearch />
           <div className="tab-switcher" role="tablist" aria-label="内容类型">
             <button
               type="button"
@@ -186,6 +184,18 @@ function Header({ sidebarCollapsed, setSidebarCollapsed, clientBuildInfo, showCl
               onKeyDown={event => handleTabKeyDown(event, 'tools')}
             >
               {t('header.tabTools', language)}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'exploits'}
+              aria-controls="main-content"
+              tabIndex={activeTab === 'exploits' ? 0 : -1}
+              className={`tab-btn ${activeTab === 'exploits' ? 'active' : ''}`}
+              onClick={() => switchTab('exploits')}
+              onKeyDown={event => handleTabKeyDown(event, 'exploits')}
+            >
+              EXP
             </button>
             {settings.ctfEnabled !== false && (
               <button

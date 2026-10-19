@@ -319,17 +319,6 @@
    ]
   },
   {
-   "id": "service-exploit",
-   "patches": [
-    {
-     "area": "wafBypass",
-     "index": 3,
-     "expectedCommand": "for /f \"usebackq delims=\" %v in (`type ImagePath.orig`) do reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\{LAB_SERVICE} /v ImagePath /t REG_EXPAND_SZ /d \"%v\" /f \n sc stop {LAB_SERVICE} && sc start {LAB_SERVICE}",
-     "command": "for /f \"usebackq delims=\" %v in (`type ImagePath.orig`) do reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\{LAB_SERVICE} /v ImagePath /t REG_EXPAND_SZ /d \"%v\" /f \n sc stop {LAB_SERVICE} && sc start {LAB_SERVICE}"
-    }
-   ]
-  },
-  {
    "id": "always-install",
    "patches": [
     {

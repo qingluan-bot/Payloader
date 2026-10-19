@@ -26,6 +26,7 @@ import { parseElf } from '../../utils/ctf/elfParse';
 import { parsePe } from '../../utils/ctf/peParse';
 import type { PeInfo } from '../../utils/ctf/peParse';
 import type { CtfWorkspaceProps } from '../../utils/ctf/moduleContracts';
+import { Icon } from '../Icon';
 import '../../styles/ctf-forensics.css';
 import '../../styles/reverse-workspace.css';
 
@@ -189,7 +190,7 @@ function ReverseWorkspace({ pendingFile, onFileConsumed, onSwitchModule }: CtfWo
       {!analysis ? (
         <div className="reverse-empty">
           <div className="ff-dropzone">
-            <div className="ff-dropzone-icon" aria-hidden="true">🔍</div>
+            <div className="ff-dropzone-icon" aria-hidden="true"><Icon name="search" size={34} /></div>
             <strong>{zh ? '把逆向题二进制拖到这里，或点击选择' : 'Drop a challenge binary here, or click to browse'}</strong>
             <small>
               {zh
@@ -207,7 +208,8 @@ function ReverseWorkspace({ pendingFile, onFileConsumed, onSwitchModule }: CtfWo
         <div className="ctf-toolnav">
           <nav className="ctf-toolnav-menu" aria-label={zh ? '逆向工具选择' : 'Reverse tools'}>
             <button type="button" className="ctf-toolnav-file-btn" onClick={() => inputRef.current?.click()}>
-              {zh ? `📁 换文件（${analysis.name.slice(0, 18)}）` : `📁 Replace (${analysis.name.slice(0, 18)})`}
+              <Icon name="file-text" size={14} />
+              {zh ? `换文件（${analysis.name.slice(0, 18)}）` : `Replace (${analysis.name.slice(0, 18)})`}
             </button>
             <div className="ctf-toolnav-group">
               <div className="ctf-toolnav-group-title">{zh ? '目标分析' : 'Target'}</div>

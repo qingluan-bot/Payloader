@@ -159,7 +159,15 @@ const matchShowOperator = (source: string, at: number): number => {
   return 0;
 };
 
-export const extractPdfContentText = (decompressed: Uint8Array): string[] => {
+export interface PdfContentTextOptions {
+  // TJ 字距还原空格的阈值（千分之一 em 单位）。0 = 不还原（默认，行为与历史版本一致）；
+  // 100 = 经典口径（pdftotext 同款）：|n| ≥ 阈值视为词/字母间隙插一个空格，微字距（紧排
+  // 调整，如 (B)1(A) 的 1）不插——07-stegano 型 AB 串的字母边界只存在于 TJ 字距里。
+  kernSpaceThreshold?: number;
+}
+
+export const extractPdfContentText = (decompressed: Uint8Array, options?: PdfContentTextOptions): string[] => {
+  const kernSpaceThreshold = options?.kernSpaceThreshold ?? 0;
   const source = latin1ToString(decompressed);
   const lines: string[] = [];
   const push = (text: string): void => {
@@ -207,25 +215,39 @@ export const extractPdfContentText = (decompressed: Uint8Array): string[] => {
     }
 
     if (ch === '[') {
-      // TJ 数组：串与串之间穿插的数值（字距调整）忽略，串按序直接拼接为一个条目；
-      // 数组未闭合（截断）或其后不是 TJ（如 dash 数组 [3] 0 d）则不产出。
+      // TJ 数组：串与串之间穿插的数值是字距调整——默认忽略直接拼接；启用 kernSpaceThreshold
+      // 时 |n| ≥ 阈值视为词/字母间隙，在下一个串前插一个空格。数组未闭合（截断）或其后不是
+      // TJ（如 dash 数组 [3] 0 d）则不产出。
       const parts: string[] = [];
       let cursor = position + 1;
       let closed = false;
+      let pendingKernSpace = false;
+      const appendWithSpace = (text: string): void => {
+        if (pendingKernSpace) { parts.push(' '); pendingKernSpace = false; }
+        parts.push(text);
+      };
       while (cursor < source.length) {
         const inner = source[cursor];
         if (inner === ']') { closed = true; cursor += 1; break; }
         if (inner === '(') {
           const parsed = parseLiteralString(source, cursor);
-          parts.push(parsed.text);
+          appendWithSpace(parsed.text);
           cursor = parsed.end;
           continue;
         }
         if (inner === '<' && source.charCodeAt(cursor + 1) !== 0x3c) {
           const parsed = parseHexStringValue(source, cursor);
           if (parsed) {
-            parts.push(parsed.text);
+            appendWithSpace(parsed.text);
             cursor = parsed.end;
+            continue;
+          }
+        }
+        if (kernSpaceThreshold > 0 && (inner === '-' || (inner >= '0' && inner <= '9') || inner === '.')) {
+          const numberMatch = /^-?(?:\d+(?:\.\d+)?|\.\d+)/.exec(source.slice(cursor));
+          if (numberMatch) {
+            if (Math.abs(Number.parseFloat(numberMatch[0])) >= kernSpaceThreshold) pendingKernSpace = true;
+            cursor += numberMatch[0].length;
             continue;
           }
         }

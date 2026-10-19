@@ -946,6 +946,74 @@ const emojiDecode = (input: string): string => {
   return bytesToText(base64ToBytes(base64));
 };
 
+// ---- 谐音对照解码 ----
+// CTF 中文谍报题型：全文用同音字系统性替换（朝→汪、时→喵、人→眠），中文无字母频率可用，
+// 必须走「对照文本构建映射」路线——题面给两段对照文本（原文 + 替换文），逐字对齐构建
+// 明→密 映射后还原第三段密文。某位两边相同视为未替换字符不入映射；同一明字遇到不同密字
+// 保留首次并计冲突（不强断，冲突数暴露给调用方）。该密码无固定密文形态，识别靠人工贴
+// 对照文本，故无形状探针。
+// 真题向量来源：https://github.com/Dest1ny-Sec/Des-CTF-Knowledge（CTF常用脚本及工具/谍报-替换普通话/tihuan.py）
+export const buildHomophoneMap = (referencePlain: string, referenceCipher: string): { map: Map<string, string>; coverage: number; conflicts: number } => {
+  if (!referencePlain || !referenceCipher) throw new Error('对照明文与对照密文都不能为空：谐音对照解码依赖两段逐字对齐的参考文本。');
+  const plainChars = [...referencePlain];
+  const cipherChars = [...referenceCipher];
+  if (plainChars.length !== cipherChars.length) throw new Error(`对照明文（${plainChars.length} 字）与对照密文（${cipherChars.length} 字）长度不一致：谐音替换须逐字对齐，请核对两段是否为同一篇的原文与替换文。`);
+  const map = new Map<string, string>();
+  let conflicts = 0;
+  for (let index = 0; index < plainChars.length; index += 1) {
+    const plain = plainChars[index];
+    const replaced = cipherChars[index];
+    if (plain === replaced) continue; // 未替换字符不入映射
+    const existing = map.get(plain);
+    if (existing === undefined) map.set(plain, replaced);
+    else if (existing !== replaced) conflicts += 1; // 同明字对多密字：保留首次，冲突计数
+  }
+  // coverage = 映射值去重数 / 参考明文全部不同字数（分母含被跳过的未替换字符）；
+  // 任一侧为空时天然得 0（空串在入口已拦截，map 全空即 0）。
+  const coverage = new Set(map.values()).size / new Set(plainChars).size;
+  return { map, coverage, conflicts };
+};
+
+export const homophoneDecode = (cipher: string, map: Map<string, string>): { text: string; unmapped: number } => {
+  const inverse = new Map<string, string>();
+  for (const [plain, replaced] of map) if (!inverse.has(replaced)) inverse.set(replaced, plain); // 遍历插入序，同密字保留首个明字
+  let unmapped = 0;
+  const text = [...cipher].map(char => {
+    const plain = inverse.get(char);
+    if (plain === undefined) {
+      unmapped += 1;
+      return char; // 映射外字符原样保留
+    }
+    return plain;
+  }).join('');
+  return { text, unmapped };
+};
+
+// 正向替换（明→密，映射外透传）：encode 方向与 round-trip 验证用。
+const homophoneEncode = (input: string, map: Map<string, string>): string =>
+  [...input].map(char => map.get(char) ?? char).join('');
+
+// decode 输出 = 还原文本 + 映射表展示 + 未映射字符提示（对齐 substitution-auto 的报告式输出先例）；
+// 纯还原文本仍可经导出的 homophoneDecode 获取（程序化消费与向量分层）。
+const formatHomophoneReport = (text: string, map: Map<string, string>, unmapped: number): string => {
+  const pairs: string[] = [];
+  for (const [plain, cipher] of map) pairs.push(`${plain}=${cipher}`);
+  const lines: string[] = [text];
+  if (pairs.length) {
+    lines.push('', `—— 谐音映射表（明→密，共 ${pairs.length} 组）——`);
+    for (let index = 0; index < pairs.length; index += 8) lines.push(pairs.slice(index, index + 8).join(' '));
+  }
+  lines.push(`—— 映射外字符 ${unmapped} 个已原样保留 ——`);
+  return lines.join('\n');
+};
+
+const homophoneContrastTransform = (encoding: boolean, input: string, params: Record<ParamKey, string>): string => {
+  const { map } = buildHomophoneMap(params.referencePlain ?? '', params.referenceCipher ?? '');
+  if (encoding) return homophoneEncode(input, map);
+  const { text, unmapped } = homophoneDecode(input, map);
+  return formatHomophoneReport(text, map, unmapped);
+};
+
 // ---- 操作元数据 ----
 export const parityCnOperations: Operation[] = [
   {
@@ -1087,6 +1155,13 @@ export const parityCnOperations: Operation[] = [
     name: { zh: 'Emoji 编码器', en: 'Emoji Encoder' },
     summary: { zh: 'UTF-8 字节转 base64 后逐字符映射 U+1F600 起连续 64 个 Emoji（😀-😿），填充位映射 ⬛。', en: 'Base64 of UTF-8 bytes mapped onto 64 consecutive emoji from U+1F600 (😀-😿) with ⬛ padding.' },
   },
+  {
+    id: 'homophone-contrast',
+    category: 'crypto',
+    name: { zh: '谐音对照解码', en: 'Homophone Contrast Decoder' },
+    summary: { zh: '谍报型同音替换密码专用：用两段对照文本（原文 + 替换文）逐字对齐构建替换映射，再还原第三段密文；同明字对多密字保留首次，映射外字符原样保留，解码输出附映射表与未映射计数。', en: 'Espionage-style homophone substitution: aligns a plaintext/ciphertext reference pair char by char to build the mapping, then restores the third segment; first mapping wins on conflicts, unmapped chars pass through, and the decode output appends the mapping table with an unmapped count.' },
+    params: ['referencePlain', 'referenceCipher'],
+  },
 ];
 
 export const parityCnDefaultParams: Partial<Record<ParamKey, string>> = {};
@@ -1118,6 +1193,7 @@ export const parityCnTransform = async (id: OperationId, direction: Direction, i
     case 'spoon': return encoding ? spoonEncode(input) : spoonDecode(input);
     case 'manchester': return encoding ? manchesterEncode(input, params.variant ?? '') : manchesterDecode(input, params.variant ?? '');
     case 'emoji-encoder': return encoding ? emojiEncode(input) : emojiDecode(input);
+    case 'homophone-contrast': return homophoneContrastTransform(encoding, input, params);
     default: throw new Error(`parityChinese 未实现的操作：${id}`);
   }
 };
@@ -1340,4 +1416,11 @@ export const parityCnVectors: ParityVector[] = [
   // 权威：IEEE 802.3 极性定义（https://www.dcode.fr/manchester-code）：H(0x48)+i(0x69) 逐位 0→10/1→01。
   { id: 'manchester', plain: 'Hi', cipher: '10011010011010101001011001101001', params: { variant: 'ieee-8023' } },
   { id: 'emoji-encoder', plain: 'hi' },
+  // 谐音对照：MIT 仓库 https://github.com/Dest1ny-Sec/Des-CTF-Knowledge
+  // （CTF常用脚本及工具/谍报-替换普通话/tihuan.py）内嵌真题三段文本，全文原样保留
+  // （decode 期望值 = 主控预计算的还原全文 + 映射表报告段，与操作卡输出格式一致）。
+  // 只挂 decode 单向向量：decode 输出为报告式（还原文本+映射表+未映射计数），与 verify 的
+  // encode→decode round-trip 机制不相容（会二次附报告）；encode 精确性由
+  // tests/homophone-contrast.test.mjs 的权威样例断言钉住。
+  { id: 'homophone-contrast', direction: 'decode', plain: "今朝梆子二更头，老鹰蹲猎东口，三更鼹鼠断东口亮子，老鹰进北口上树，三枝遇孙子，孙子对虎符曰：南天菩萨放鹰捉猴头。鹰对：北朝罗汉伏虎乱天门。合符放行，卡符扯呼。人离烧树，鼹鼠归洞，孙子找爷爷。\n\n—— 谐音映射表（明→密，共 24 组）——\n今=喵 朝=汪 梆=哞 子=叽 三=八 更=哇 亮=全 口=脑\n二=双 符=编 老=眠 蹲=足 东=流 树=草 鹰=鸟 头=顶\n虎=熬 南=值 猎=屁 鼹=报 鼠=信 曰=叶 菩=衣 萨=服\n—— 映射外字符 50 个已原样保留 ——", cipher: "喵汪哞叽双哇顶，眠鸟足屁流脑，八哇报信断流脑全叽，眠鸟进北脑上草，八枝遇孙叽，孙叽对熬编叶：值天衣服放鸟捉猴顶。鸟对：北汪罗汉伏熬乱天门。合编放行，卡编扯呼。人离烧草，报信归洞，孙叽找爷爷。", params: { referencePlain: "今天上午，朝歌区梆子公司决定，在每天三更天不亮免费在各大小区门口设卡为全城提供二次震耳欲聋的敲更提醒，呼吁大家早睡早起，不要因为贪睡断送大好人生，时代的符号是前进。为此，全区老人都蹲在该公司东边树丛合力抵制，不给公司人员放行，场面混乱。李罗鹰住进朝歌区五十年了，人称老鹰头，几年孙子李虎南刚从东北当猎户回来，每月还寄回来几块鼹鼠干。李罗鹰当年遇到的老婆是朝歌一枝花，所以李南虎是长得非常秀气的一个汉子。李罗鹰表示：无论梆子公司做的对错，反正不能打扰他孙子睡觉，子曰：‘睡觉乃人之常情’。梆子公司这是连菩萨睡觉都不放过啊。李南虎表示：梆子公司智商捉急，小心居民猴急跳墙！这三伏天都不给睡觉，这不扯淡么！到了中午人群仍未离散，更有人提议要烧掉这个公司，公司高层似乎恨不得找个洞钻进去。直到治安人员出现才疏散人群归家，但是李南虎仍旧表示爷爷年纪大了，睡不好对身体不好。", referenceCipher: "喵天上午，汪歌区哞叽公司决定，在每天八哇天不全免费在各大小区门脑设卡为全城提供双次震耳欲聋的敲哇提醒，呼吁大家早睡早起，不要因为贪睡断送大好人生，时代的编号是前进。为此，全区眠人都足在该公司流边草丛合力抵制，不给公司人员放行，场面混乱。李罗鸟住进汪歌区五十年了，人称眠鸟顶，几年孙叽李熬值刚从流北当屁户回来，每月还寄回来几块报信干。李罗鸟当年遇到的眠婆是汪歌一枝花，所以李值熬是长得非常秀气的一个汉叽。李罗鸟表示：无论哞叽公司做的对错，反正不能打扰他孙叽睡觉，叽叶：‘睡觉乃人之常情’。哞叽公司这是连衣服睡觉都不放过啊。李值熬表示：哞叽公司智商捉急，小心居民猴急跳墙！这八伏天都不给睡觉，这不扯淡么！到了中午人群仍未离散，哇有人提议要烧掉这个公司，公司高层似乎恨不得找个洞钻进去。直到治安人员出现才疏散人群归家，但是李值熬仍旧表示爷爷年纪大了，睡不好对身体不好。" } },
 ];

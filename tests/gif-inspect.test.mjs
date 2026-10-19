@@ -11,11 +11,15 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel2, title2, fn) => (existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel2.split('/'))) ? test : test.skip)(title2, fn);
 
 const srcDir = path.join(projectRoot, 'src');
 const { loadModule } = createTsModuleLoader();
-const { inspectGif, decodeGifFrame, decodeGifFrames, GIF_MAX_FRAMES } =
+const { inspectGif, decodeGifFrame, decodeGifFrames, decodeGifQr, GIF_MAX_FRAMES } =
   loadModule(path.join(srcDir, 'utils', 'ctf', 'gifInspect.ts'));
 
 // ---- 测试侧 GIF 造流工厂 ----
@@ -405,3 +409,47 @@ test('decodeGifFrame：跨码宽递增边界的图案仍逐像素还原（width 
     assert.equal(rgba[pixel * 4 + 3], 255, `A@pixel${pixel}`);
   }
 });
+
+// ---- 用例 17：GIF 帧→QR 自动解题链（G-1，真题 give_you_flag）----
+// 53 帧 GIF、帧 49 为"QR 与卡通像素叠加 + 定位角被抹 + ~1.9px/模块非整数缩放"形态，
+// decodeQrCodes 直解为空；decodeGifQr 走帧合成 → 灰度置信定位 → 模块网格重建
+// （遮挡剔除）→ 模块级直解，含多帧票选。真题文件锚定验收。
+
+realTest('xctf-misc/03-give_you_flag/flag.gif', 'decodeGifQr 真题 03-give_you_flag/flag.gif：自动链解出完整 flag', async () => {
+  const fs = await import('node:fs');
+  const bytes = fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', 'xctf-misc', '03-give_you_flag', 'flag.gif'));
+  const result = await decodeGifQr(new Uint8Array(bytes));
+  assert.equal(result.framesScanned, 53, '53 帧全部扫描');
+  // 沙箱跨 realm 数组 deepEqual 必失败（AGENTS.md 踩坑），先转主 realm
+  assert.deepEqual(Array.from(result.deepFrames), [49], '仅帧 49 触发深扫');
+  const flag = result.hits.find(hit => hit.text === 'flag{e7d478cf6b915f50ab1277f78502a2c5}');
+  assert.ok(flag, `应解出预期 flag，实际 ${JSON.stringify(result.hits.map(h => h.text))}`);
+  assert.equal(flag.votes, 1);
+  assert.equal(flag.moduleCount, 37, '版本 5（37 模块）');
+  assert.ok(flag.moduleSize > 1.8 && flag.moduleSize < 2.0, `模块宽 ~1.9px，实际 ${flag.moduleSize}`);
+}, { timeout: 120000 });
+
+// ---- 用例 18：decodeGifQr 分批让步 + 进度上报（验收遗留 P1 回归）----
+// 症状：77 帧 GIF 点击"帧拼合识别二维码"后主线程同步冻结 45s+（逐帧 QR 扫描无让步）。
+// 让步证据：setTimeout 探针只有在事件循环获得让步时才会置位——若引擎全程同步，扫描结束前
+// 任何 onProgress 回调都看不到探针已触发；分批让步后中途回调必然可见。
+realTest('xctf-misc/03-give_you_flag/flag.gif', 'decodeGifQr 分批让步+进度上报：onProgress 单调推进且扫描中途事件循环可见', async () => {
+  const fs = await import('node:fs');
+  const bytes = new Uint8Array(fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', 'xctf-misc', '03-give_you_flag', 'flag.gif')));
+  let probeFired = false;
+  const probe = setTimeout(() => { probeFired = true; }, 0);
+  const progressCalls = [];
+  const result = await decodeGifQr(bytes, {
+    batchSize: 4,
+    onProgress: progress => progressCalls.push({ fired: probeFired, ...progress }),
+  });
+  clearTimeout(probe);
+  assert.equal(result.framesScanned, 53, '让步改造不改变扫描结果（仍 53 帧全扫）');
+  assert.ok(progressCalls.length >= 2, `应多次回报进度，实际 ${progressCalls.length} 次`);
+  for (let i = 1; i < progressCalls.length; i += 1) {
+    assert.ok(progressCalls[i].done >= progressCalls[i - 1].done, `进度 done 应单调不减：${JSON.stringify(progressCalls[i - 1])} -> ${JSON.stringify(progressCalls[i])}`);
+    assert.equal(progressCalls[i].total, 53, '进度 total 恒为计划扫描帧数');
+  }
+  assert.equal(progressCalls[progressCalls.length - 1].done, 53, '末次进度到达计划帧数');
+  assert.ok(progressCalls.some(call => call.fired), '扫描中途事件循环获得让步（setTimeout 探针在扫描结束前触发）');
+}, { timeout: 120000 });

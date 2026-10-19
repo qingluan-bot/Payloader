@@ -1,16 +1,21 @@
 // 音频隐写引擎测试：WAV 解析（8/16/24bit、立体声交织、extensible、非 PCM 拒绝、
-// 超长截断红线）、LSB 提取（mono/stereo 通道选择性、位平面、maxBytes 截断）、
+// 超长截断红线）、WAV 重编码与倒放（头字段合法性、量化往返、按帧反转、round-trip）、
+// LSB 提取（mono/stereo 通道选择性、位平面、maxBytes 截断）、
 // DTMF 合成解码（8k/44.1k）、摩尔斯合成识别（text+timeline）、频谱峰值 bin、
 // 非 2 幂 fftSize 抛错、空/静音/单样本退化输入。
 // 向量全部程序化构造（手写 WAV 头），加载统一走 tests/helpers/compileTsModule.mjs。
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import { createTsModuleLoader, projectRoot } from './helpers/compileTsModule.mjs';
+
+// 真题附件不入库（tests/real-challenges 在 .gitignore）——缺失时跳过对应测试（干净 checkout 不红）
+const realTest = (rel2, title2, fn) => (existsSync(path.join(projectRoot, 'tests', 'real-challenges', ...rel2.split('/'))) ? test : test.skip)(title2, fn);
 
 const { loadModule } = createTsModuleLoader();
 const {
-  parseWav, extractWavLsb, dtmfDecode, morseDecodeAudio, computeSpectrogram, MAX_WAV_SAMPLES,
+  parseWav, encodeWav, reverseWav, extractWavLsb, dtmfDecode, morseDecodeAudio, computeSpectrogram, decodeSpectrogramText, renderSpectrogramPng, MAX_WAV_SAMPLES,
 } = loadModule(path.join(projectRoot, 'src', 'utils', 'ctf', 'audioStego.ts'));
 
 // ---- 测试工厂 ----
@@ -374,4 +379,133 @@ test('computeSpectrogram 非 2 幂 fftSize 抛错；空/单样本/全零不崩',
   for (let index = 0; index < zero.matrix.length; index += 1) {
     assert.ok(Number.isFinite(zero.matrix[index]), `全零样本不应产生 NaN idx=${index}`);
   }
+});
+
+// ---- 真题验收：频谱画字自动识别（G-2，14-Hear-with-your-Eyes）与 PNG 导出兜底 ----
+// 识别形态：文字以字形笔画绘于频带（低频带 ~bin 82-273，正立方向为低频在下），
+// 解码链 = 行能量找带 → 双阈值（形状 0.62 / 边界 0.68）→ 列剖面分割 → 归一化 +
+// 模糊 → 内嵌 14×20 字形模板互相关 → 多带共识 → flag 包装。
+
+realTest('xctf-misc/14-Hear-with-your-Eyes/sound.wav', 'decodeSpectrogramText 真题 sound.wav：自动识别输出完整 flag', async () => {
+  const fs = await import('node:fs');
+  const bytes = fs.readFileSync(path.join(projectRoot, 'tests', 'real-challenges', 'xctf-misc', '14-Hear-with-your-Eyes', 'sound.wav'));
+  const wav = parseWav(new Uint8Array(bytes));
+  const mono = new Float64Array(wav.info.frames);
+  for (let frame = 0; frame < wav.info.frames; frame += 1) {
+    mono[frame] = wav.samples[frame * wav.info.channels];
+  }
+  const result = decodeSpectrogramText(mono, wav.info.sampleRate);
+  assert.ok(result.consensus, `应识别出共识文本，实际 ${JSON.stringify(result.bandTexts)}`);
+  assert.equal(result.consensus, 'flag:e5353bb7b57578bd4da1c898a8e2d767', `识别文本 ${result.consensus}`);
+  assert.deepEqual(Array.from(result.flagCandidates), ['flag{e5353bb7b57578bd4da1c898a8e2d767}']);
+  assert.equal(result.charScores.length, result.consensus.length);
+  for (const score of result.charScores) {
+    assert.ok(score > 0.3, `每字符模板相关分应 >0.3，实际 ${score}`);
+  }
+});
+
+test('renderSpectrogramPng：纯 JS 灰度 PNG 导出可被标准 zlib 还原', async () => {
+  const zlib = await import('node:zlib');
+  const samples = new Float64Array(8192);
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = Math.sin((2 * Math.PI * 1000 * index) / 8000) * 0.8;
+  }
+  const spec = computeSpectrogram(samples, 8000, { fftSize: 1024, hop: 256 });
+  const png = renderSpectrogramPng(spec, { gain: 1.5 });
+  assert.deepEqual(Array.from(png.subarray(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'PNG 签名');
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  assert.equal(view.getUint32(8), 13, 'IHDR 长度 13');
+  assert.equal(view.getUint32(16), spec.frames, 'IHDR 宽 = 帧数');
+  assert.equal(view.getUint32(20), spec.bins, 'IHDR 高 = bin 数');
+  assert.equal(png[24], 8, 'bit depth 8');
+  assert.equal(png[25], 0, 'color type 0（灰度）');
+  // IDAT 是 stored-deflate zlib 流：inflate 还原后 = (宽+1)×高 字节，每行 filter 0
+  const idatStart = 8 + 25 + 8; // 签名 + IHDR 整块 + IDAT 的 len/type 头
+  const idatLen = view.getUint32(idatStart - 8);
+  const raw = zlib.inflateSync(png.subarray(idatStart, idatStart + idatLen));
+  assert.equal(raw.length, (spec.frames + 1) * spec.bins);
+  for (let row = 0; row < spec.bins; row += 1) {
+    assert.equal(raw[row * (spec.frames + 1)], 0, `行 ${row} filter 类型 0`);
+  }
+});
+
+// ---- encodeWav / reverseWav ----
+// 沙箱红线：引擎产物（Uint8Array/Float64Array/数组）都是 vm realm 的，断言前一律
+// Array.from 转主 realm 再比较。
+
+test('encodeWav 16bit：44B 标准 RIFF 头字段逐项合法，parseWav 往返样本无损', () => {
+  const ints = [0, 1, -1, 16383, -16384, 32767, -32768];
+  const samples = Float64Array.from(ints, value => value / 32768);
+  const encoded = encodeWav(samples, { sampleRate: 22050, channels: 1, bitsPerSample: 16, dataBytes: 0, frames: samples.length, formatTag: 1 });
+  assert.equal(toLatin1(encoded.subarray(0, 4)), 'RIFF');
+  assert.equal(toLatin1(encoded.subarray(8, 12)), 'WAVE');
+  assert.equal(toLatin1(encoded.subarray(12, 16)), 'fmt ');
+  const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength);
+  assert.equal(view.getUint32(4, true), 36 + ints.length * 2, 'RIFF 尺寸 = 36 + dataBytes');
+  assert.equal(view.getUint32(16, true), 16, 'fmt 尺寸 16');
+  assert.equal(view.getUint16(20, true), 1, 'formatTag PCM');
+  assert.equal(view.getUint16(22, true), 1, '声道数');
+  assert.equal(view.getUint32(24, true), 22050, '采样率');
+  assert.equal(view.getUint32(28, true), 22050 * 2, 'byteRate');
+  assert.equal(view.getUint16(32, true), 2, 'blockAlign');
+  assert.equal(view.getUint16(34, true), 16, '位深');
+  assert.equal(toLatin1(encoded.subarray(36, 40)), 'data');
+  assert.equal(view.getUint32(40, true), ints.length * 2, 'data 尺寸');
+  const { info, samples: back } = parseWav(encoded);
+  assert.equal(info.sampleRate, 22050);
+  assert.equal(info.channels, 1);
+  assert.equal(info.frames, ints.length);
+  assert.equal(info.formatTag, 1);
+  assert.deepEqual(Array.from(back), Array.from(samples), '16bit 量化往返无损');
+});
+
+test('encodeWav 8/24/32bit：量化与 parseWav 精确互逆（含满幅边界）', () => {
+  const cases = [
+    { bits: 8, scale: 0x80, ints: [0, 1, 127, 128, 129, 254, 255], toSample: (value, scale) => (value - scale) / scale },
+    { bits: 24, scale: 0x800000, ints: [0, 1, -1, 0x7fffff, -0x800000], toSample: (value, scale) => value / scale },
+    { bits: 32, scale: 0x80000000, ints: [0, 1, -1, 0x7fffffff, -0x80000000], toSample: (value, scale) => value / scale },
+  ];
+  for (const { bits, scale, ints, toSample } of cases) {
+    const samples = Float64Array.from(ints, value => toSample(value, scale));
+    const back = parseWav(encodeWav(samples, { sampleRate: 8000, channels: 1, bitsPerSample: bits, dataBytes: 0, frames: samples.length, formatTag: 1 }));
+    assert.equal(back.info.bitsPerSample, bits);
+    assert.deepEqual(Array.from(back.samples), Array.from(samples), `${bits}bit 量化往返`);
+  }
+});
+
+test('encodeWav 范围外位深与样本不足一帧抛中文错误', () => {
+  assert.throws(() => encodeWav(new Float64Array(4), { sampleRate: 8000, channels: 1, bitsPerSample: 12, dataBytes: 0, frames: 4, formatTag: 1 }), /位深/);
+  assert.throws(() => encodeWav(new Float64Array(1), { sampleRate: 8000, channels: 2, bitsPerSample: 16, dataBytes: 0, frames: 0, formatTag: 1 }), /一帧/);
+});
+
+test('reverseWav 16bit 立体声正弦：头字段不变、样本按帧反转，二次倒放与原文件逐字节一致（round-trip）', () => {
+  const frames = 128;
+  const ints = [];
+  for (let frame = 0; frame < frames; frame += 1) {
+    ints.push(
+      Math.round(Math.sin((2 * Math.PI * frame * 7) / frames) * 20000), // L 通道
+      Math.round(Math.sin((2 * Math.PI * frame * 3) / frames) * 12000), // R 通道
+    );
+  }
+  const original = buildWav({ sampleRate: 44100, channels: 2, bits: 16, samplesInt: ints });
+  const reversed = reverseWav(original);
+  const twice = reverseWav(reversed);
+  // 倒放产物过 parseWav 头合法：sampleRate/channels/frames 不变
+  const reversedInfo = parseWav(reversed).info;
+  assert.equal(reversedInfo.sampleRate, 44100);
+  assert.equal(reversedInfo.channels, 2);
+  assert.equal(reversedInfo.frames, frames);
+  assert.equal(reversedInfo.formatTag, 1);
+  // 每通道各自时间反转：倒放后第 f 帧 = 原第 frames-1-f 帧，帧内 L/R 次序不乱
+  const a = parseWav(original);
+  const r = parseWav(reversed);
+  for (let frame = 0; frame < frames; frame += 1) {
+    assert.deepEqual(
+      Array.from(r.samples.subarray(frame * 2, frame * 2 + 2)),
+      Array.from(a.samples.subarray((frames - 1 - frame) * 2, (frames - 1 - frame) * 2 + 2)),
+      `帧 ${frame} 应等于原倒数第 ${frames - 1 - frame} 帧`,
+    );
+  }
+  // round-trip：二次倒放与原文件逐字节一致（buildWav 本身就是标准 44B 头）
+  assert.deepEqual(Array.from(twice), Array.from(original));
 });

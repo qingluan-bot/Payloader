@@ -25,6 +25,7 @@ const {
   extractPycInfo,
   walkCodeObjects,
   PYC_MAX_BYTES,
+  PYC_MAGIC_RANGES,
 } = loadModule(path.join(srcDir, 'utils', 'ctf', 'pycParse.ts'));
 const {
   extractStegosaurus,
@@ -383,4 +384,19 @@ test('detectPycAnomaly：尾附数据、3.6 合成载体的跳转/lnotab 越界�
   const stego35 = extractStegosaurus(synthetic35);
   assert.deepEqual(arr(stego35.payloads), []);
   assert.ok(arr(stego35.detail).some(line => line.includes('3.6 之前')), '应说明 3.5 无死槽语义');
+});
+
+test('PYC_MAGIC_RANGES：3.13/3.14 区间覆盖（3571=3.13 定稿、3627=3.14 定稿，3.15 从 3650 起）', () => {
+  const find = magic => PYC_MAGIC_RANGES.find(range => magic >= range.min && magic <= range.max);
+  assert.equal(find(3550).version, '3.13');
+  assert.equal(find(3571).version, '3.13', '3.13 定稿 magic 3571');
+  assert.equal(find(3600).version, '3.14', '3.14a1 起');
+  assert.equal(find(3627).version, '3.14', '3.14 定稿 magic 3627 不再抛未知 magic');
+  assert.equal(find(3649)?.version, '3.14');
+  assert.equal(find(3650), undefined, '3.15 从 3650 起，超出 3.14 区间');
+  // 16 字节 PEP 552 头口径对 3.14 同样成立：marshal 层以 magic=3627（modern 布局档）解析
+  const bodyInt = Buffer.from([0x69, 42, 0, 0, 0]); // TYPE_INT 'i' + int32
+  const unmarshaled = unmarshalPython(bodyInt, { magic: 3627 });
+  assert.equal(unmarshaled.value.value, 42); // marshal 值模型 { kind: 'int', value }
+  assert.equal(unmarshaled.endOffset, 5);
 });

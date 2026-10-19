@@ -6,7 +6,8 @@
 // 1) magic→版本对照：CPython Lib/importlib/_bootstrap_external.py 的 magic 历史注释表
 //    （v3.12 分支文件尾 MAGIC_NUMBER = (3531).to_bytes(2,'little') + b'\r\n'）。
 //    落地区间：3.5=3310-3351、3.6=3360-3379、3.7=3390-3394、3.8=3400-3413、3.9=3420-3425、
-//    3.10=3430-3439、3.11=3450-3495、3.12=3500-3531；3.13 从 3550 起（布局按 3.12 尽力解析）。
+//    3.10=3430-3439、3.11=3450-3495、3.12=3500-3531；3.13 从 3550 起（3571 定稿）；3.14=3600-3627
+//    （3627 定稿、3.15 从 3650 起，来源 Include/internal/pycore_magic_number.h；布局按 3.12 档尽力解析）。
 // 2) 文件头：magic(2B LE)+0x0D0A；magic≥3392（"3392 (PEP 552 deterministic pycs)"）为 16B 头：
 //    magic(4B)+flags(4B)+（时间戳模式: mtime(4B)+size(4B)｜哈希模式(flags&1): hash(8B)）；
 //    之前为 12B 头：magic(4B)+mtime(4B)+size(4B)。3.11+ 头部字段无变化（变化在 code object 字段）。
@@ -46,7 +47,8 @@ export const PYC_MAGIC_RANGES: readonly PycMagicRange[] = [
   { min: 3430, max: 3439, version: '3.10', layout: 'posonly', note: '3431=PEP 626 行表语义改 linetable' },
   { min: 3450, max: 3495, version: '3.11', layout: 'modern', note: '3450=异常表，3460=co_qualname，3495=3.11 定稿' },
   { min: 3500, max: 3531, version: '3.12', layout: 'modern', note: '3531=3.12 定稿' },
-  { min: 3550, max: 3600, version: '3.13', layout: 'modern', note: '3550 起；布局按 3.12 档尽力解析（未经向量验证）' },
+  { min: 3550, max: 3599, version: '3.13', layout: 'modern', note: '3550 起，3571=3.13 定稿；布局按 3.12 档尽力解析（未经向量验证）' },
+  { min: 3600, max: 3649, version: '3.14', layout: 'modern', note: '3600=3.14a1，3627=3.14 定稿（pycore_magic_number.h）；布局按 3.13/3.12 档尽力解析（未经向量验证）；3.15 从 3650 起' },
 ];
 
 const PEP552_MAGIC = 3392; // "3392 (PEP 552 deterministic pycs)"：16 字节头起点
@@ -134,7 +136,7 @@ const readHeader = (bytes: Uint8Array): PycHeader => {
   const magic = bytes[0] | (bytes[1] << 8);
   const range = PYC_MAGIC_RANGES.find(item => magic >= item.min && magic <= item.max);
   if (!range) {
-    throw new Error(`未知 pyc magic：0x${magic.toString(16)}（${magic}），不在 3.5-3.13 已知区间（3310-3600）内`);
+    throw new Error(`未知 pyc magic：0x${magic.toString(16)}（${magic}），不在 3.5-3.14 已知区间（3310-3649）内`);
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const headerSize = magic >= PEP552_MAGIC ? 16 : 12;

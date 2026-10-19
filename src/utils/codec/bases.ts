@@ -11,6 +11,39 @@ export const hexToBytes = (value: string) => {
   return new Uint8Array(clean.match(/.{2}/g)?.map(byte => Number.parseInt(byte, 16)) || []);
 };
 
+// ==================== 解码出口字节保真（B4-3 审计收敛） ====================
+// 共享 utf8Decoder 是 non-fatal 的：非法 UTF-8 字节静默替换成 U+FFFD（实测 PNG 魔数
+// 89 50 4E 47 ... FF 80 经 base64/hex 解码出口丢成 3 个 U+FFFD，字节永久丢失）。
+// 统一口径：
+//  1) fatal UTF-8 判别——字节流可完整解码时逐字符原样返回（纯文本输出逐字节不变）；
+//     ignoreBOM=true 不吞前导 EF BB BF（默认 TextDecoder 会静默剥离 BOM，同样丢字节，
+//     BOM 以 U+FEFF 保留在输出里）；
+//  2) 判别失败 → latin1 逐字节映射，≥0x80 字节呈现为 \xNN 转义；0x00-0x7F（换行/制表/
+//     可打印 ASCII）保持原样——强制转义会破坏"纯文本逐字节不变"约定；
+//  3) \xNN 形态可整体复制进下一层解码：hexToBytes 原生剥离 \x 前缀（反斜杠自转义保证
+//     转义符号本身在往返中存活）。
+export const utf8StrictDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+// 判别 + 转义：binary=true 表示走了 \xNN 分支，由调用方决定是否附加原始字节 hex。
+export const bytesToFidelityText = (bytes: Uint8Array): { text: string; binary: boolean } => {
+  if (bytes.length === 0) return { text: '', binary: false };
+  try {
+    return { text: utf8StrictDecoder.decode(bytes), binary: false };
+  } catch {
+    const escaped = latin1Decoder.decode(bytes)
+      .replace(/[\u0080-\u00ff]/g, char => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`);
+    return { text: escaped, binary: true };
+  }
+};
+
+// 纯文本 decode 出口的直接出口：合法 UTF-8 逐字节不变；非法时 \xNN 呈现并在文末附
+// 原始字节 hex（权威副本，供核对与下一层解码）。
+export const decodeBytesToFidelityText = (bytes: Uint8Array): string => {
+  const { text, binary } = bytesToFidelityText(bytes);
+  if (!binary) return text;
+  return `${text}\n\n[字节保真] 输出含无法按 UTF-8 解码的字节，已按 \\xNN 转义呈现（\\xNN 形态可复制给 hex 等下一层解码）；原始字节 hex: ${bytesToHex(bytes)}`;
+};
+
 export const bytesToBase64 = (bytes: Uint8Array) => {
   let binary = '';
   for (let index = 0; index < bytes.length; index += 0x8000) {
@@ -23,12 +56,23 @@ export const base64ToBase64Url = (value: string) => value.replace(/\+/g, '-').re
 
 export const base64ToBytes = (value: string) => {
   const normalized = value.trim().replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  if (!normalized) return new Uint8Array();
+  // 100% 字符集门控（审计 BUG-10）：沙箱里 atob 由 Buffer.from(value,'base64') 模拟，非法字符
+  // 会被静默跳过产出乱码；浏览器 atob 对字母表外字符抛 InvalidCharacterError。此处与浏览器对齐，
+  // 直接算子路径也享受 magic-chain 同源门控，跨端行为一致。
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
+    const bad = Array.from(normalized).find(char => !/[A-Za-z0-9+/=]/.test(char));
+    throw new Error(`Base64 含非法字符${bad ? `: ${JSON.stringify(bad)}` : '或 padding 位置错误'}（仅允许 A-Z a-z 0-9 + / =；URL 安全的 - _ 会自动转换）`);
+  }
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   const binary = atob(padded);
   return Uint8Array.from(binary, char => char.charCodeAt(0));
 };
 
 export const textToBase64 = (value: string) => bytesToBase64(utf8Encoder.encode(value));
+// 注意：base64ToText 保持共享层 legacy 口径（utf8 非致命替换）——smart-decode/magic-chain
+// 探针直接消费本函数，其候选评分依赖"垃圾载荷得低分"的剪枝语义（B4-3 审计决策：
+// 字节保真呈现统一在 transform 操作出口层做，见 transform.ts 的 decode 分支）。
 export const base64ToText = (value: string) => utf8Decoder.decode(base64ToBytes(value));
 export const toBase64Url = (value: string) => textToBase64(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
@@ -83,6 +127,7 @@ export const decodeBase32Bytes = (value: string, variant = 'special') => {
   return new Uint8Array(bytes);
 };
 
+// 共享层保持 legacy 口径（保真呈现统一在 transform 出口层，理由同 base64ToText）。
 export const decodeBase32 = (value: string, variant = 'special') => utf8Decoder.decode(decodeBase32Bytes(value, variant));
 
 export const encodeBase45 = (value: string) => {
@@ -106,34 +151,50 @@ export const encodeBase45 = (value: string) => {
   return output;
 };
 
-export const decodeBase45 = (value: string) => {
-  const clean = value.trim().replace(/\s+/g, '');
-  if (!clean) return '';
+// 字节级解码（B4-3）：供 transform 操作出口做保真文本化（共享文本函数保持 legacy 口径）。
+export const decodeBase45Bytes = (value: string) => {
+  // 注意：空格是 Base45 字母表的第 36 个合法字符（RFC 9285），不能当空白剥掉——
+  // 先 strip 再切块会让含空格的密文块错位解出乱码/误报越界（round-trip 自证）。
+  // 只 trim 首尾，内部字符逐个过字母表；奇数尾部显式报错而不是让 indexOf(undefined)
+  // 的 NaN 静默落 0。
+  const chars = Array.from(value.trim());
+  if (!chars.length) return new Uint8Array();
+  const values = chars.map(char => {
+    const index = base45Alphabet.indexOf(char);
+    if (index < 0) throw new Error(`Base45 包含非法字符: ${JSON.stringify(char)}（注意空格本身是字母表字符，换行/制表符不是）`);
+    return index;
+  });
   const bytes: number[] = [];
-  for (let index = 0; index < clean.length;) {
-    const c1 = base45Alphabet.indexOf(clean[index]);
-    const c2 = base45Alphabet.indexOf(clean[index + 1]);
-    if (c1 < 0 || c2 < 0) throw new Error('Base45 包含非法字符');
-    if (index + 2 < clean.length) {
-      const c3 = base45Alphabet.indexOf(clean[index + 2]);
-      if (c3 < 0) throw new Error('Base45 包含非法字符');
-      const number = c1 + c2 * 45 + c3 * 2025;
-      if (number > 0xffff) throw new Error('Base45 数据块超出范');
+  for (let index = 0; index < values.length;) {
+    if (values.length - index >= 3) {
+      const number = values[index] + values[index + 1] * 45 + values[index + 2] * 2025;
+      if (number > 0xffff) throw new Error('Base45 数据块超出范围（三字符块最大 0xFFFF）');
       bytes.push(Math.floor(number / 256), number % 256);
       index += 3;
-    } else {
-      const number = c1 + c2 * 45;
+    } else if (values.length - index === 2) {
+      const number = values[index] + values[index + 1] * 45;
       if (number > 0xff) throw new Error('Base45 单字节数据块超出范围');
       bytes.push(number);
       index += 2;
+    } else {
+      throw new Error('Base45 输入长度非法：只能由 3 字符（双字节）与 2 字符（单字节）块组成，末尾不能剩 1 个字符');
     }
   }
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  return new Uint8Array(bytes);
 };
+
+export const decodeBase45 = (value: string) => utf8Decoder.decode(decodeBase45Bytes(value));
 
 export const bytesFromTextOrHex = (value: string) => {
   const clean = value.trim().replace(/\\x/gi, '').replace(/0x/gi, '').replace(/[\s,;:_-]/g, '');
-  if (clean && clean.length % 2 === 0 && /^[0-9a-f]+$/i.test(clean)) return hexToBytes(clean);
+  if (clean && /^[0-9a-f]+$/i.test(clean) && clean.length >= 8) {
+    // 形似 hex 的长串不再静默回退 UTF-8（审计 BUG-11）：奇数长度几乎必然是漏敲一位，
+    // 静默按文本编码会产出完全错误的字节且无任何告警。
+    if (clean.length % 2 !== 0) {
+      throw new Error(`输入形似 Hex（${clean.length} 位纯十六进制字符）但长度为奇数：疑似漏敲/少复制一位，请检查后重试`);
+    }
+    return hexToBytes(clean);
+  }
   return utf8Encoder.encode(value);
 };
 
@@ -174,6 +235,7 @@ export const decodeBase58Bytes = (value: string) => {
 };
 
 export const encodeBase58 = (value: string) => encodeBase58Bytes(utf8Encoder.encode(value));
+// 共享层保持 legacy 口径（U+FFFD 嗅探回退纯 hex 的原行为；保真呈现统一在 transform 出口层）。
 export const decodeBase58 = (value: string) => { const bytes = decodeBase58Bytes(value); const text = utf8Decoder.decode(bytes); return text.includes('�') ? bytesToHex(bytes) : text; };
 
 export const sha256Bytes = async (bytes: Uint8Array) => new Uint8Array(await crypto.subtle.digest('SHA-256', bytesToBuffer(bytes)));
@@ -357,7 +419,9 @@ export const decodeBase62 = (value: string) => {
     if (char === base62Alphabet[0]) bytes.unshift(0);
     else break;
   }
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  // 二进制载荷无损（审计 BUG-06）：Base62 数值解码可产出任意字节，latin1 输出保证 ≥0x80
+  // 字节不被 utf8 解码替换损毁（与 UU/XX 的处理一致）。
+  return latin1Decoder.decode(new Uint8Array(bytes));
 };
 
 export const encodeBase36 = (value: string) => {
@@ -371,7 +435,8 @@ export const encodeBase36 = (value: string) => {
   return output || '0';
 };
 
-export const decodeBase36 = (value: string) => {
+// 字节级解码（B4-3）：供 transform 操作出口做保真文本化。
+export const decodeBase36Bytes = (value: string) => {
   const clean = value.trim().replace(/\s+/g, '').toUpperCase();
   if (!/^[0-9A-Z]+$/.test(clean)) throw new Error('Base36 非法字符，只允许 0-9A-Z');
   let number = 0n;
@@ -385,8 +450,10 @@ export const decodeBase36 = (value: string) => {
     if (char === '0') bytes.unshift(0);
     else break;
   }
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  return new Uint8Array(bytes);
 };
+
+export const decodeBase36 = (value: string) => utf8Decoder.decode(decodeBase36Bytes(value));
 
 export const encodeBase91 = (value: string) => {
   const bytes = utf8Encoder.encode(value);
@@ -439,7 +506,9 @@ export const decodeBase91 = (value: string) => {
     }
   }
   if (valueBuffer >= 0) bytes.push((queue | (valueBuffer << bits)) & 255);
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  // 二进制载荷无损（审计 BUG-06）：Base91 可携带任意字节，latin1 输出保证 ≥0x80 字节
+  // 不被 utf8 解码替换损毁（与下方 UU/XX 的处理一致）。
+  return latin1Decoder.decode(new Uint8Array(bytes));
 };
 
 export const encodeAscii85 = (value: string) => {
@@ -483,7 +552,9 @@ export const decodeAscii85 = (value: string) => {
     const usefulBytes = chunk.length < 5 ? chunk.length - 1 : 4;
     for (let itemIndex = 0; itemIndex < usefulBytes; itemIndex += 1) bytes.push(buffer[itemIndex]);
   }
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  // 二进制载荷无损（审计 BUG-06）：Ascii85 可携带任意字节，latin1 输出保证 ≥0x80 字节
+  // 不被 utf8 解码替换损毁（与 UU/XX 的处理一致）。
+  return latin1Decoder.decode(new Uint8Array(bytes));
 };
 
 export const encodeZ85 = (value: string) => {
@@ -519,7 +590,9 @@ export const decodeZ85 = (value: string) => {
     new DataView(buffer.buffer).setUint32(0, number >>> 0, false);
     bytes.push(...buffer);
   }
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  // 二进制载荷无损（审计 BUG-06）：Z85 可携带任意字节，latin1 输出保证 ≥0x80 字节
+  // 不被 utf8 解码替换损毁（与 UU/XX 的处理一致）。
+  return latin1Decoder.decode(new Uint8Array(bytes));
 };
 
 export const uuByte = (value: number) => value ? String.fromCharCode((value & 0x3f) + 32) : '`';
@@ -646,7 +719,8 @@ export const encodeZBase32 = (value: string) => {
   return output;
 };
 
-export const decodeZBase32 = (value: string) => {
+// 字节级解码（B4-3）：供 transform 操作出口做保真文本化。
+export const decodeZBase32Bytes = (value: string) => {
   const clean = value.replace(/\s+/g, '').toLowerCase();
   if (!clean) throw new Error('请输入 z-base-32 文本');
   const bytes = new Uint8Array(Math.floor(clean.length * 5 / 8));
@@ -664,8 +738,12 @@ export const decodeZBase32 = (value: string) => {
       bits -= 8;
     }
   }
-  return utf8Decoder.decode(bytes);
+  // 保持与历史行为逐字节一致：返回完整缓冲区（含 5→8 未整除时的补位零字节），
+  // 不在此处截断——共享文本函数的输出必须与重构前完全相同。
+  return bytes;
 };
+
+export const decodeZBase32 = (value: string) => utf8Decoder.decode(decodeZBase32Bytes(value));
 
 // Base32768：15 bit/字符的 Unicode 高密度编码，码点范围表取自 qntm/base32768 v5.0.1（MIT）。
 // 末尾不足 15 bit 时补 1 填充：8-14 bit 用 15-bit 表，1-7 bit 补满 7 bit 用 7-bit 表。
@@ -720,7 +798,8 @@ export const encodeBase32768 = (value: string) => {
   return output;
 };
 
-export const decodeBase32768 = (value: string) => {
+// 字节级解码（B4-3）：供 transform 操作出口做保真文本化。
+export const decodeBase32768Bytes = (value: string) => {
   const tables = ensureBase32768Tables();
   const text = value.replace(/\s+/g, '');
   if (!text) throw new Error('请输入 Base32768 文本');
@@ -743,8 +822,10 @@ export const decodeBase32768 = (value: string) => {
     }
   }
   if (uint8 !== (1 << numUint8Bits) - 1) throw new Error('Base32768 填充位校验失败');
-  return utf8Decoder.decode(new Uint8Array(bytes));
+  return new Uint8Array(bytes);
 };
+
+export const decodeBase32768 = (value: string) => utf8Decoder.decode(decodeBase32768Bytes(value));
 
 // 表内占比 + 生僻范围字符（Myanmar/Georgian/Hangul Jamo/彝文/瓦伊文等常见文本不会出现的区段）
 // 联合判断。Base32768 码点表覆盖大量常用 CJK，仅靠占比会把中文正文误判为候选。

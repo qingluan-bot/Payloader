@@ -1,16 +1,17 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { useEffect, memo, useCallback, useMemo, useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useLanguage } from '../../appContext';
 import { copyToClipboard } from '../../utils/clipboard';
 import CheatsheetSection from './CheatsheetSection';
 import {
-  SSTI_PAYLOADS, SSTI_PROBES, buildCommandBypasses, buildSqliMatrix,
-  decodeFlaskSession, detectSstiEngine, detectSqliParams, fetchPageView, fetchRobots,
-  judgePhpLoose, jwtWeakSecretCrack, parseCurl, parseHttpMessage, parsePortInput,
-  PORT_PRESETS, PHP_LOOSE_TABLE, MAGIC_HASHES, scanPorts,
+  FLASK_KEY_DERIVATIONS, SSTI_PAYLOADS, SSTI_PROBES, buildCommandBypasses, buildSqliMatrix,
+  decodeFlaskSessionFull, detectSstiEngine, detectSqliParams, fetchPageView, fetchRobots,
+  flaskSessionSign, flaskSessionVerify, judgePhpLoose, jwtWeakSecretCrack, parseCurl, parseHttpMessage,
+  parsePortInput, PORT_PRESETS, PHP_LOOSE_TABLE, MAGIC_HASHES, scanPorts,
   sendViaProxy, blindBooleanExtract, unionDump, probeDirectories,
 } from '../../utils/ctf/webTools';
 import type {
+  FlaskCompression, FlaskDigestAlgorithm, FlaskKeyDerivation, FlaskSessionFullInfo,
   ProxyResponse, BlindResult, UnionDumpResult, DirProbeHit,
   PageViewResult, PortScanLine, PortScanResponse, RobotsReport, SqliDetectResult,
 } from '../../utils/ctf/webTools';
@@ -144,16 +145,68 @@ function SqliCard({ zh }: { zh: boolean }) {
   );
 }
 
-// ---- Flask Session + JWT 爆破卡 ----
+// ---- Flask Session 全链（解码/签发/校验） + JWT 爆破卡 ----
 
 function TokenCard({ zh }: { zh: boolean }) {
   const [session, setSession] = useState('');
+  const [fullDecoded, setFullDecoded] = useState<FlaskSessionFullInfo | { ok: false; error: string } | null>(null);
   const [jwt, setJwt] = useState('');
   const [jwtExtra, setJwtExtra] = useState('');
   const [jwtBusy, setJwtBusy] = useState(false);
   const [jwtResult, setJwtResult] = useState<string | null>(null);
 
-  const flask = useMemo(() => (session.trim() ? decodeFlaskSession(session) : null), [session]);
+  // Flask sign/verify 共用密钥参数（Flask SecureCookieSessionInterface 默认口径）
+  const [secret, setSecret] = useState('');
+  const [salt, setSalt] = useState('cookie-session');
+  const [derivation, setDerivation] = useState<FlaskKeyDerivation>('hmac');
+  const [digest, setDigest] = useState<FlaskDigestAlgorithm>('sha1');
+  const [compression, setCompression] = useState<FlaskCompression>('auto');
+  const [sortKeys, setSortKeys] = useState(true);
+  const [withTimestamp, setWithTimestamp] = useState(true);
+  const [timestamp, setTimestamp] = useState('');
+  const [payloadJson, setPayloadJson] = useState('{"user":"admin"}');
+  const [signResult, setSignResult] = useState<string | null>(null);
+  const [verifyResult, setVerifyResult] = useState<string | null>(null);
+
+  // 完整解码：压缩段在线解压（setState 只出现在异步回调，遵守 set-state-in-effect 约束）
+  useEffect(() => {
+    if (!session.trim()) return;
+    let cancelled = false;
+    decodeFlaskSessionFull(session).then(result => {
+      if (!cancelled) setFullDecoded(result);
+    });
+    return () => { cancelled = true; };
+  }, [session]);
+
+  const runSign = useCallback(async () => {
+    const tsText = timestamp.trim();
+    const result = await flaskSessionSign(payloadJson, {
+      secret, salt, derivation, digest, sortKeys, compression, withTimestamp,
+      ...(tsText !== '' && Number.isFinite(Number(tsText)) ? { timestamp: Number(tsText) } : {}),
+    });
+    if (!result.ok) {
+      setSignResult(zh ? `签发失败：${result.error}` : `Sign failed: ${result.error}`);
+      return;
+    }
+    setSignResult(result.token);
+    setSession(result.token); // 签发结果直接进入解码框（自动解压回读 + 供校验）
+    setVerifyResult(null);
+  }, [secret, salt, derivation, digest, sortKeys, compression, withTimestamp, timestamp, payloadJson, zh]);
+
+  const runVerify = useCallback(async () => {
+    if (!session.trim()) {
+      setVerifyResult(zh ? '请先填入要校验的 cookie。' : 'Provide a cookie to verify.');
+      return;
+    }
+    const result = await flaskSessionVerify(session, { secret, salt, derivation, digest });
+    if (!result.ok) {
+      setVerifyResult(zh ? `校验失败：${result.error}` : `Verify failed: ${result.error}`);
+      return;
+    }
+    setVerifyResult(zh
+      ? `${result.valid ? '校验通过' : '校验拒绝'}：${result.message}`
+      : `${result.valid ? 'VALID' : 'REJECTED'}: ${result.message}`);
+  }, [session, secret, salt, derivation, digest, zh]);
 
   const runCrack = useCallback(async () => {
     setJwtBusy(true);
@@ -169,9 +222,11 @@ function TokenCard({ zh }: { zh: boolean }) {
     }
   }, [jwt, jwtExtra, zh]);
 
+  const decoded = session.trim() ? fullDecoded : null;
+
   return (
     <section className="ff-card" aria-label={zh ? 'Session 与 JWT' : 'Sessions & JWT'}>
-      <div className="ff-card-head"><strong>{zh ? 'Flask Session 解码 / JWT 弱口令爆破' : 'Flask session / JWT weak-secret crack'}</strong></div>
+      <div className="ff-card-head"><strong>{zh ? 'Flask Session 全链（解码 / 签发 / 校验）/ JWT 弱口令爆破' : 'Flask session full-chain (decode / sign / verify) / JWT weak-secret crack'}</strong></div>
 
       <div className="ff-controls">
         <span className="ff-label">Flask</span>
@@ -179,20 +234,75 @@ function TokenCard({ zh }: { zh: boolean }) {
           className="ff-input"
           type="text"
           value={session}
-          placeholder="eyJ1c2Vy....MTcw....c2ln"
+          placeholder="eyJ1c2Vy....MTcw....c2lv 或 .eJyrVsr（压缩四段）"
           aria-label={zh ? 'Flask session 值' : 'Flask session value'}
           onChange={event => setSession(event.target.value)}
         />
       </div>
-      {flask && (flask.ok ? (
+      {decoded && (decoded.ok ? (
         <>
           <div className="ff-row">
-            <span className="ff-badge ff-badge-ok">{flask.compressed ? (zh ? 'zlib 压缩段' : 'zlib compressed') : (zh ? '明文 JSON' : 'plain JSON')}</span>
-            {flask.timestamp && <span className="ff-badge">{flask.timestamp.iso}（{flask.timestamp.age}）</span>}
+            <span className="ff-badge ff-badge-ok">{decoded.compressed ? (zh ? 'zlib 压缩段（已解压）' : 'zlib compressed (inflated)') : (zh ? '明文 JSON' : 'plain JSON')}</span>
+            {decoded.timestamp && <span className="ff-badge">{decoded.timestamp.iso}（{decoded.timestamp.age}）</span>}
+            {!decoded.withTimestamp && <span className="ff-badge">{zh ? '无时间戳两段 cookie' : 'untimed 2-part cookie'}</span>}
           </div>
-          <div className="ff-code">{flask.decoded}</div>
+          <div className="ff-code">{decoded.prettyJson ?? decoded.payloadText}</div>
         </>
-      ) : <p className="ff-note">{flask.error}</p>)}
+      ) : <p className="ff-note">{decoded.error}</p>)}
+
+      <div className="ff-controls">
+        <span className="ff-label">{zh ? '密钥' : 'Secret'}</span>
+        <input className="ff-input" type="text" value={secret} placeholder="secret-key" aria-label={zh ? 'secret' : 'Secret'} onChange={event => setSecret(event.target.value)} />
+        <input className="ff-input ff-input-narrow" type="text" value={salt} placeholder="cookie-session" aria-label={zh ? 'salt' : 'Salt'} onChange={event => setSalt(event.target.value)} />
+      </div>
+      <div className="ff-controls">
+        <select className="ff-select" value={derivation} aria-label={zh ? 'key derivation' : 'key derivation'} onChange={event => setDerivation(event.target.value as FlaskKeyDerivation)}>
+          {FLASK_KEY_DERIVATIONS.map(item => (
+            <option key={item.id} value={item.id}>{zh ? `${item.zh}（${item.formula}）` : `${item.id}（${item.formula}）`}</option>
+          ))}
+        </select>
+        <select className="ff-select" value={digest} aria-label={zh ? '摘要算法' : 'digest'} onChange={event => setDigest(event.target.value as FlaskDigestAlgorithm)}>
+          <option value="sha1">SHA1</option>
+          <option value="sha256">SHA256</option>
+        </select>
+        <select className="ff-select" value={compression} aria-label={zh ? '压缩策略' : 'compression'} onChange={event => setCompression(event.target.value as FlaskCompression)}>
+          <option value="auto">{zh ? '压缩 auto（比原文短才压）' : 'auto compress'}</option>
+          <option value="never">{zh ? '不压缩' : 'never'}</option>
+          <option value="always">{zh ? '强制压缩' : 'always'}</option>
+        </select>
+        <label className="ff-label">
+          <input type="checkbox" checked={sortKeys} onChange={event => setSortKeys(event.target.checked)} />
+          {zh ? 'sort_keys（Flask 口径）' : 'sort_keys'}
+        </label>
+        <label className="ff-label">
+          <input type="checkbox" checked={withTimestamp} onChange={event => setWithTimestamp(event.target.checked)} />
+          {zh ? '带时间戳' : 'timestamped'}
+        </label>
+      </div>
+      <div className="ff-controls">
+        <textarea
+          className="ff-textarea"
+          value={payloadJson}
+          placeholder='{"user":"admin"}'
+          aria-label={zh ? 'payload JSON' : 'payload JSON'}
+          onChange={event => setPayloadJson(event.target.value)}
+        />
+      </div>
+      <div className="ff-controls">
+        <input className="ff-input ff-input-narrow" type="text" value={timestamp} placeholder={zh ? '时间戳（空=当前）' : 'unix ts (empty=now)'} aria-label={zh ? '时间戳' : 'Timestamp'} onChange={event => setTimestamp(event.target.value)} />
+        <button type="button" className="ff-button ff-button-primary" onClick={() => { void runSign(); }} disabled={!secret.trim() || !payloadJson.trim()}>
+          {zh ? '签发 cookie' : 'Sign cookie'}
+        </button>
+        <button type="button" className="ff-button" onClick={() => { void runVerify(); }} disabled={!secret.trim() || !session.trim()}>
+          {zh ? '校验签名' : 'Verify'}
+        </button>
+      </div>
+      {signResult && (
+        <button type="button" className="ff-code ff-code-click" onClick={() => copyBlock(signResult, zh)} title={zh ? '点击复制' : 'Copy'}>
+          {signResult}
+        </button>
+      )}
+      {verifyResult && <p className="ff-note">{verifyResult}</p>}
 
       <div className="ff-controls">
         <span className="ff-label">JWT</span>
@@ -217,7 +327,7 @@ function TokenCard({ zh }: { zh: boolean }) {
         </button>
       </div>
       {jwtResult && <p className="ff-note">{jwtResult}</p>}
-      <p className="ff-note">{zh ? '内置 50+ CTF 高频弱密钥（secret/jwt_secret/your-256-bit-secret…），HS256 离线重签验证，全程零联网。' : '50+ built-in CTF weak secrets, offline HS256 resign-and-compare, zero network.'}</p>
+      <p className="ff-note">{zh ? '解码自动解压 zlib 段；签发/校验按 itsdangerous 2.x 规范（4 种 key_derivation × SHA1/SHA256），全程零联网。' : 'Decode inflates zlib segments; sign/verify follow the itsdangerous 2.x spec (4 key derivations x SHA1/SHA256), zero network.'}</p>
     </section>
   );
 }

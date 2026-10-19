@@ -4,6 +4,7 @@
 
 import { createConnection } from 'node:net';
 import { json } from './http-helpers.mjs';
+import { openCtfTargetGuard } from './ctf-target-guard.mjs';
 
 const MAX_PORTS = 600;
 const CONCURRENCY = 64;
@@ -48,7 +49,7 @@ const scanOnePort = (host, port, timeoutMs) => new Promise(resolve => {
   });
 });
 
-export const createCtfPortscanRoutes = ({ isCtfEnabled = null } = {}) => {
+export const createCtfPortscanRoutes = ({ isCtfEnabled = null, targetGuard = openCtfTargetGuard } = {}) => {
   const registerCtfPortscanRoutes = router => {
     router.route(['POST', 'OPTIONS'], '/api/ctf/portscan', async (request, response) => {
       response.setHeader('access-control-allow-origin', '*');
@@ -88,6 +89,12 @@ export const createCtfPortscanRoutes = ({ isCtfEnabled = null } = {}) => {
       const host = typeof spec.host === 'string' ? spec.host.trim() : '';
       if (!host || host.length > 253 || !HOST_PATTERN.test(host)) {
         json(response, 400, { error: '目标必须是主机名或 IP（不带协议与路径）。' });
+        return;
+      }
+      // SSRF 防护（环境感知）：与 proxy 同一目标判定，非回环监听部署时拦截内网/回环/链路本地主机
+      const verdict = await targetGuard.checkTarget(host);
+      if (!verdict.allowed) {
+        json(response, 403, { error: verdict.message });
         return;
       }
       const ports = parsePortList(spec.ports);

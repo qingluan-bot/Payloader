@@ -43,6 +43,8 @@ function ZipBruteCard({ bytes, language }: ZipBruteCardProps) {
   const [budget, setBudget] = useState(15000);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<ZipBruteWorkerProgress | null>(null);
+  // 引擎拒绝（加密类型未知/结构异常）时的持久终态：toast 会自动消失，F-02 要求点击后必有可见闭环
+  const [runError, setRunError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // 卸载即停（TD-批次MISC2-3）：换文件 remount 时终止在跑 worker，不再吃满剩余预算
@@ -100,14 +102,16 @@ function ZipBruteCard({ bytes, language }: ZipBruteCardProps) {
     abortRef.current = controller;
     setRunning(true);
     setProgress(null);
+    setRunError(null);
     try {
       const result = await bruteZipPasswordWorker(bytes, entry, spec, {
         timeBudgetMs: budget,
         onProgress: update => setProgress({ ...update }),
         signal: controller.signal,
       });
-      // 卸载触发的 abort：组件已 remount，setState 为 no-op；用户手动取消则保留已试进度展示
-      setProgress(result.tried > 0 || result.password !== null ? result : null);
+      // 终态一律保留（F-02）：伪加密等 0 尝试即结束的结果此前被强制清空，UI 完全静默；
+      // 卸载触发的 abort 时组件已 remount，setState 为 no-op
+      setProgress(result);
       if (result.password && !controller.signal.aborted) {
         notifications.show({
           message: zh ? `命中口令：${result.password}` : `Password found: ${result.password}`,
@@ -115,6 +119,7 @@ function ZipBruteCard({ bytes, language }: ZipBruteCardProps) {
         });
       }
     } catch (error) {
+      setRunError((error as Error).message);
       notifications.show({ message: (error as Error).message, color: 'red' });
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -216,15 +221,24 @@ function ZipBruteCard({ bytes, language }: ZipBruteCardProps) {
             {progress.previewText && <code className="ff-code"><FlagAutoText text={progress.previewText} /></code>}
           </div>
         )}
+        {runError !== null && (
+          <p className="ff-note" role="alert">
+            {zh ? `无法爆破：${runError}` : `Cannot brute-force: ${runError}`}
+          </p>
+        )}
         {progress && !progress.password && !running && (
           <p className="ff-note">
             {progress.aborted
               ? zh
                 ? `已取消（已试 ${progress.tried.toLocaleString()} 个）。调整候选源或预算后可重新开始。`
                 : `Cancelled (${progress.tried.toLocaleString()} tried). Adjust the source or budget and start again.`
-              : zh
-                ? `本轮未命中（已试 ${progress.tried.toLocaleString()} 个口令）。掩码模式可加长时间预算重跑，或换自定义列表。`
-                : `No hit this round (${progress.tried.toLocaleString()} tried). Extend the budget in mask mode or try a custom list.`}
+              : progress.tried === 0
+                ? zh
+                  ? '本轮 0 次尝试即结束——该条目无法按当前方式爆破：疑似伪加密或无有效候选，建议先用上方「清除伪加密标志」修复后再试。'
+                  : 'The run ended with 0 attempts — this entry cannot be brute-forced as configured: likely pseudo-encryption or no valid candidates. Clear the pseudo-encryption flags above first, then retry.'
+                : zh
+                  ? `本轮未命中（已试 ${progress.tried.toLocaleString()} 个口令）。掩码模式可加长时间预算重跑，或换自定义列表。`
+                  : `No hit this round (${progress.tried.toLocaleString()} tried). Extend the budget in mask mode or try a custom list.`}
           </p>
         )}
       </div>

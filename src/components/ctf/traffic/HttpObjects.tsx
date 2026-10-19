@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import type { HttpTransaction } from '../../../utils/ctf/pcap/analyze';
+import type { HttpBodyDecodeResult, HttpTransaction } from '../../../utils/ctf/pcap/analyze';
 import { formatBytes } from '../../../utils/ctf/pcap/format';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { downloadBytes } from '../../../utils/download';
+import { Icon } from '../../Icon';
 import '../../../styles/http-objects.css';
 
 const BODY_PREVIEW_CHARS = 4096;
@@ -11,11 +12,14 @@ const MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024;
 interface HttpObjectsProps {
   transactions: HttpTransaction[];
   httpTotal: number;
+  // 批次二补强（Lane K）：body 多层解压产物（gzip/deflate/base64/内嵌 HTTP），按事务序号归属。
+  decoded?: HttpBodyDecodeResult[];
   language: 'zh' | 'en';
 }
 
 // HTTP 对象视图（批次 L）：请求-响应事务列表，展开看参数、头与响应体；flag 命中显式徽标。
-function HttpObjects({ transactions, httpTotal, language }: HttpObjectsProps) {
+// 批次二增补：压缩 body 的逐层解压链（每层类型与字节数）与最终产物预览/导出。
+function HttpObjects({ transactions, httpTotal, decoded, language }: HttpObjectsProps) {
   const [expanded, setExpanded] = useState<number | null>(transactions.length ? 0 : null);
   const zh = language === 'zh';
 
@@ -42,8 +46,8 @@ function HttpObjects({ transactions, httpTotal, language }: HttpObjectsProps) {
                 <span className="pw-mono">#{index + 1}</span>
                 <span className="pw-http-line pw-http-req">{transaction.request?.startLine ?? (zh ? '（无请求）' : '(no request)')}</span>
                 <span className="pw-http-line pw-http-res">{transaction.response?.startLine ?? (zh ? '（无响应）' : '(no response)')}</span>
-                {hasFlag && <span className="pw-badge pw-badge-flag">🚩 flag</span>}
-                <span className="pw-http-arrow" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
+                {hasFlag && <span className="pw-badge pw-badge-flag"><Icon name="flag" size={12} /> flag</span>}
+                <span className="pw-http-arrow" aria-hidden="true"><Icon name={isOpen ? 'chevron-down' : 'chevron-right'} size={14} /></span>
               </button>
               {isOpen && (
                 <div className="pw-http-body">
@@ -69,7 +73,7 @@ function HttpObjects({ transactions, httpTotal, language }: HttpObjectsProps) {
                           {zh ? '复制请求体' : 'Copy request body'}
                         </button>
                         <span className="pw-note">{zh ? `请求体 ${formatBytes(transaction.request.bodyBytes.length)}` : `Body ${formatBytes(transaction.request.bodyBytes.length)}`}</span>
-                        {transaction.request.hasFlag && <span className="pw-badge pw-badge-flag">🚩 {zh ? '请求中发现 flag' : 'flag in request'}</span>}
+                        {transaction.request.hasFlag && <span className="pw-badge pw-badge-flag"><Icon name="flag" size={12} /> {zh ? '请求中发现 flag' : 'flag in request'}</span>}
                       </div>
                       {transaction.request.bodyText && (
                         <pre className="pw-code">{transaction.request.bodyText.slice(0, BODY_PREVIEW_CHARS)}</pre>
@@ -82,7 +86,7 @@ function HttpObjects({ transactions, httpTotal, language }: HttpObjectsProps) {
                       <div className="pw-row">
                         <span className="pw-note">{zh ? `响应体 ${formatBytes(transaction.response.bodyBytes.length)}` : `Body ${formatBytes(transaction.response.bodyBytes.length)}`}</span>
                         {transaction.response.bodyTruncated && <span className="pw-badge pw-badge-warn">{zh ? '体过大，仅预览' : 'large body, preview only'}</span>}
-                        {transaction.response.hasFlag && <span className="pw-badge pw-badge-flag">🚩 {zh ? '响应中发现 flag' : 'flag in response'}</span>}
+                        {transaction.response.hasFlag && <span className="pw-badge pw-badge-flag"><Icon name="flag" size={12} /> {zh ? '响应中发现 flag' : 'flag in response'}</span>}
                       </div>
                       <pre className="pw-code">{transaction.response.bodyText.slice(0, BODY_PREVIEW_CHARS) || (zh ? '（空响应体）' : '(empty body)')}</pre>
                       <div className="pw-row">
@@ -101,6 +105,39 @@ function HttpObjects({ transactions, httpTotal, language }: HttpObjectsProps) {
                       </div>
                     </div>
                   )}
+                  {/* 批次二补强（Lane K）：压缩 body 的逐层解压链 + 最终产物预览/导出。 */}
+                  {(decoded ?? []).filter(item => item.transactionIndex === index).map(item => (
+                    <div key={`decoded-${index}-${item.direction}`} className="pw-http-section">
+                      <strong>{zh ? '解压产物' : 'Decoded body'}</strong>
+                      <div className="pw-row">
+                        <span className="pw-mono">{item.startLine}</span>
+                        <span className="pw-note">{item.direction === 'req' ? (zh ? '请求' : 'request') : (zh ? '响应' : 'response')}</span>
+                        {item.contentEncoding && <span className="pw-badge">Content-Encoding: {item.contentEncoding}</span>}
+                      </div>
+                      <div className="pw-row">
+                        {Array.from(item.layers, (layer, layerIndex) => (
+                          <span key={`decoded-layer-${index}-${item.direction}-${layerIndex}`} className="pw-badge" title={layer.preview}>
+                            {layer.kind} · {formatBytes(layer.byteLength)}
+                          </span>
+                        ))}
+                      </div>
+                      {item.error && (
+                        <p className="pw-warn"><Icon name="alert-triangle" size={14} /> {item.error}</p>
+                      )}
+                      {item.finalText && (
+                        <pre className="pw-code">{item.finalText.slice(0, BODY_PREVIEW_CHARS)}</pre>
+                      )}
+                      {item.finalBytes && item.finalBytes.length > 0 && item.finalBytes.length <= MAX_DOWNLOAD_BYTES && (
+                        <button
+                          type="button"
+                          className="pw-button"
+                          onClick={() => downloadBytes(item.finalBytes!, `decoded-${index + 1}-${item.direction}.bin`)}
+                        >
+                          {zh ? '下载解压产物' : 'Download decoded body'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

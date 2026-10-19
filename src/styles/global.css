@@ -1,42 +1,91 @@
 :root {
-  --bg-primary: #0b1013;
-  --bg-secondary: #10171b;
-  --bg-tertiary: #162026;
-  --bg-card: #121a1f;
-  --bg-hover: #1b282f;
-  --bg-active: #223139;
-  
-  --neon-cyan: #42ced0;
+  /* ===== 背景三层（暗色=近黑层次；亮色在 [data-theme="light"] 重映射） ===== */
+  --bg-primary: #0d1117;
+  --bg-secondary: #11161d;
+  --bg-tertiary: #1c2128;
+  --bg-card: #161b22;
+  --bg-hover: #212933;
+  --bg-active: #29323d;
+
+  /* ===== 主 accent（单一主色：科技蓝一族） ===== */
+  --accent: #4c8dff;
+  --accent-strong: #6ea4ff;
+  --accent-contrast: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 45%, transparent);
+
+  /* ===== 严重度语义色阶（全站统一：徽标/详情/后台共用） ===== */
+  --sev-critical: #f85149;
+  --sev-high: #d29922;
+  --sev-medium: #e3b341;
+  --sev-low: #539bf5;
+  --sev-critical-bg: color-mix(in srgb, var(--sev-critical) 14%, transparent);
+  --sev-high-bg: color-mix(in srgb, var(--sev-high) 14%, transparent);
+  --sev-medium-bg: color-mix(in srgb, var(--sev-medium) 14%, transparent);
+  --sev-low-bg: color-mix(in srgb, var(--sev-low) 14%, transparent);
+
+  /* ===== EXP 来源色（同一形态不同色相） ===== */
+  --src-exploit-db: #539bf5;
+  --src-nuclei: #a371f7;
+  --src-gh-poc: #3fb950;
+  --src-metasploit: #56d4dd;
+
+  /* ===== 状态色 ===== */
+  --state-success: #3fb950;
+  --state-warning: #d29922;
+  --state-danger: #f85149;
+
+  /* ===== 兼容桥：历史 --neon-* 引用（185 处）跟随新体系，新代码用上方语义 token ===== */
+  --neon-cyan: var(--accent);
   --neon-pink: #e56b9f;
-  --neon-purple: #b794e8;
-  --neon-green: #63d99b;
-  --neon-red: #ff7185;
-  --neon-orange: #f4aa5d;
-  --neon-yellow: #dfca68;
-  --neon-blue: #6aaee8;
-  
-  --text-primary: #f4f8f9;
-  --text-secondary: #b7c6cc;
-  --text-muted: #8fa2aa;
-  
-  --border-color: #304047;
-  --border-glow: rgba(66, 206, 208, 0.3);
-  --focus-ring: #75e7e5;
-  
-  --gradient-cyber: linear-gradient(135deg, #42ced0 0%, #72aee6 100%);
-  --gradient-dark: linear-gradient(180deg, #0b1013 0%, #121a1f 100%);
-  --gradient-card: linear-gradient(145deg, #121a1f 0%, #162026 100%);
-  
-  --shadow-neon: 0 0 20px rgba(0, 240, 255, 0.3);
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.5);
-  
+  --neon-purple: var(--src-nuclei);
+  --neon-green: var(--state-success);
+  --neon-red: var(--sev-critical);
+  --neon-orange: #f0883e;
+  --neon-yellow: var(--sev-medium);
+  --neon-blue: var(--sev-low);
+
+  /* ===== 文本三级（暗底实测 ≥4.9:1） ===== */
+  --text-primary: #e6edf3;
+  --text-secondary: #9da7b3;
+  --text-muted: #7d8b9b;
+  --text-tertiary: var(--text-muted);
+
+  /* ===== 边框 ===== */
+  --border-color: rgba(240, 246, 252, 0.1);
+  --border-strong: rgba(240, 246, 252, 0.22);
+  --border-glow: var(--accent-border);
+  --focus-ring: var(--accent-strong);
+
+  /* ===== 圆角三档（4/6/999；999 仅限 severity/来源等状态徽标） ===== */
+  --radius-sm: 4px; /* input、chip 内层、代码块 */
+  --radius-md: 6px; /* button、card、panel、dropdown 默认档 */
+  --radius-pill: 999px;
+
+  /* ===== E-17 语义色（亮色主题在 [data-theme="light"] 加深重映射） ===== */
+  --success: #3fb950;
+  --warning: #d29922;
+  --brand-alt: #a371f7;
+
+  /* ===== 阴影只留一级浮层阴影，其余层级靠 1px border 分层 ===== */
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+
   --font-display: 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
   --font-body: 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
   --font-mono: 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
-  
+
   --transition-fast: 0.15s ease;
   --transition-normal: 0.3s ease;
   --transition-slow: 0.5s ease;
+
+  /* ===== 代码高亮 token（bash/python/yaml/http 四语共用，亮暗各自重映射） ===== */
+  --code-comment: #768390;
+  --code-string: #a5d6ff;
+  --code-url: var(--code-string);
+  --code-keyword: #ff7b72;
+  --code-number: #79c0ff;
+  --code-function: #d2a8ff;
+  --code-meta: #ffa657;
 
   --app-header-height: 60px;
   --app-drawer-width: min(86vw, 320px);
@@ -127,7 +176,19 @@ input, textarea, select {
 
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-color: var(--neon-cyan);
-  box-shadow: 0 0 0 3px rgba(66, 206, 208, 0.16);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* B-5：隐藏 input[type=search] 的原生清除叉，清空动作统一由各搜索框自己的关闭钮承担 */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Icon 组件基础类：行内对齐 + 不参与 flex 收缩 */
+.icon {
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .skip-link {
@@ -167,60 +228,118 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   color: var(--text-secondary);
 }
 
-.cyber-glow {
-  text-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan), 0 0 30px var(--neon-cyan);
+/* ========== 列表三态（D5：三库列表与后台共用同一套类名） ========== */
+.state-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
 }
 
-.cyber-border {
-  border: 1px solid var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3), inset 0 0 10px rgba(0, 240, 255, 0.1);
+.state-block svg {
+  color: var(--text-muted);
 }
 
-.cyber-button {
-  background: transparent;
-  border: 1px solid var(--neon-cyan);
-  color: var(--neon-cyan);
-  padding: 8px 16px;
-  font-family: var(--font-display);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  position: relative;
-  overflow: hidden;
-  transition: all var(--transition-normal);
+.state-block strong {
+  color: var(--text-primary);
+  font-size: 15px;
 }
 
-.cyber-button::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.3), transparent);
-  transition: left var(--transition-normal);
+.state-block span {
+  font-size: 13px;
+  max-width: 46ch;
+  line-height: 1.6;
 }
 
-.cyber-button:hover {
-  background: rgba(0, 240, 255, 0.1);
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+.state-action {
+  margin-top: 6px;
+  padding: 7px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.cyber-button:hover::before {
-  left: 100%;
+.state-action:hover,
+.state-action:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.state-error svg {
+  color: var(--state-danger);
+}
+
+.state-error {
+  border: 1px solid color-mix(in srgb, var(--state-danger) 40%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--state-danger) 6%, transparent);
+}
+
+.state-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 12px;
+  padding: 0;
+  text-align: left;
+}
+
+.state-skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-card);
+}
+
+.skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-breath 1.4s ease-in-out infinite;
+}
+
+.skeleton-title {
+  height: 15px;
+  width: 62%;
+}
+
+.skeleton-short {
+  width: 42%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line {
+    animation: none;
+  }
+}
+
+@keyframes skeleton-breath {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .cyber-card {
-  background: var(--gradient-card);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: 6px;
+  padding: 12px;
   transition: all var(--transition-normal);
 }
 
 .cyber-card:hover {
   border-color: var(--neon-cyan);
-  box-shadow: var(--shadow-neon);
 }
 
 .code-block {
@@ -253,77 +372,99 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
-  border-radius: 2px;
-  background: rgba(0, 240, 255, 0.1);
-  color: var(--neon-cyan);
-  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
 }
 
 .tag-danger {
-  background: rgba(255, 0, 85, 0.1);
-  color: var(--neon-red);
-  border-color: rgba(255, 0, 85, 0.3);
+  background: var(--sev-critical-bg);
+  color: var(--sev-critical);
+  border-color: color-mix(in srgb, var(--sev-critical) 45%, transparent);
 }
 
 .tag-success {
-  background: rgba(0, 255, 136, 0.1);
-  color: var(--neon-green);
-  border-color: rgba(0, 255, 136, 0.3);
+  background: color-mix(in srgb, var(--state-success) 14%, transparent);
+  color: var(--state-success);
+  border-color: color-mix(in srgb, var(--state-success) 45%, transparent);
 }
 
 .tag-warning {
-  background: rgba(255, 102, 0, 0.1);
-  color: var(--neon-orange);
-  border-color: rgba(255, 102, 0, 0.3);
+  background: var(--sev-high-bg);
+  color: var(--sev-high);
+  border-color: color-mix(in srgb, var(--sev-high) 45%, transparent);
 }
 
 /* ========== Light Theme ========== */
 [data-theme="light"] {
-  --bg-primary: #f4f7f8;
-  --bg-secondary: #e9eff1;
-  --bg-tertiary: #ffffff;
+  --bg-primary: #f4f6f8;
+  --bg-secondary: #e9eef2;
+  --bg-tertiary: #f6f9fc;
   --bg-card: #ffffff;
-  --bg-hover: #dfe9ec;
-  --bg-active: #d2e1e5;
+  --bg-hover: #eef3f8;
+  --bg-active: #e3ebf3;
 
-  --neon-cyan: #087b7f;
-  --neon-pink: #c2185b;
-  --neon-purple: #6a1b9a;
-  --neon-green: #2e7d32;
-  --neon-red: #c62828;
-  --neon-orange: #e65100;
-  --neon-yellow: #f9a825;
-  --neon-blue: #1565c0;
+  --accent: #0969da;
+  --accent-strong: #0550ae;
+  --accent-contrast: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 40%, transparent);
 
-  --text-primary: #17262d;
-  --text-secondary: #40545d;
-  --text-muted: #5d7078;
+  --sev-critical: #cf222e;
+  --sev-high: #bc4c00;
+  --sev-medium: #9a6700;
+  --sev-low: #0550ae;
 
-  --border-color: #b9c8ce;
-  --border-glow: rgba(8, 123, 127, 0.2);
-  --focus-ring: #075f63;
+  --src-exploit-db: #0550ae;
+  --src-nuclei: #8250df;
+  --src-gh-poc: #1a7f37;
+  --src-metasploit: #0997b3;
 
-  --gradient-cyber: linear-gradient(135deg, #0077b6 0%, #c2185b 100%);
-  --gradient-dark: linear-gradient(180deg, #f0f2f5 0%, #ffffff 100%);
-  --gradient-card: linear-gradient(145deg, #ffffff 0%, #f7f8fa 100%);
+  --state-success: #1a7f37;
+  --state-warning: #9a6700;
+  --state-danger: #cf222e;
 
-  --shadow-neon: 0 0 12px rgba(0, 119, 182, 0.15);
-  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --neon-cyan: var(--accent);
+  --neon-pink: #bf3989;
+  --neon-purple: var(--src-nuclei);
+  --neon-green: var(--state-success);
+  --neon-red: var(--sev-critical);
+  --neon-orange: #bc4c00;
+  --neon-yellow: var(--sev-medium);
+  --neon-blue: var(--sev-low);
+
+  --text-primary: #1f242b;
+  --text-secondary: #4d5761;
+  --text-muted: #5a6672;
+
+  --border-color: #d7dee6;
+  --border-strong: #b3bfca;
+  --border-glow: var(--accent-border);
+  --focus-ring: var(--accent-strong);
+
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --brand-alt: #8250df;
+
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+  --code-comment: #6e7781;
+  --code-string: #0a3069;
+  --code-url: var(--code-string);
+  --code-keyword: #cf222e;
+  --code-number: #0550ae;
+  --code-function: #8250df;
+  --code-meta: #bc4c00;
 }
 
 [data-theme="light"] body {
   background: var(--bg-primary);
 }
 
-[data-theme="light"] .app-container::before {
-  background:
-    radial-gradient(ellipse at 20% 20%, rgba(0, 119, 182, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(194, 24, 91, 0.04) 0%, transparent 50%);
-}
-
 [data-theme="light"] ::selection {
-  background: var(--neon-cyan);
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-contrast);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-track {
@@ -331,7 +472,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: #b0b4bc;
+  background: var(--border-strong);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
@@ -343,39 +484,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   50% { opacity: 0.5; }
 }
 
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
-}
-
-@keyframes glitch {
-  0% { transform: translate(0); }
-  20% { transform: translate(-2px, 2px); }
-  40% { transform: translate(-2px, -2px); }
-  60% { transform: translate(2px, 2px); }
-  80% { transform: translate(2px, -2px); }
-  100% { transform: translate(0); }
-}
-
-@keyframes neonFlicker {
-  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
-    text-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan), 0 0 30px var(--neon-cyan);
-  }
-  20%, 24%, 55% {
-    text-shadow: none;
-  }
-}
-
 .animate-pulse {
   animation: pulse 2s ease-in-out infinite;
-}
-
-.animate-glitch {
-  animation: glitch 0.3s ease-in-out infinite;
-}
-
-.animate-neon {
-  animation: neonFlicker 3s ease-in-out infinite;
 }
 
 .app-container {
@@ -461,4 +571,20 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
     --app-header-height: 108px;
     --app-drawer-width: min(90vw, 304px);
   }
+}
+
+/* 治理 M4：EXP 树“清除分类”入口 */
+.tree-clear-type {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tree-clear-type:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
